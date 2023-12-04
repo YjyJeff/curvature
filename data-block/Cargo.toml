@@ -1,0 +1,39 @@
+[package]
+name = "data-block"
+version = { workspace = true }
+edition = { workspace = true }
+authors = { workspace = true }
+keywords = ["arrow"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+wyz = "0.5.1"
+strength_reduce = "0.2.4"
+bitvec = { workspace = true }
+either = { workspace = true }
+regex = { workspace = true }
+paste = { workspace = true }
+libc = { workspace = true }
+snafu = { workspace = true }
+
+[dev-dependencies]
+criterion = "0.3"
+num-traits = "0.2.17"
+
+[features]
+# Use portable simd to perform comparison. LLVM is smart, you can always use the simd
+# type that is 512 bits no matter what target_feature is used. LLVM will choose the 
+# best instruction for you based on the target feature
+portable_simd = []
+# Use core intrinsics to hint the compiler! likely, unlikely, etc
+intrinsics = []
+
+[[bench]]
+name = "aligned_vec"
+harness = false
+
+[[bench]]
+name = "selection"
+harness = false
+required-features = ["bench-utils"]
