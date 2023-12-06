@@ -46,7 +46,7 @@ impl Bitmap {
     }
 
     #[inline]
-    fn as_bitslice(&self) -> &BitSlice<BitStore, Lsb0> {
+    pub(crate) fn as_bitslice(&self) -> &BitSlice<BitStore, Lsb0> {
         unsafe {
             from_raw_parts_unchecked(
                 BitPtr::new_unchecked(Address::new(self.buffer.ptr), BitIdx::MIN),

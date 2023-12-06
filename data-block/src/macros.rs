@@ -17,7 +17,8 @@ macro_rules! for_all_variants {
             {Int128, i128, Int128Array},
             {String, StringScalar, StringArray},
             {Binary, Vec<u8>, BinaryArray},
-            {Boolean, bool, BooleanArray}
+            {Boolean, bool, BooleanArray},
+            {List, ListScalar, ListArray}
         }
     };
 }

@@ -1,9 +1,11 @@
 //! This module contains the scalar value of the `Array` and reference of the `Scalar`
 
 pub mod interval;
+pub mod list;
 pub mod string;
 
 use self::interval::DayTime;
+use self::list::ListScalar;
 use self::string::StringScalar;
 use std::fmt::Debug;
 
@@ -27,7 +29,7 @@ pub trait Scalar: Sealed + Debug + 'static {
 }
 
 /// ScalarRef represents a reference to the [`Scalar`]
-pub trait ScalarRef<'a>: Sealed + Debug + Clone + Copy + Send + Sync + 'a {
+pub trait ScalarRef<'a>: Sealed + Debug + Clone + Copy + 'a {
     /// Owned type of the reference
     type OwnedType: Scalar<RefType<'a> = Self>;
 

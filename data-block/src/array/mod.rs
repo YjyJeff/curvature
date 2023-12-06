@@ -6,6 +6,7 @@ pub mod binary;
 pub mod boolean;
 pub mod constant;
 pub mod iter;
+pub mod list;
 pub mod ping_pong;
 pub mod primitive;
 pub mod string;
@@ -17,6 +18,7 @@ use crate::scalar::Scalar;
 use crate::types::{LogicalType, PhysicalType};
 pub use binary::*;
 pub use boolean::BooleanArray;
+pub use list::ListArray;
 pub use primitive::*;
 use snafu::Snafu;
 use std::fmt::Debug;
@@ -46,9 +48,6 @@ pub struct InvalidLogicalTypeError {
 type Result<T> = std::result::Result<T, InvalidLogicalTypeError>;
 
 /// A trait over all arrays
-///
-/// The `Iter` associated type is the iterator of this array. And the `RefItem` is
-/// the item you could retrieve from this array.
 pub trait Array: Sealed + Debug + 'static + Sized {
     /// Scalar type of the [`Array`]
     type ScalarType: Scalar;
@@ -58,6 +57,11 @@ pub trait Array: Sealed + Debug + 'static + Sized {
 
     /// Get the iterator of values in the [`Array`]
     fn values_iter(&self) -> Self::ValuesIter<'_>;
+
+    /// Get the iterator of values in the array from offset with given length
+    ///
+    /// offset + length <= self.len()
+    fn values_slice_iter(&self, offset: usize, length: usize) -> Self::ValuesIter<'_>;
 
     /// Get the validity slice. If the validity is not empty, the length must equal to
     /// [`Self::len`]
@@ -92,6 +96,22 @@ pub trait Array: Sealed + Debug + 'static + Sized {
         };
         ArrayIter {
             values_iter: self.values_iter(),
+            validity,
+        }
+    }
+
+    /// Get the iterator of elements in the array from offset with given length
+    ///
+    /// offset + length <= self.len()
+    fn slice_iter(&self, offset: usize, length: usize) -> ArrayIter<'_, Self> {
+        let validity = self.validity();
+        let validity = if validity.is_empty() {
+            None
+        } else {
+            Some(validity.iter())
+        };
+        ArrayIter {
+            values_iter: self.values_slice_iter(offset, length),
             validity,
         }
     }
@@ -146,6 +166,26 @@ macro_rules! array_impl {
                 match self{
                     $(
                         Self::$variant(array) => array.is_empty(),
+                    )+
+                }
+            }
+
+            /// Debug the array slice
+            ///
+            /// start + len <= self.len()
+            pub fn debug_array_slice(
+                &self,
+                f: &mut std::fmt::Formatter<'_>,
+                offset: usize,
+                len: usize
+            ) -> std::fmt::Result {
+                match self{
+                    $(
+                        Self::$variant(array) => {
+                            write!(f, "{} {{ len: {}, data: ", stringify!($array_ty), len)?;
+                            f.debug_list().entries(array.slice_iter(offset, len)).finish()?;
+                            writeln!(f, "}}")
+                        }
                     )+
                 }
             }

@@ -22,6 +22,15 @@ impl<'a, A: Array> ArrayValuesIter<'a, A> {
             current: 0,
         }
     }
+
+    #[inline]
+    pub(super) fn new_with_current_and_len(array: &'a A, current: usize, len: usize) -> Self {
+        Self {
+            array,
+            len,
+            current,
+        }
+    }
 }
 
 impl<'a, A: Array> Iterator for ArrayValuesIter<'a, A> {

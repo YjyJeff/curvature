@@ -54,6 +54,13 @@ impl Array for BooleanArray {
     }
 
     #[inline]
+    fn values_slice_iter(&self, offset: usize, length: usize) -> Self::ValuesIter<'_> {
+        self.data.as_bitslice()[offset..offset + length]
+            .iter()
+            .by_vals()
+    }
+
+    #[inline]
     fn validity(&self) -> &Bitmap {
         &self.validity
     }

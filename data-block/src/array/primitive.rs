@@ -130,6 +130,13 @@ where
     }
 
     #[inline]
+    fn values_slice_iter(&self, offset: usize, length: usize) -> Self::ValuesIter<'_> {
+        self.data.as_slice()[offset..offset + length]
+            .iter()
+            .copied()
+    }
+
+    #[inline]
     fn validity(&self) -> &Bitmap {
         &self.validity
     }

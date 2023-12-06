@@ -135,6 +135,12 @@ impl Array for BinaryArray {
     }
 
     #[inline]
+    fn values_slice_iter(&self, offset: usize, length: usize) -> Self::ValuesIter<'_> {
+        assert!(offset + length <= self.len());
+        ArrayValuesIter::new_with_current_and_len(self, offset, length)
+    }
+
+    #[inline]
     fn len(&self) -> usize {
         self.len()
     }
