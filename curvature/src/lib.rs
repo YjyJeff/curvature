@@ -1,14 +1,16 @@
-pub fn add(left: usize, right: usize) -> usize {
-    left + right
-}
+#![warn(clippy::todo)]
+#![deny(
+    rustdoc::broken_intra_doc_links,
+    rustdoc::bare_urls,
+    rustdoc::private_intra_doc_links,
+    rust_2018_idioms,
+    missing_docs,
+    clippy::needless_borrow,
+    clippy::redundant_clone,
+    missing_debug_implementations
+)]
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+//! # Curvature
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+pub mod exec;
+pub mod expr;

@@ -35,6 +35,7 @@
 pub mod aligned_vec;
 pub mod array;
 pub mod bitmap;
+pub mod block;
 pub mod compute;
 mod macros;
 pub mod scalar;

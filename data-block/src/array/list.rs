@@ -1,10 +1,4 @@
 //! Elements in the array are list
-//!
-//! ListArray breaks assumptions
-//!
-//! - Array can not be partial slice of another `Array`: ith element of the ListArray is
-//! an [`Array`]! We have to create a new array to retrieve the ith element, therefore
-//! we have to do slicing!
 
 use crate::aligned_vec::AlignedVec;
 use crate::bitmap::Bitmap;
