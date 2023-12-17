@@ -1,6 +1,7 @@
 //! Macros used in the data-block
 
 /// {enum variant name, scalar type, array type}
+#[macro_export]
 macro_rules! for_all_variants {
     ($macro:ident) => {
         $macro! {
@@ -15,6 +16,7 @@ macro_rules! for_all_variants {
             {Float32, f32, Float32Array},
             {Float64, f64, Float64Array},
             {Int128, i128, Int128Array},
+            {DayTime, DayTime, DayTimeArray},
             {String, StringScalar, StringArray},
             {Binary, Vec<u8>, BinaryArray},
             {Boolean, bool, BooleanArray},

@@ -49,6 +49,16 @@ impl StringArray {
         Self::with_capacity(logical_type, 0)
     }
 
+    /// Create a new empty [`StringArray`] without check
+    ///
+    /// # Safety
+    ///
+    /// physical type of the logical type should be `String`
+    #[inline]
+    pub unsafe fn new_unchecked(logical_type: LogicalType) -> Self {
+        Self::with_capacity_unchecked(logical_type, 0)
+    }
+
     /// Create a new [`StringArray`] with given capacity
     #[inline]
     pub fn with_capacity(logical_type: LogicalType, capacity: usize) -> Result<Self> {
@@ -60,12 +70,23 @@ impl StringArray {
                 logical_type,
             }
         );
-        Ok(Self {
+        // SAFETY: we check the physical type above
+        unsafe { Ok(Self::with_capacity_unchecked(logical_type, capacity)) }
+    }
+
+    /// Create a new [`StringArray`] with given capacity without check
+    ///
+    /// # Safety
+    ///
+    /// physical type of the logical type should be `String`
+    #[inline]
+    pub unsafe fn with_capacity_unchecked(logical_type: LogicalType, capacity: usize) -> Self {
+        Self {
             logical_type,
             _bytes: PingPongPtr::default(),
             views: PingPongPtr::new(AlignedVec::with_capacity(capacity)),
             validity: PingPongPtr::default(),
-        })
+        }
     }
 
     /// Construct [`StringArray`] from iterator of the str

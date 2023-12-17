@@ -9,7 +9,7 @@ use utils::impl_source_sink_for_regular_operator;
 use data_block::block::DataBlock;
 use data_block::types::LogicalType;
 use snafu::Snafu;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use std::sync::Arc;
 
 #[derive(Debug, Snafu)]
@@ -68,6 +68,9 @@ type OperatorResult<T> = Result<T>;
 pub trait Stringify {
     /// Debug message
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
+
+    /// Display message
+    fn display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
 }
 
 /// Physical operator is the node in the physical plan, it contains the information about
@@ -125,7 +128,7 @@ pub trait PhysicalOperator: Send + Sync + Stringify {
     ///
     /// Note that if this method is called on a non regular operator, it should return the
     /// [`Error::GlobalOperatorState`]
-    fn global_operator_state(&self) -> Result<&dyn GlobalOperatorState>;
+    fn global_operator_state(&self) -> Result<Box<dyn GlobalOperatorState + '_>>;
 
     /// Create a thread local state for the physical operator. Executor calls it and
     /// passes it to the `self.execute` function
@@ -293,7 +296,7 @@ pub trait LocalOperatorState {
 #[derive(Debug)]
 /// A dummy global state, operators do not have global state will use this state as
 /// its global state
-struct DummyGlobalState {}
+struct DummyGlobalState;
 
 impl GlobalOperatorState for DummyGlobalState {
     #[inline]
@@ -388,5 +391,11 @@ pub enum SinkExecStatus {
 impl Debug for dyn PhysicalOperator {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.debug(f)
+    }
+}
+
+impl Display for dyn PhysicalOperator {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.display(f)
     }
 }

@@ -139,18 +139,28 @@ macro_rules! array_impl {
         }
 
         impl ArrayImpl{
-            // /// Create a new empty [`ArrayImpl`] based on the [`PhysicalType`]
-            // ///
-            // /// Type inference is based on the [`PhysicalType`] and `LogicalType`,
-            // /// caller can use this function to create the [`ArrayImpl`] that match
-            // /// the required inference result
-            // pub fn new(physical_type: PhysicalType) -> Self {
-            //     match physical_type{
-            //         $(
-            //             PhysicalType::$variant => Self::$variant($array_ty::new()),
-            //         )+
-            //     }
-            // }
+            /// Create a new empty [`ArrayImpl`] based on the [`LogicalType`]
+            ///
+            /// Type inference is based on the [`LogicalType`],
+            /// caller can use this function to create the [`ArrayImpl`] that match
+            /// the required inference result
+            pub fn new(logical_type: LogicalType) -> Self {
+                let physical_type = logical_type.physical_type();
+                macro_rules! create_array_with_physical_type {
+                    () => {
+                        match physical_type {
+                            $(
+                                PhysicalType::$variant => ArrayImpl::$variant($array_ty::new_unchecked(logical_type)),
+                            )+
+                        }
+                    }
+                }
+
+                unsafe {
+                    create_array_with_physical_type!()
+                }
+
+            }
 
             /// Get the number of elements in the Array
             pub fn len(&self) -> usize {
@@ -166,6 +176,15 @@ macro_rules! array_impl {
                 match self{
                     $(
                         Self::$variant(array) => array.is_empty(),
+                    )+
+                }
+            }
+
+            /// Return the [`LogicalType`] of the array
+            pub fn logical_type(&self) -> &LogicalType{
+                match self{
+                    $(
+                        Self::$variant(array) => array.logical_type(),
                     )+
                 }
             }

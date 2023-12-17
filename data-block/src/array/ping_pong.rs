@@ -205,6 +205,22 @@ impl<T: Default, P: RefCountPtr<T>> PingPongPtr<T, P> {
 }
 
 impl<T, P: RefCountPtr<T>> PingPongPtr<T, P> {
+    /// Create a new PingPongPtr
+    #[inline]
+    pub fn with_constructor<F>(constructor: F) -> Self
+    where
+        F: Fn() -> T,
+    {
+        Self {
+            ping: P::new(constructor()),
+            pong: P::new(constructor()),
+            reference: Either::Right(true),
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<T, P: RefCountPtr<T>> PingPongPtr<T, P> {
     /// Reference self to other PingPongPtr. If self reference to other pointer,
     /// the reference will be dropped such that the data that referenced to will
     /// become a unique owner and can be mutated again.

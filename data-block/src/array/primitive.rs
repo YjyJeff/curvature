@@ -43,13 +43,23 @@ pub struct PrimitiveArray<T: PrimitiveType> {
 impl<T: PrimitiveType> PrimitiveArray<T> {
     /// Create a new empty [`PrimitiveArray`]
     #[inline]
-    pub fn new(logical_type: LogicalType) -> Result<PrimitiveArray<T>> {
+    pub fn new(logical_type: LogicalType) -> Result<Self> {
         Self::with_capacity(logical_type, 0)
+    }
+
+    /// Create a new empty [`PrimitiveArray`] without check
+    ///
+    /// # Safety
+    ///
+    /// physical type of the logical type should be `T::PHYSICAL_TYPE`
+    #[inline]
+    pub unsafe fn new_unchecked(logical_type: LogicalType) -> Self {
+        Self::with_capacity_unchecked(logical_type, 0)
     }
 
     /// Create a new empty [`PrimitiveArray`] with given capacity
     #[inline]
-    pub fn with_capacity(logical_type: LogicalType, capacity: usize) -> Result<PrimitiveArray<T>> {
+    pub fn with_capacity(logical_type: LogicalType, capacity: usize) -> Result<Self> {
         ensure!(
             logical_type.physical_type() == T::PHYSICAL_TYPE,
             InvalidLogicalTypeSnafu {
@@ -58,11 +68,22 @@ impl<T: PrimitiveType> PrimitiveArray<T> {
                 logical_type,
             }
         );
-        Ok(PrimitiveArray {
+        // SAFETY: we check the physical type above
+        unsafe { Ok(Self::with_capacity_unchecked(logical_type, capacity)) }
+    }
+
+    /// Create a new empty [`PrimitiveArray`] with given capacity without check
+    ///
+    /// # Safety
+    ///
+    /// physical type of the logical type should be `T::PHYSICAL_TYPE`
+    #[inline]
+    pub unsafe fn with_capacity_unchecked(logical_type: LogicalType, capacity: usize) -> Self {
+        PrimitiveArray {
             logical_type,
             data: PingPongPtr::new(AlignedVec::with_capacity(capacity)),
             validity: PingPongPtr::default(),
-        })
+        }
     }
 
     /// Get the values of the array

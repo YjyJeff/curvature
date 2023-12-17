@@ -41,6 +41,16 @@ impl BinaryArray {
         Self::with_capacity(logical_type, 0)
     }
 
+    /// Create a new [`BinaryArray`] without check
+    ///
+    /// # Safety
+    ///
+    /// physical type of the logical type should be `Binary`
+    #[inline]
+    pub unsafe fn new_unchecked(logical_type: LogicalType) -> Self {
+        Self::with_capacity_unchecked(logical_type, 0)
+    }
+
     /// Create a new [`BinaryArray`] with given capacity
     #[inline]
     pub fn with_capacity(logical_type: LogicalType, capacity: usize) -> Result<Self> {
@@ -52,18 +62,27 @@ impl BinaryArray {
                 logical_type,
             }
         );
+
+        // SAFETY: we check the physical type above
+        unsafe { Ok(Self::with_capacity_unchecked(logical_type, capacity)) }
+    }
+
+    /// Create a new [`BinaryArray`] with given capacity
+    ///
+    /// # Safety
+    ///
+    /// physical type of the logical type should be `Binary`
+    #[inline]
+    pub unsafe fn with_capacity_unchecked(logical_type: LogicalType, capacity: usize) -> Self {
         let mut offsets = AlignedVec::<Offset>::with_capacity(capacity + 1);
-        // SAFETY: offsets is allocated successfully, index 0 is valid
-        unsafe {
-            *offsets.ptr.as_ptr().add(1) = 0;
-            offsets.len = 1;
-        }
-        Ok(Self {
+        *offsets.ptr.as_ptr().add(1) = 0;
+        offsets.len = 1;
+        Self {
             logical_type,
             bytes: PingPongPtr::default(),
             offsets: PingPongPtr::new(offsets),
             validity: PingPongPtr::default(),
-        })
+        }
     }
 
     /// Get the number of elements in the [`BinaryArray`]

@@ -8,7 +8,6 @@
 
 use std::fmt::Display;
 use std::num::NonZeroU8;
-use std::sync::Arc;
 
 pub use crate::aligned_vec::AllocType;
 pub use crate::array::primitive::PrimitiveType;
@@ -69,6 +68,8 @@ impl Display for PhysicalType {
 }
 
 /// All of the supported logical types. Different logical types may have same [`PhysicalType`].
+///
+/// It is a tree because we can compose the logical type with complex types like List!
 ///
 /// It add some semantic above the physical type. Operations between [`Array`]s
 /// should have different behavior based on the associated [`LogicalType`]s
@@ -188,7 +189,7 @@ pub enum LogicalType {
         ///
         /// We use Arc here to avoid repeated memory allocation. During the plan
         /// phase, Logical type is cloned frequently.
-        element_type: Arc<LogicalType>,
+        element_type: Box<LogicalType>,
         /// Is the element in list nullable?
         is_nullable: bool,
     },
@@ -244,15 +245,17 @@ impl LogicalType {
             Self::List { .. } => PhysicalType::List,
         }
     }
-}
 
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn test_logical_type_size() {
-        println!("{}", std::mem::size_of::<LogicalType>());
-        println!("{:?}", PhysicalType::Int128);
+    /// Get child type at index
+    pub fn child(&self, child_index: usize) -> Option<&LogicalType> {
+        if let Self::List { element_type, .. } = self {
+            if child_index == 0 {
+                Some(element_type)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
     }
 }

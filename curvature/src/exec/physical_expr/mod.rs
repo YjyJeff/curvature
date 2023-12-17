@@ -1,0 +1,55 @@
+//! PhysicalExpression that can be interpreted/executed
+
+pub mod field_ref;
+use data_block::array::ArrayImpl;
+use data_block::block::DataBlock;
+use data_block::types::LogicalType;
+use snafu::Snafu;
+use std::fmt::Debug;
+use std::sync::Arc;
+
+#[allow(missing_docs)]
+#[derive(Debug, Snafu)]
+pub enum Error {
+    #[snafu(display("Failed to execute the expression: `{}`", expr))]
+    Execute {
+        expr: &'static str,
+        source: Box<dyn std::error::Error>,
+    },
+}
+
+type Result<T> = std::result::Result<T, Error>;
+pub(super) type ExprResult<T> = Result<T>;
+
+/// Stringify the [`PhysicalExpr`]
+pub trait Stringify {
+    /// Debug message
+    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
+}
+
+/// Trait for all of the physical expressions
+pub trait PhysicalExpr: Stringify + Send + Sync {
+    /// Name of the expression
+    fn name(&self) -> &'static str;
+
+    /// as_any for down cast
+    fn as_any(&self) -> &dyn std::any::Any;
+
+    /// Output type of the expression
+    fn output_type(&self) -> &LogicalType;
+
+    /// Get children of this expression
+    fn children(&self) -> &[Arc<dyn PhysicalExpr>];
+
+    /// Execute the expression, read from input and write the result to output
+    ///
+    /// Note that `ExprExecutor` should guarantee the output has the same type
+    /// with `self.output_type`
+    fn execute(&self, input: &DataBlock, output: &mut ArrayImpl) -> Result<()>;
+}
+
+impl Debug for dyn PhysicalExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.debug(f)
+    }
+}

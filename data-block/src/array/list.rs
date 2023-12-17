@@ -1,17 +1,19 @@
 //! Elements in the array are list
 
+use snafu::ensure;
+
 use crate::aligned_vec::AlignedVec;
+use crate::array::InvalidLogicalTypeSnafu;
 use crate::bitmap::Bitmap;
 use crate::private::Sealed;
 use crate::scalar::list::{ListScalar, ListScalarRef};
 use crate::scalar::Scalar;
-use crate::types::LogicalType;
+use crate::types::{LogicalType, PhysicalType};
 use std::fmt::Debug;
-use std::rc::Rc;
 
 use super::iter::ArrayValuesIter;
 use super::ping_pong::PingPongPtr;
-use super::{Array, ArrayImpl};
+use super::{Array, ArrayExt, ArrayImpl, Result};
 
 /// [Array of lists](https://facebookincubator.github.io/velox/develop/vectors.html#flat-vectors-complex-types)
 pub struct ListArray {
@@ -25,12 +27,67 @@ pub struct ListArray {
     /// length of each list in the array
     lengths: PingPongPtr<AlignedVec<u32>>,
     /// array that contains its elements
-    elements: Rc<ArrayImpl>,
+    elements: PingPongPtr<ArrayImpl>,
 }
 
 impl Debug for ListArray {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "ListArray{{ len : {}, data: [] }}", self.len())
+    }
+}
+
+impl ListArray {
+    /// Create a new empty [`ListArray`]
+    #[inline]
+    pub fn new(logical_type: LogicalType) -> Result<Self> {
+        Self::with_capacity(logical_type, 0)
+    }
+
+    /// Create a new empty [`ListArray`] without check
+    ///
+    /// # Safety
+    ///
+    /// physical type of the logical type should be `List`
+    #[inline]
+    pub unsafe fn new_unchecked(logical_type: LogicalType) -> Self {
+        Self::with_capacity_unchecked(logical_type, 0)
+    }
+
+    /// Create a new [`ListArray`] with given capacity
+    #[inline]
+    pub fn with_capacity(logical_type: LogicalType, capacity: usize) -> Result<Self> {
+        ensure!(
+            logical_type.physical_type() == PhysicalType::List,
+            InvalidLogicalTypeSnafu {
+                array_name: "ListArray".to_string(),
+                array_physical_type: PhysicalType::List,
+                logical_type
+            }
+        );
+
+        // SAFETY: we check the physical type above
+        unsafe { Ok(Self::with_capacity_unchecked(logical_type, capacity)) }
+    }
+
+    /// Create a new [`ListArray`] with given capacity without check
+    ///
+    /// # Safety
+    ///
+    /// physical type of the logical type should be `List`
+    #[inline]
+    pub unsafe fn with_capacity_unchecked(logical_type: LogicalType, capacity: usize) -> Self {
+        let child_type = logical_type
+            .child(0)
+            .expect("List must have one child type")
+            .clone();
+
+        Self {
+            logical_type,
+            validity: PingPongPtr::default(),
+            offsets: PingPongPtr::new(AlignedVec::with_capacity(capacity)),
+            lengths: PingPongPtr::new(AlignedVec::with_capacity(capacity)),
+            elements: PingPongPtr::with_constructor(|| ArrayImpl::new(child_type.clone())),
+        }
     }
 }
 
@@ -77,5 +134,15 @@ impl Array for ListArray {
     #[inline]
     fn logical_type(&self) -> &LogicalType {
         &self.logical_type
+    }
+}
+
+impl ArrayExt for ListArray {
+    #[inline]
+    fn reference(&mut self, other: &Self) {
+        self.offsets.reference(&other.offsets);
+        self.lengths.reference(&other.lengths);
+        self.elements.reference(&other.elements);
+        self.validity.reference(&other.validity);
     }
 }

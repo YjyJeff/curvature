@@ -10,3 +10,10 @@ keywords.workspace = true
 [dependencies]
 data-block = { path = "../data-block" }
 snafu = { workspace = true }
+quanta = { workspace = true }
+
+[dev-dependencies]
+expect-test = "1.4.1"
+
+[features]
+profile = []

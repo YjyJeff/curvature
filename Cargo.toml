@@ -18,6 +18,7 @@ libc = "0.2"
 regex = "1.10.2"
 either = "1.9"
 bitvec = "1.0"
+quanta = "0.12.1"
 
 
 [profile.release]

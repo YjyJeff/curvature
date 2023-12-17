@@ -23,6 +23,16 @@ impl BooleanArray {
         Self::with_capacity(logical_type, 0)
     }
 
+    /// Create a new [`BooleanArray`] without check
+    ///
+    /// # Safety
+    ///
+    /// physical type of the logical type should be `Boolean`
+    #[inline]
+    pub unsafe fn new_unchecked(logical_type: LogicalType) -> Self {
+        Self::with_capacity_unchecked(logical_type, 0)
+    }
+
     /// Create a new [`BooleanArray`] with given capacity
     #[inline]
     pub fn with_capacity(logical_type: LogicalType, capacity: usize) -> Result<Self> {
@@ -34,11 +44,22 @@ impl BooleanArray {
                 logical_type
             }
         );
-        Ok(Self {
+        // SAFETY: we check the physical type above
+        unsafe { Ok(Self::with_capacity_unchecked(logical_type, capacity)) }
+    }
+
+    /// Create a new [`BooleanArray`] with given capacity without check
+    ///
+    /// # Safety
+    ///
+    /// physical type of the logical type should be `Boolean`
+    #[inline]
+    pub unsafe fn with_capacity_unchecked(logical_type: LogicalType, capacity: usize) -> Self {
+        Self {
             logical_type,
             data: PingPongPtr::new(Bitmap::with_capacity(capacity)),
             validity: PingPongPtr::new(Bitmap::new()),
-        })
+        }
     }
 }
 
