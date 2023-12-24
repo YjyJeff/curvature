@@ -5,16 +5,19 @@ use data_block::types::LogicalType;
 use snafu::ResultExt;
 use std::sync::Arc;
 
-use crate::exec::{expr_executor::ExprExecutor, physical_expr::PhysicalExpr};
+use crate::error::SendableError;
+use crate::exec::expr_executor::ExprExecutor;
+use crate::exec::physical_expr::PhysicalExpr;
 
 use super::{
-    impl_source_sink_for_regular_operator, DummyGlobalState, Error as OperatorError,
-    FinishLocalSinkSnafu, GlobalOperatorState, GlobalSinkState, GlobalSinkStateSnafu,
-    GlobalSourceState, GlobalSourceStateSnafu, IsParallelSinkSnafu, IsParallelSourceSnafu,
-    LocalOperatorState, LocalSinkState, LocalSinkStateSnafu, LocalSourceState,
-    LocalSourceStateSnafu, OperatorExecStatus, OperatorResult, PhysicalOperator, ProgressSnafu,
-    ReadDataSnafu, SinkExecStatus, SourceExecStatus, Stringify, WriteDataSnafu,
+    impl_sink_for_non_sink, impl_source_for_non_source, use_types_for_impl_sink_for_non_sink,
+    use_types_for_impl_source_for_non_source, DummyGlobalState, GlobalOperatorState,
+    LocalOperatorState, OperatorError, OperatorExecStatus, OperatorResult, PhysicalOperator,
+    SourceExecStatus, Stringify,
 };
+
+use_types_for_impl_sink_for_non_sink!();
+use_types_for_impl_source_for_non_source!();
 
 #[derive(Debug)]
 /// Projection operator, it selects the expression from input
@@ -26,7 +29,21 @@ pub struct Projection {
     exprs: Vec<Arc<dyn PhysicalExpr>>,
 }
 
-struct ProjectionLocalState(Vec<ExprExecutor>);
+impl Projection {
+    /// Create a new [`Projection`]
+    pub fn new(input: Arc<dyn PhysicalOperator>, exprs: Vec<Arc<dyn PhysicalExpr>>) -> Self {
+        Self {
+            input: vec![input],
+            output_types: exprs
+                .iter()
+                .map(|expr| expr.output_type().clone())
+                .collect(),
+            exprs,
+        }
+    }
+}
+
+struct ProjectionLocalState(ExprExecutor);
 
 impl LocalOperatorState for ProjectionLocalState {
     #[inline]
@@ -41,32 +58,39 @@ impl Stringify for Projection {
     }
 
     fn display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        todo!()
+        write!(f, "Projection: exprs=[")?;
+        let mut iter = self.exprs.iter();
+        let Some(expr) = iter.next() else {
+            return write!(f, "]");
+        };
+        expr.display(f, true)?;
+        iter.try_for_each(|expr| {
+            write!(f, ", ")?;
+            expr.display(f, true)
+        })?;
+        write!(f, "]")
     }
 }
 
 impl PhysicalOperator for Projection {
-    #[inline]
     fn name(&self) -> &'static str {
         "Projection"
     }
 
-    #[inline]
     fn output_types(&self) -> &[LogicalType] {
         &self.output_types
     }
 
-    #[inline]
     fn children(&self) -> &[Arc<dyn PhysicalOperator>] {
         &self.input
     }
 
-    #[inline]
+    // Regular Operator
+
     fn is_regular_operator(&self) -> bool {
         true
     }
 
-    #[inline]
     fn is_parallel_operator(&self) -> OperatorResult<bool> {
         Ok(true)
     }
@@ -88,11 +112,9 @@ impl PhysicalOperator for Projection {
             });
         };
 
-        self.exprs
-            .iter()
-            .zip(local_state.0.iter_mut())
-            .zip(output.mutable_arrays())
-            .try_for_each(|((expr, executor), output)| executor.execute(&**expr, input, output))
+        local_state
+            .0
+            .execute(self.exprs.iter(), input, output)
             .map_or_else(
                 |e| {
                     Err(OperatorError::Execute {
@@ -104,20 +126,17 @@ impl PhysicalOperator for Projection {
             )
     }
 
-    #[inline]
-    fn global_operator_state(&self) -> OperatorResult<Box<dyn GlobalOperatorState + '_>> {
+    fn global_operator_state(&self) -> OperatorResult<Box<dyn GlobalOperatorState>> {
         Ok(Box::new(DummyGlobalState))
     }
 
-    #[inline]
     fn local_operator_state(&self) -> OperatorResult<Box<dyn LocalOperatorState>> {
-        Ok(Box::new(ProjectionLocalState(
-            self.exprs
-                .iter()
-                .map(|expr| ExprExecutor::new(&**expr))
-                .collect(),
-        )))
+        Ok(Box::new(ProjectionLocalState(ExprExecutor::new(
+            self.exprs.iter(),
+        ))))
     }
 
-    impl_source_sink_for_regular_operator!();
+    impl_source_for_non_source!();
+
+    impl_sink_for_non_sink!();
 }

@@ -3,4 +3,4 @@
 
 pub mod expr_executor;
 pub mod physical_expr;
-pub mod physical_operators;
+pub mod physical_operator;

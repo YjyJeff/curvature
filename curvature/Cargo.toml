@@ -9,7 +9,7 @@ keywords.workspace = true
 
 [dependencies]
 data-block = { path = "../data-block" }
-snafu = { workspace = true }
+snafu = { workspace = true, features = ["rust_1_61"] }
 quanta = { workspace = true }
 
 [dev-dependencies]

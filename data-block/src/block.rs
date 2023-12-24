@@ -3,6 +3,7 @@
 use snafu::{ensure, Snafu};
 
 use crate::array::ArrayImpl;
+use crate::types::LogicalType;
 
 #[allow(missing_docs)]
 #[derive(Debug, Snafu)]
@@ -58,6 +59,14 @@ impl DataBlock {
         }
     }
 
+    /// Create a new [`DataBlock`] with given logical types, all of the arrays
+    /// will be empty
+    #[inline]
+    pub fn with_logical_types(logical_types: Vec<LogicalType>) -> Self {
+        // SAFETY: ArrayImpl return empty array
+        unsafe { Self::new_unchecked(logical_types.into_iter().map(ArrayImpl::new).collect(), 0) }
+    }
+
     /// Get number of elements in the data block
     #[inline]
     pub fn length(&self) -> usize {
@@ -74,6 +83,12 @@ impl DataBlock {
     #[inline]
     pub fn get_array(&self, index: usize) -> Option<&ArrayImpl> {
         self.arrays.get(index)
+    }
+
+    /// Get a mutable reference to the array with given index
+    #[inline]
+    pub fn get_mutable_array(&mut self, index: usize) -> Option<&mut ArrayImpl> {
+        self.arrays.get_mut(index)
     }
 
     /// Get arrays

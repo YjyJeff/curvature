@@ -10,6 +10,7 @@ pub mod list;
 pub mod ping_pong;
 pub mod primitive;
 pub mod string;
+pub mod utils;
 
 use self::iter::ArrayIter;
 use crate::bitmap::Bitmap;
@@ -26,26 +27,32 @@ pub use string::StringArray;
 
 #[allow(missing_docs)]
 #[derive(Debug, Snafu)]
-#[snafu(display(
-    "Invalid logical type `{:?}({})` passed to creating a new array `{}` that has `{}`",
-    logical_type,
-    logical_type.physical_type(),
-    array_name,
-    array_physical_type
-))]
-pub struct InvalidLogicalTypeError {
-    /// In ideal, array_name should be &'static str. However, we can not create a
-    /// &'static str for `PrimitiveArray<T>` currently. An ugly [solution] can be
-    /// found here. Keep an eye on this [issue]
-    ///
-    /// [solution]: https://play.rust-lang.org/?version=stable&mode=debug&edition=2021&gist=51b8c210bc6f51afffa682be99e0476b
-    /// [issue]: https://github.com/rodrimati1992/const_format_crates/issues/48
-    array_name: String,
-    array_physical_type: PhysicalType,
-    logical_type: LogicalType,
+pub enum ArrayError {
+    #[snafu(display(
+        "Invalid logical type `{:?}({})` passed to creating a new array `{}` that has `{}`",
+        logical_type,
+        logical_type.physical_type(),
+        array_name,
+        array_physical_type
+        ))]
+    InvalidLogicalType {
+        /// In ideal, array_name should be &'static str. However, we can not create a
+        /// &'static str for `PrimitiveArray<T>` currently. An ugly [solution] can be
+        /// found here. Keep an eye on this [issue]
+        ///
+        /// [solution]: https://play.rust-lang.org/?version=stable&mode=debug&edition=2021&gist=51b8c210bc6f51afffa682be99e0476b
+        /// [issue]: https://github.com/rodrimati1992/const_format_crates/issues/48
+        array_name: String,
+        array_physical_type: PhysicalType,
+        logical_type: LogicalType,
+    },
+    #[snafu(display(
+        "Can not reference `{array}` to `{target}`, reference requires two arrays have same type"
+    ))]
+    Reference { array: String, target: String },
 }
 
-type Result<T> = std::result::Result<T, InvalidLogicalTypeError>;
+type Result<T> = std::result::Result<T, ArrayError>;
 
 /// A trait over all arrays
 pub trait Array: Sealed + Debug + 'static + Sized {
@@ -207,6 +214,30 @@ macro_rules! array_impl {
                         }
                     )+
                 }
+            }
+
+            /// Reference to other array
+            ///
+            /// If self and other do not have same physical type, return error
+            pub fn reference(&mut self, other: &Self) -> Result<()> {
+                macro_rules! reference {
+                    () => {
+                        match (self, other) {
+                            $(
+                                (ArrayImpl::$variant(lhs), ArrayImpl::$variant(rhs)) => {
+                                    lhs.reference(rhs);
+                                }
+                            )+
+                            (lhs, rhs) => return ReferenceSnafu {
+                                array: self::utils::physical_array_name(lhs),
+                                target: self::utils::physical_array_name(rhs),
+                            }.fail()
+                        }
+                    };
+                }
+
+                reference!();
+                Ok(())
             }
         }
     };

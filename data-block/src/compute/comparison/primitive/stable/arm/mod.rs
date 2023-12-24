@@ -6,7 +6,6 @@ use super::{CmpFunc, PrimitiveCmpScalar};
 use crate::aligned_vec::AlignedVec;
 use crate::bitmap::BitStore;
 use crate::utils::roundup_loops;
-use paste::paste;
 
 macro_rules! arm_target_use {
     ($($name:ident),+) => {
@@ -103,7 +102,7 @@ arm_target_use!(
 
 macro_rules! cmp_scalar {
     ($ty:ty, $suffix:ident, $inner_macro:ident) => {
-        paste! {
+        paste::paste! {
             $inner_macro!([<eq_scalar_ $ty>], $ty, [<vdupq_n_ $suffix>], [<vld1q_ $suffix>], [<vceqq_ $suffix>], );
             $inner_macro!([<ne_scalar_ $ty>], $ty, [<vdupq_n_ $suffix>], [<vld1q_ $suffix>], [<vceqq_ $suffix>], true);
             $inner_macro!([<gt_scalar_ $ty>], $ty, [<vdupq_n_ $suffix>], [<vld1q_ $suffix>], [<vcgtq_ $suffix>], );

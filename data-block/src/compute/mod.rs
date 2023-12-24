@@ -3,6 +3,7 @@ pub mod arith;
 pub mod comparison;
 pub mod logical;
 pub mod regex_match;
+pub mod sequence;
 
 use self::logical::and_bitmaps_dynamic;
 use crate::array::ping_pong::PingPongPtr;

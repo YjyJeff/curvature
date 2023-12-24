@@ -2,36 +2,55 @@
 //!
 //! Heavily adapted from [`DuckDB`](https://duckdb.org/)
 
+pub mod empty_table_scan;
+pub mod numbers;
 pub mod projection;
-mod utils;
-use utils::impl_source_sink_for_regular_operator;
+mod source_ext;
+pub mod utils;
 
+use self::source_ext::SourceOperatorExt;
+use self::utils::{
+    impl_regular_for_non_regular, impl_sink_for_non_sink, impl_source_for_non_source,
+    use_types_for_impl_regular_for_non_regular, use_types_for_impl_sink_for_non_sink,
+    use_types_for_impl_source_for_non_source,
+};
+use crate::error::SendableError;
+use crate::visit::{Visit, Visitor};
 use data_block::block::DataBlock;
 use data_block::types::LogicalType;
 use snafu::Snafu;
 use std::fmt::{Debug, Display};
+use std::ops::ControlFlow;
 use std::sync::Arc;
+
+/// Degree of the parallelism
+type ParallelismDegree = std::num::NonZeroU16;
+const MAX_PARALLELISM_DEGREE: ParallelismDegree =
+    unsafe { ParallelismDegree::new_unchecked(u16::MAX) };
 
 #[derive(Debug, Snafu)]
 #[allow(missing_docs)]
-pub enum Error {
+pub enum OperatorError {
     #[snafu(display("Calling `is_parallel_operator` on a non regular operator: `{}`", op))]
     IsParallelOperator { op: &'static str },
     #[snafu(display("Failed to execute the regular operator: `{}`", op))]
     Execute {
         op: &'static str,
-        source: Box<dyn std::error::Error>,
+        source: SendableError,
     },
     #[snafu(display("Calling `global_operator_state` on a non regular operator: `{}`", op))]
     GlobalOperatorState { op: &'static str },
     #[snafu(display("Calling `local_operator_state` on a non regular operator: `{}`", op))]
     LocalOperatorState { op: &'static str },
-    #[snafu(display("Calling `is_parallel_source` on a non source operator: `{}`", op))]
-    IsParallelSource { op: &'static str },
+    #[snafu(display(
+        "Calling `source_parallelism_degree` on a non source operator: `{}`",
+        op
+    ))]
+    SourceParallelismDegree { op: &'static str },
     #[snafu(display("Failed to read data from the source operator: `{}`", op))]
     ReadData {
         op: &'static str,
-        source: Box<dyn std::error::Error>,
+        source: SendableError,
     },
     #[snafu(display("Calling `global_source_state` on a non source operator: `{}`", op))]
     GlobalSourceState { op: &'static str },
@@ -44,7 +63,7 @@ pub enum Error {
     #[snafu(display("Failed to write data to the sink operator: `{}`", op))]
     WriteData {
         op: &'static str,
-        source: Box<dyn std::error::Error>,
+        source: SendableError,
     },
     #[snafu(display("Calling `global_sink_state` on a non sink operator: `{}`", op))]
     GlobalSinkState { op: &'static str },
@@ -56,11 +75,34 @@ pub enum Error {
     ))]
     FinishLocalSink {
         op: &'static str,
-        source: Box<dyn std::error::Error>,
+        source: SendableError,
+    },
+    #[snafu(display("Failed to call `finalize_sink` on the sink operator: `{}`", op))]
+    FinalizeSink {
+        op: &'static str,
+        source: SendableError,
+    },
+    #[snafu(display(
+        "Source operator: `{op}` accepts invalid LocalSourceState: `{state}`.
+         PipelineExecutor should guarantee it never happens, it has fatal bug 😭
+    "
+    ))]
+    InvalidLocalSourceState {
+        op: &'static str,
+        state: &'static str,
+    },
+    #[snafu(display(
+        "Source operator: `{op}` accepts invalid GlobalSourceState: `{state}`.
+         PipelineExecutor should guarantee it never happens, it has fatal bug 😭
+    "
+    ))]
+    InvalidGlobalSourceState {
+        op: &'static str,
+        state: &'static str,
     },
 }
 
-type Result<T> = std::result::Result<T, Error>;
+type Result<T> = std::result::Result<T, OperatorError>;
 // Used by the children modules
 type OperatorResult<T> = Result<T>;
 
@@ -69,7 +111,7 @@ pub trait Stringify {
     /// Debug message
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
 
-    /// Display message
+    /// Display message without the children info
     fn display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
 }
 
@@ -78,7 +120,8 @@ pub trait Stringify {
 ///
 /// Note that we do not provide default implementation. Because we want to avoid the case
 /// that compiler compiles but user forget to implement the method that should implement.
-pub trait PhysicalOperator: Send + Sync + Stringify {
+/// You can use some macros defined in the [utils] to avoid repeated code
+pub trait PhysicalOperator: Send + Sync + Stringify + 'static {
     /// Get name of the physical operator
     fn name(&self) -> &'static str;
 
@@ -87,7 +130,7 @@ pub trait PhysicalOperator: Send + Sync + Stringify {
 
     /// Get children of this operator.
     ///
-    /// If the children is empty, it **must be** source operator
+    /// If the children is empty, it **must be** source operator.
     /// If the children is not empty, it **may be** source operator
     fn children(&self) -> &[Arc<dyn PhysicalOperator>];
 
@@ -100,7 +143,7 @@ pub trait PhysicalOperator: Send + Sync + Stringify {
     /// Can we execute the regular operator in parallel?
     ///
     /// Note that if this method is called on a non regular operator, it should return the
-    /// [`Error::IsParallelOperator`]
+    /// [`OperatorError::IsParallelOperator`]
     fn is_parallel_operator(&self) -> Result<bool>;
 
     /// Execute the operator with input and write the result to output
@@ -127,14 +170,14 @@ pub trait PhysicalOperator: Send + Sync + Stringify {
     /// passes it to the `self.execute` function
     ///
     /// Note that if this method is called on a non regular operator, it should return the
-    /// [`Error::GlobalOperatorState`]
-    fn global_operator_state(&self) -> Result<Box<dyn GlobalOperatorState + '_>>;
+    /// [`OperatorError::GlobalOperatorState`]
+    fn global_operator_state(&self) -> Result<Box<dyn GlobalOperatorState>>;
 
     /// Create a thread local state for the physical operator. Executor calls it and
     /// passes it to the `self.execute` function
     ///
     /// Note that if this method is called on a non regular operator, it should return the
-    /// [`Error::LocalOperatorState`]
+    /// [`OperatorError::LocalOperatorState`]
     fn local_operator_state(&self) -> Result<Box<dyn LocalOperatorState>>;
 
     // Source operator methods
@@ -143,11 +186,15 @@ pub trait PhysicalOperator: Send + Sync + Stringify {
     /// the pipeline
     fn is_source(&self) -> bool;
 
-    /// Can we execute the source parallel in parallel?
+    /// Parallelism of the source, if the source can not be executed in parallel, it should
+    /// return Ok(1)
     ///
     /// Note that if this method is called on a non source operator, it should return the
-    /// [`Error::IsParallelSource`]
-    fn is_parallel_source(&self) -> Result<bool>;
+    /// [`OperatorError::SourceParallelismDegree`]
+    fn source_parallelism_degree(
+        &self,
+        global_state: &dyn GlobalSourceState,
+    ) -> Result<ParallelismDegree>;
 
     /// Read a [`DataBlock`] from the source and write it to output
     ///
@@ -171,25 +218,32 @@ pub trait PhysicalOperator: Send + Sync + Stringify {
     /// passes it to the `self.read_data` function
     ///
     /// Note that if this method is called on a non source operator, it should return the
-    /// [`Error::GlobalSourceState`]
-    fn global_source_state(&self) -> Result<&dyn GlobalSourceState>;
+    /// [`OperatorError::GlobalSourceState`]
+    fn global_source_state(&self) -> Result<Box<dyn GlobalSourceState>>;
 
-    /// Create a thread local state for the physical operator. Executor calls it and
-    /// passes it to the `self.read_data` function
+    /// Create a thread local state, morsel assigned to the thread, for the physical operator.
+    /// Executor calls it and passes it to the `self.read_data` function
     ///
     /// Note that if this method is called on a non source operator, it should return the
-    /// [`Error::LocalSourceState`]
-    fn local_source_state(&self) -> Result<Box<dyn LocalSourceState>>;
+    /// [`OperatorError::LocalSourceState`]
+    fn local_source_state(
+        &self,
+        global_state: &dyn GlobalSourceState,
+    ) -> Result<Box<dyn LocalSourceState>>;
 
     /// Get progress of the source: [0.0 - 1.0]
     ///
     /// # Notes
     ///
     /// - If this method is called on a non source operator, it should return the
-    /// [`Error::Progress`]
+    /// [`OperatorError::Progress`]
     ///
-    /// - If the source does not support progress, return `NAN`
-    fn progress(&self) -> Result<f64>;
+    /// - If the source does not support progress, return negative number
+    ///
+    /// - The returned value represents the progress the morsel have been assigned
+    /// to execute, which is almost equivalent to the progress the source has been
+    /// processed because we assume executing the morsel is fast
+    fn progress(&self, global_state: &dyn GlobalSourceState) -> Result<f64>;
 
     // Sink operator methods
 
@@ -200,7 +254,7 @@ pub trait PhysicalOperator: Send + Sync + Stringify {
     /// Can we execute the source parallel in parallel?
     ///
     /// Note that if this method is called on a non sink operator, it should return the
-    /// [`Error::IsParallelSink`]
+    /// [`OperatorError::IsParallelSink`]
     fn is_parallel_sink(&self) -> Result<bool>;
 
     /// Write the input [`DataBlock`] to the sink
@@ -247,18 +301,34 @@ pub trait PhysicalOperator: Send + Sync + Stringify {
         local_state: &mut dyn LocalSinkState,
     ) -> Result<()>;
 
+    /// Finalize the Sink state
+    ///
+    /// # Safety
+    /// The finalize_sink is called when ALL threads are finished execution. It is called only once per
+    /// sink, which means that for each sink, only one thread can call it. This is achieved by
+    /// splitting the execution into the `execution` and `finalize` events, the `finalize` event
+    /// calls the finalize method
+    ///
+    /// Note: Finalize function can spawn threads and execute the function body in parallel
+    ///
+    /// If Finalize returns SinkResultType::NO_OUTPUT_POSSIBLE, the sink is marked as finished
+    unsafe fn finalize_sink(
+        &self,
+        global_state: &dyn GlobalSinkState,
+    ) -> Result<SinkFinalizeStatus>;
+
     /// Create a global sink state for the physical operator. Executor calls it and
     /// passes it to the `self.write_data` function
     ///
     /// Note that if this method is called on a non sink operator, it should return the
-    /// [`Error::GlobalSinkState`]
-    fn global_sink_state(&self) -> Result<&dyn GlobalSinkState>;
+    /// [`OperatorError::GlobalSinkState`]
+    fn global_sink_state(&self) -> Result<Box<dyn GlobalSinkState>>;
 
     /// Create a thread local state for the physical operator. Executor calls it and
     /// passes it to the `self.write_data` function
     ///
     /// Note that if this method is called on a non sink operator, it should return the
-    /// [`Error::LocalSinkState`]
+    /// [`OperatorError::LocalSinkState`]
     fn local_sink_state(&self) -> Result<Box<dyn LocalSinkState>>;
 }
 
@@ -278,7 +348,7 @@ pub trait GlobalState {}
 
 /// Global operator state of the [`PhysicalOperator`]. It should be built upon
 /// the [`GlobalState`] associated with the the operator.
-pub trait GlobalOperatorState: Send + Sync {
+pub trait GlobalOperatorState: Send + Sync + 'static {
     /// As any such that we can perform dynamic cast
     fn as_any(&self) -> &dyn std::any::Any;
 }
@@ -288,7 +358,7 @@ pub trait GlobalOperatorState: Send + Sync {
 ///
 /// The purpose of the local state is storing some states that are needed to execute
 /// the physical operator and reuse it across different [`DataBlock`]s.
-pub trait LocalOperatorState {
+pub trait LocalOperatorState: 'static {
     /// As any such that we can perform dynamic cast
     fn as_mut_any(&mut self) -> &mut dyn std::any::Any;
 }
@@ -305,7 +375,7 @@ impl GlobalOperatorState for DummyGlobalState {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// OperatorExecStatus indicates the status of the  operator for the `execute` call.
 /// Executor should check this status and decide how to execute the pipeline
 pub enum OperatorExecStatus {
@@ -332,9 +402,12 @@ pub enum OperatorExecStatus {
 
 /// Global source state of the [`PhysicalOperator`]. It should be built upon
 /// the [`GlobalState`] associated with the the operator.
-pub trait GlobalSourceState: Send + Sync {
+pub trait GlobalSourceState: Send + Sync + 'static {
     /// As any such that we can perform dynamic cast
     fn as_any(&self) -> &dyn std::any::Any;
+
+    /// Name of the global source state
+    fn name(&self) -> &'static str;
 }
 
 /// Thread local state of the source operator. It is !Send and each thread should
@@ -342,12 +415,18 @@ pub trait GlobalSourceState: Send + Sync {
 ///
 /// The purpose of the local source state is storing some states that are needed to
 /// read the data from the source operator and reuse it across different [`DataBlock`]s.
-pub trait LocalSourceState {
+pub trait LocalSourceState: 'static {
     /// As any such that we can perform dynamic cast
     fn as_mut_any(&mut self) -> &mut dyn std::any::Any;
+
+    /// Name of the local source state
+    fn name(&self) -> &'static str;
+
+    /// Read the data from local source state
+    fn read_data(&mut self, output: &mut DataBlock) -> Result<SourceExecStatus>;
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// SourceExecStatus indicates the status of the  operator for the `read_data` call.
 /// Executor should check this status and decide how to execute the pipeline
 pub enum SourceExecStatus {
@@ -356,6 +435,8 @@ pub enum SourceExecStatus {
     /// Note that if this status is returned, the output data chunk should not be empty
     HaveMoreOutput,
     /// The source is exhausted, no more data will be produced by this source
+    ///
+    /// Note that if this status is returned, the output data chunk should be empty
     Finished,
 }
 
@@ -363,7 +444,7 @@ pub enum SourceExecStatus {
 
 /// Global sink state of the [`PhysicalOperator`]. It should be built upon
 /// the [`GlobalState`] associated with the the operator.
-pub trait GlobalSinkState: Send + Sync {
+pub trait GlobalSinkState: Send + Sync + 'static {
     /// As any such that we can perform dynamic cast
     fn as_any(&self) -> &dyn std::any::Any;
 }
@@ -373,12 +454,12 @@ pub trait GlobalSinkState: Send + Sync {
 ///
 /// The purpose of the local source state is storing some states that are needed to
 /// write the data to the sink operator and reuse it across different [`DataBlock`]s.
-pub trait LocalSinkState {
+pub trait LocalSinkState: 'static {
     /// As any such that we can perform dynamic cast
     fn as_mut_any(&mut self) -> &mut dyn std::any::Any;
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// SinkExecStatus indicates the status of the  operator for the `write_data` call.
 /// Executor should check this status and decide how to execute the pipeline
 pub enum SinkExecStatus {
@@ -387,6 +468,19 @@ pub enum SinkExecStatus {
     /// The sink finished the executing, do not write data to it anymore
     Finished,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// SinkFinalizeStatus indicates the status of the operator for the `finalize_sink` call.
+/// Executor should check this status and decide how to execute the pipeline
+pub enum SinkFinalizeStatus {
+    /// `Ready` means the sink is ready for further processing
+    Ready,
+    /// `NoOutputPossible` means the sink will never provide output, and any pipelines involving
+    /// the sink can be skipped
+    NoOutputPossible,
+}
+
+// Implement traits for dyn PhysicalOperator
 
 impl Debug for dyn PhysicalOperator {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -397,5 +491,19 @@ impl Debug for dyn PhysicalOperator {
 impl Display for dyn PhysicalOperator {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.display(f)
+    }
+}
+
+impl Visit for dyn PhysicalOperator {
+    type Node = dyn PhysicalOperator;
+
+    fn accept<V: Visitor<Self>>(&self, visitor: &mut V) -> ControlFlow<V::Break> {
+        visitor.pre_visit(self)?;
+
+        for child in self.children() {
+            child.accept(visitor)?;
+        }
+
+        visitor.post_visit(self)
     }
 }

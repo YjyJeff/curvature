@@ -2,7 +2,6 @@
 use crate::aligned_vec::AlignedVec;
 use crate::bitmap::BitStore;
 use crate::utils::roundup_loops;
-use paste::paste;
 use std::mem::transmute;
 
 x86_target_use!(

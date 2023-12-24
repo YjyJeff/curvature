@@ -1,6 +1,7 @@
 //! PhysicalExpression that can be interpreted/executed
 
 pub mod field_ref;
+use crate::error::SendableError;
 use data_block::array::ArrayImpl;
 use data_block::block::DataBlock;
 use data_block::types::LogicalType;
@@ -14,7 +15,7 @@ pub enum Error {
     #[snafu(display("Failed to execute the expression: `{}`", expr))]
     Execute {
         expr: &'static str,
-        source: Box<dyn std::error::Error>,
+        source: SendableError,
     },
 }
 
@@ -25,6 +26,12 @@ pub(super) type ExprResult<T> = Result<T>;
 pub trait Stringify {
     /// Debug message
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
+
+    /// Display message
+    ///
+    /// If `compact` is true, use one line representation for each expression.
+    /// Otherwise, prints a tree of expressions one node per line
+    fn display(&self, f: &mut std::fmt::Formatter<'_>, compact: bool) -> std::fmt::Result;
 }
 
 /// Trait for all of the physical expressions

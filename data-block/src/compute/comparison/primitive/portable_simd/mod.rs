@@ -46,19 +46,14 @@ fn cmp_scalar<T, F>(
         });
 }
 
-macro_rules! impl_equal {
+macro_rules! eq_scalar {
     ($lhs:ident, $rhs:ident, $dst:ident) => {
         cmp_scalar($lhs, $rhs, $dst, |lhs, rhs| lhs.simd_eq(rhs).to_bitmask())
     };
 }
 
 crate::dynamic_func!(
-    eq_scalar_avx512,
-    eq_scalar_avx2,
-    eq_scalar_neon,
-    eq_scalar_default,
-    eq_scalar_dynamic,
-    impl_equal,
+    eq_scalar,
     <T>,
     (lhs: &AlignedVec<T>, rhs: T, dst: &mut [<T::SimdType as IntrinsicSimdOrd>::BitMaskType]),
     where
@@ -66,19 +61,14 @@ crate::dynamic_func!(
         T::SimdType: IntrinsicSimdOrd
 );
 
-macro_rules! impl_not_equal {
+macro_rules! ne_scalar {
     ($lhs:ident, $rhs:ident, $dst:ident) => {
         cmp_scalar($lhs, $rhs, $dst, |lhs, rhs| lhs.simd_ne(rhs).to_bitmask())
     };
 }
 
 crate::dynamic_func!(
-    ne_scalar_avx512,
-    ne_scalar_avx2,
-    ne_scalar_neon,
-    ne_scalar_default,
-    ne_scalar_dynamic,
-    impl_not_equal,
+    ne_scalar,
     <T>,
     (lhs: &AlignedVec<T>, rhs: T, dst: &mut [<T::SimdType as IntrinsicSimdOrd>::BitMaskType]),
     where
@@ -86,19 +76,14 @@ crate::dynamic_func!(
         T::SimdType: IntrinsicSimdOrd
 );
 
-macro_rules! impl_greater_than {
+macro_rules! gt_scalar {
     ($lhs:ident, $rhs:ident, $dst:ident) => {
         cmp_scalar($lhs, $rhs, $dst, |lhs, rhs| lhs.simd_gt(rhs).to_bitmask())
     };
 }
 
 crate::dynamic_func!(
-    gt_scalar_avx512,
-    gt_scalar_avx2,
-    gt_scalar_neon,
-    gt_scalar_default,
-    gt_scalar_dynamic,
-    impl_greater_than,
+    gt_scalar,
     <T>,
     (lhs: &AlignedVec<T>, rhs: T, dst: &mut [<T::SimdType as IntrinsicSimdOrd>::BitMaskType]),
     where
@@ -106,19 +91,14 @@ crate::dynamic_func!(
         T::SimdType: IntrinsicSimdOrd
 );
 
-macro_rules! impl_greater_than_or_equal {
+macro_rules! ge_scalar {
     ($lhs:ident, $rhs:ident, $dst:ident) => {
         cmp_scalar($lhs, $rhs, $dst, |lhs, rhs| lhs.simd_ge(rhs).to_bitmask())
     };
 }
 
 crate::dynamic_func!(
-    ge_scalar_avx512,
-    ge_scalar_avx2,
-    ge_scalar_neon,
-    ge_scalar_default,
-    ge_scalar_dynamic,
-    impl_greater_than_or_equal,
+    ge_scalar,
     <T>,
     (lhs: &AlignedVec<T>, rhs: T, dst: &mut [<T::SimdType as IntrinsicSimdOrd>::BitMaskType]),
     where
@@ -126,19 +106,14 @@ crate::dynamic_func!(
         T::SimdType: IntrinsicSimdOrd
 );
 
-macro_rules! impl_less_than {
+macro_rules! lt_scalar {
     ($lhs:ident, $rhs:ident, $dst:ident) => {
         cmp_scalar($lhs, $rhs, $dst, |lhs, rhs| lhs.simd_lt(rhs).to_bitmask())
     };
 }
 
 crate::dynamic_func!(
-    lt_scalar_avx512,
-    lt_scalar_avx2,
-    lt_scalar_neon,
-    lt_scalar_default,
-    lt_scalar_dynamic,
-    impl_less_than,
+    lt_scalar,
     <T>,
     (lhs: &AlignedVec<T>, rhs: T, dst: &mut [<T::SimdType as IntrinsicSimdOrd>::BitMaskType]),
     where
@@ -146,19 +121,14 @@ crate::dynamic_func!(
         T::SimdType: IntrinsicSimdOrd
 );
 
-macro_rules! impl_less_than_or_equal {
+macro_rules! le_scalar {
     ($lhs:ident, $rhs:ident, $dst:ident) => {
         cmp_scalar($lhs, $rhs, $dst, |lhs, rhs| lhs.simd_le(rhs).to_bitmask())
     };
 }
 
 crate::dynamic_func!(
-    le_scalar_avx512,
-    le_scalar_avx2,
-    le_scalar_neon,
-    le_scalar_default,
-    le_scalar_dynamic,
-    impl_less_than_or_equal,
+    le_scalar,
     <T>,
     (lhs: &AlignedVec<T>, rhs: T, dst: &mut [<T::SimdType as IntrinsicSimdOrd>::BitMaskType]),
     where

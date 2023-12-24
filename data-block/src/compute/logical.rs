@@ -29,11 +29,6 @@ macro_rules! and_bitmaps {
 }
 
 crate::dynamic_func!(
-    and_bitmaps_avx512,
-    and_bitmaps_avx2,
-    and_bitmaps_neon,
-    and_bitmaps_default,
-    and_bitmaps_dynamic,
     and_bitmaps,
     ,
     (lhs: &[BitStore], rhs: &[BitStore], dst: &mut [BitStore]),
@@ -46,11 +41,6 @@ macro_rules! or_bitmaps {
 }
 
 crate::dynamic_func!(
-    or_bitmaps_avx512,
-    or_bitmaps_avx2,
-    or_bitmaps_neon,
-    or_bitmaps_default,
-    or_bitmaps_dynamic,
     or_bitmaps,
     ,
     (lhs: &[BitStore], rhs: &[BitStore], dst: &mut [BitStore]),
@@ -177,11 +167,6 @@ macro_rules! not_bitmap {
 }
 
 crate::dynamic_func!(
-    not_bitmap_avx512,
-    not_bitmap_avx2,
-    not_bitmap_neon,
-    not_bitmap_default,
-    not_bitmap_dynamic,
     not_bitmap,
     ,
     (input: &[BitStore], dst: &mut [BitStore]),

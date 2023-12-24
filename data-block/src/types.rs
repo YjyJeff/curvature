@@ -73,7 +73,7 @@ impl Display for PhysicalType {
 ///
 /// It add some semantic above the physical type. Operations between [`Array`]s
 /// should have different behavior based on the associated [`LogicalType`]s
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum LogicalType {
     /// Boolean value represent `true` or `false`
     Boolean,

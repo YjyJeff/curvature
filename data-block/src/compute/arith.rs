@@ -31,55 +31,40 @@ where
         .for_each(|(&lhs, dst)| *dst = arith(lhs, rhs));
 }
 
-macro_rules! impl_add_scalar {
+macro_rules! add_scalar {
     ($lhs:ident, $rhs:ident, $dst:ident) => {
         array_scalar_arith($lhs, $rhs, $dst, Add::add)
     };
 }
 
 crate::dynamic_func!(
-    add_scalar_avx512,
-    add_scalar_avx2,
-    add_scalar_neon,
-    add_scalar_default,
-    add_scalar_dynamic,
-    impl_add_scalar,
+    add_scalar,
     <T>,
     (lhs: &[T], rhs: T, dst: &mut [T]),
     where T: IntrinsicType + Add<Output = T>
 );
 
-macro_rules! impl_sub_scalar {
+macro_rules! sub_scalar {
     ($lhs:ident, $rhs:ident, $dst:ident) => {
         array_scalar_arith($lhs, $rhs, $dst, Sub::sub)
     };
 }
 
 crate::dynamic_func!(
-    sub_scalar_avx512,
-    sub_scalar_avx2,
-    sub_scalar_neon,
-    sub_scalar_default,
-    sub_scalar_dynamic,
-    impl_sub_scalar,
+    sub_scalar,
     <T>,
     (lhs: &[T], rhs: T, dst: &mut [T]),
     where T: IntrinsicType + Sub<Output = T>
 );
 
-macro_rules! impl_mul_scalar {
+macro_rules! mul_scalar {
     ($lhs:ident, $rhs:ident, $dst:ident) => {
         array_scalar_arith($lhs, $rhs, $dst, Mul::mul)
     };
 }
 
 crate::dynamic_func!(
-    mul_scalar_avx512,
-    mul_scalar_avx2,
-    mul_scalar_neon,
-    mul_scalar_default,
-    mul_scalar_dynamic,
-    impl_mul_scalar,
+    mul_scalar,
     <T>,
     (lhs: &[T], rhs: T, dst: &mut [T]),
     where T: IntrinsicType + Mul<Output = T>
@@ -230,7 +215,7 @@ impl_div_ext!(i16, u16, StrengthReducedU16);
 impl_div_ext!(i32, u32, StrengthReducedU32);
 impl_div_ext!(i64, u64, StrengthReducedU64);
 
-macro_rules! impl_div_strength_reduce_scalar {
+macro_rules! div_scalar {
     ($lhs:ident, $rhs:ident, $dst:ident) => {{
         let rhs = T::new_divisor($rhs);
         array_scalar_arith($lhs, rhs, $dst, Div::div)
@@ -238,18 +223,13 @@ macro_rules! impl_div_strength_reduce_scalar {
 }
 
 crate::dynamic_func!(
-    div_scalar_avx512,
-    div_scalar_avx2,
-    div_scalar_neon,
-    div_scalar_default,
-    div_scalar_dynamic,
-    impl_div_strength_reduce_scalar,
+    div_scalar,
     <T>,
     (lhs: &[T], rhs: T, dst: &mut [T]),
     where T: IntrinsicType + DivExt
 );
 
-macro_rules! impl_rem_strength_reduce_scalar {
+macro_rules! rem_scalar {
     ($lhs:ident, $rhs:ident, $dst:ident) => {{
         let rhs = T::new_remainder($rhs);
         array_scalar_arith($lhs, rhs, $dst, Rem::rem)
@@ -257,12 +237,7 @@ macro_rules! impl_rem_strength_reduce_scalar {
 }
 
 crate::dynamic_func!(
-    rem_scalar_avx512,
-    rem_scalar_avx2,
-    rem_scalar_neon,
-    rem_scalar_default,
-    rem_scalar_dynamic,
-    impl_rem_strength_reduce_scalar,
+    rem_scalar,
     <T>,
     (lhs: &[T], rhs: T, dst: &mut [T]),
     where T: IntrinsicType + RemExt

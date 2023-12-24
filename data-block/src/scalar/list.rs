@@ -81,9 +81,18 @@ mod tests {
         ]));
 
         let list_ref = ListScalarRef::new(&array, 0, 3);
-        assert_eq!(
-            format!("{:?}", list_ref),
-            "Float32Array { len: 3, data: [Some(3.14), Some(9.99), None]}\n"
-        )
+        let expect = expect_test::expect![[r#"
+            Float32Array { len: 3, data: [
+                Some(
+                    3.14,
+                ),
+                Some(
+                    9.99,
+                ),
+                None,
+            ]}
+
+        "#]];
+        expect.assert_debug_eq(&list_ref);
     }
 }

@@ -6,7 +6,6 @@ use crate::compute::comparison::primitive::{
     eq_scalar_default_, ge_scalar_default_, gt_scalar_default_, le_scalar_default_,
     lt_scalar_default_, ne_scalar_default_,
 };
-use paste::paste;
 
 macro_rules! x86_target_use {
     ($($name:ident),+) => {
@@ -21,7 +20,7 @@ macro_rules! x86_target_use {
 macro_rules! cmp_int_scalar {
     // Signed integer match this pattern
     ($target_feature:expr, $prefix:ident, $int_ty:ty, $suffix:ident) => {
-        paste! {
+        paste::paste! {
             #[target_feature(enable = $target_feature)]
             pub(super) unsafe fn [<eq_scalar_ $int_ty _ $target_feature _>] (lhs: &AlignedVec<$int_ty>, rhs: $int_ty, dst: *mut BitStore) {
                 [<cmp_scalar_ $int_ty _ $target_feature>]::<false, false, _>(lhs, rhs, dst as _, |a, b| [<$prefix _cmpeq_ $suffix>](a, b))
@@ -50,7 +49,7 @@ macro_rules! cmp_int_scalar {
     };
     // Unsigned integer match this pattern, because sse2 and avx2 does not support unsigned integer now
     ($target_feature:expr, $prefix:ident, $uint_ty:ty, $int_ty:ty, $suffix:ident) => {
-        paste! {
+        paste::paste! {
             #[target_feature(enable = $target_feature)]
             pub(super) unsafe fn [<eq_scalar_ $uint_ty _ $target_feature _>] (lhs: &AlignedVec<$uint_ty>, rhs: $uint_ty, dst: *mut BitStore) {
                 [<cmp_scalar_ $int_ty _ $target_feature>]::<false, false, _>(transmute(lhs), rhs as _, dst as _, |a, b| [<$prefix _cmpeq_ $suffix>](a, b))
@@ -82,7 +81,7 @@ macro_rules! cmp_int_scalar {
 /// Compare float scalar with specified target_feature
 macro_rules! cmp_float_scalar {
     ($target_feature:expr, $prefix:ident, $ty:ty, $suffix:ident) => {
-        paste! {
+        paste::paste! {
             #[target_feature(enable = $target_feature)]
             pub(super) unsafe fn [<eq_scalar_ $ty _ $target_feature _>] (lhs: &AlignedVec<$ty>, rhs: $ty, dst: *mut BitStore) {
                 [<cmp_scalar_ $ty _ $target_feature>](lhs, rhs, dst as _, |a, b| [<$prefix _cmpeq_ $suffix>](a, b))
@@ -114,7 +113,7 @@ macro_rules! cmp_float_scalar {
 /// Does not include i64 and u64, because sse2 does not support i64
 macro_rules! intrinsic_cmp_scalar {
     ($ty:ty) => {
-        paste! {
+        paste::paste! {
             impl PrimitiveCmpScalar for $ty {
                 const EQ_FUNC_AVX2: CmpFunc<Self> = [<eq_scalar_ $ty _avx2_>];
                 const EQ_FUNC_SSE2: CmpFunc<Self> = [<eq_scalar_ $ty _sse2_>];

@@ -13,11 +13,6 @@ macro_rules! not_bitmap {
 }
 
 crate::dynamic_func!(
-    not_bitmap_avx512,
-    not_bitmap_avx2,
-    not_bitmap_neon,
-    not_bitmap_default,
-    not_bitmap_dynamic,
     not_bitmap,
     ,
     (lhs: &[BitStore], dst: &mut [BitStore]),

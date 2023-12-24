@@ -1,37 +1,41 @@
 //! Executor that execute the physical expression
 
-use data_block::{array::ArrayImpl, block::DataBlock};
+use data_block::array::ArrayImpl;
+use data_block::block::DataBlock;
 
 use super::physical_expr::{ExprResult, PhysicalExpr};
 use crate::common::profiler::Profiler;
 
-/// Executor that executes the expression
+/// Executor that executes set of expressions
 ///
-/// It can only execute the expression that create it! In ideal,
-/// it should contain the reference to the expression that create
+/// It can only execute the expressions that create it! In ideal,
+/// it should contain the reference to the expressions that create
 /// it. However, it will cause the self-referential structure
 #[derive(Debug)]
 pub struct ExprExecutor {
-    ctx: ExprExecCtx,
+    ctx: Vec<ExprExecCtx>,
 }
 
 impl ExprExecutor {
-    /// Create a new [`ExprExecutor`] that can execute the input expr
-    pub fn new(expr: &dyn PhysicalExpr) -> Self {
+    /// Create a new [`ExprExecutor`] that can execute the input exprs
+    pub fn new<I: Iterator<Item = impl AsRef<dyn PhysicalExpr>>>(exprs: I) -> Self {
         Self {
-            ctx: ExprExecCtx::new(expr),
+            ctx: exprs.map(|expr| ExprExecCtx::new(expr.as_ref())).collect(),
         }
     }
 
     /// Execute the expression
     #[inline]
-    pub fn execute(
+    pub fn execute<I: Iterator<Item = impl AsRef<dyn PhysicalExpr>>>(
         &mut self,
-        expr: &dyn PhysicalExpr,
+        exprs: I,
         input: &DataBlock,
-        output: &mut ArrayImpl,
+        output: &mut DataBlock,
     ) -> ExprResult<()> {
-        execute(expr, &mut self.ctx, input, output)
+        exprs
+            .zip(self.ctx.iter_mut())
+            .zip(output.mutable_arrays())
+            .try_for_each(|((expr, ctx), output)| execute(expr.as_ref(), ctx, input, output))
     }
 }
 
@@ -48,9 +52,9 @@ impl ExprExecutor {
 #[cfg_attr(not(feature = "profile"), allow(dead_code))]
 #[derive(Debug)]
 struct ExprExecCtx {
-    /// The data block that **children** of the this expression will
+    /// The data block that **children** of this expression will
     /// write to. It is also used as input of this expression
-    block: DataBlock,
+    intermediate_block: DataBlock,
     /// Children contexts
     children: Vec<ExprExecCtx>,
     /// Profiler for profiling the cpu time used in the expression
@@ -74,7 +78,7 @@ impl ExprExecCtx {
 
         // SAFETY: ArrayImpl::new return empty array
         Self {
-            block: unsafe { DataBlock::new_unchecked(arrays, 0) },
+            intermediate_block: unsafe { DataBlock::new_unchecked(arrays, 0) },
             children,
             profiler: Profiler::new(),
         }
@@ -91,7 +95,7 @@ fn execute(
     expr.children()
         .iter()
         .zip(ctx.children.iter_mut())
-        .zip(ctx.block.mutable_arrays())
+        .zip(ctx.intermediate_block.mutable_arrays())
         .try_for_each(|((expr, ctx), output)| execute(&**expr, ctx, leaf_input, output))?;
 
     // execute expr
@@ -103,6 +107,6 @@ fn execute(
         expr.execute(leaf_input, output)
     } else {
         // Non leaf expression, take ctx.block as input
-        expr.execute(&ctx.block, output)
+        expr.execute(&ctx.intermediate_block, output)
     }
 }

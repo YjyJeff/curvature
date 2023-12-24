@@ -13,4 +13,10 @@
 //! # Curvature
 
 pub mod common;
+pub mod error;
 pub mod exec;
+mod macros;
+pub mod visit;
+use self::macros::mutate_data_block_safety;
+
+const STANDARD_VECTOR_SIZE: usize = 1024;
