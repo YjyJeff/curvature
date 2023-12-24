@@ -13,7 +13,7 @@ use super::{
     impl_sink_for_non_sink, impl_source_for_non_source, use_types_for_impl_sink_for_non_sink,
     use_types_for_impl_source_for_non_source, DummyGlobalState, GlobalOperatorState,
     LocalOperatorState, OperatorError, OperatorExecStatus, OperatorResult, PhysicalOperator,
-    SourceExecStatus, Stringify,
+    Stringify,
 };
 
 use_types_for_impl_sink_for_non_sink!();

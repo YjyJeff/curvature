@@ -6,6 +6,7 @@ pub mod empty_table_scan;
 pub mod numbers;
 pub mod projection;
 mod source_ext;
+pub mod union;
 pub mod utils;
 
 use self::source_ext::SourceOperatorExt;

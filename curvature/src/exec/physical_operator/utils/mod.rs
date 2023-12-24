@@ -50,7 +50,8 @@ macro_rules! use_types_for_impl_source_for_non_source {
     () => {
         use crate::exec::physical_operator::{
             GlobalSourceState, GlobalSourceStateSnafu, LocalSourceState, LocalSourceStateSnafu,
-            ParallelismDegree, ProgressSnafu, ReadDataSnafu, SourceParallelismDegreeSnafu,
+            ParallelismDegree, ProgressSnafu, ReadDataSnafu, SourceExecStatus,
+            SourceParallelismDegreeSnafu,
         };
     };
 }
