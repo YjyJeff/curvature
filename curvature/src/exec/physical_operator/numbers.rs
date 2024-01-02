@@ -14,7 +14,8 @@ use super::{
     impl_regular_for_non_regular, impl_sink_for_non_sink,
     use_types_for_impl_regular_for_non_regular, use_types_for_impl_sink_for_non_sink,
     GlobalSourceState, LocalSourceState, OperatorError, OperatorResult, ParallelismDegree,
-    PhysicalOperator, SourceExecStatus, SourceOperatorExt, Stringify, MAX_PARALLELISM_DEGREE,
+    PhysicalOperator, SourceExecStatus, SourceOperatorExt, StateStringify, Stringify,
+    MAX_PARALLELISM_DEGREE,
 };
 
 use_types_for_impl_regular_for_non_regular!();
@@ -57,7 +58,7 @@ pub struct Numbers {
 
 impl Numbers {
     /// Each local source state will fetch MORSEL_SIZE numbers from global
-    const MORSEL_SIZE: u64 = 128 * STANDARD_VECTOR_SIZE as u64;
+    pub const MORSEL_SIZE: u64 = 128 * STANDARD_VECTOR_SIZE as u64;
 
     /// Create a new [`Numbers`]. The count has type [`NonZeroU64`] guarantees
     /// the count is zero. If the count is zero, do not create [`Numbers`],
@@ -78,13 +79,19 @@ impl Numbers {
 /// Global source state of the [`Numbers`]
 pub struct NumbersGlobalSourceState(Arc<AtomicU64>);
 
+impl StateStringify for NumbersGlobalSourceState {
+    fn name(&self) -> &'static str {
+        "NumbersGlobalSourceState"
+    }
+
+    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
 impl GlobalSourceState for NumbersGlobalSourceState {
     fn as_any(&self) -> &dyn std::any::Any {
         self
-    }
-
-    fn name(&self) -> &'static str {
-        "NumbersGlobalSourceState"
     }
 }
 
@@ -97,13 +104,19 @@ pub struct NumbersLocalSourceState {
     morsel_end: u64,
 }
 
+impl StateStringify for NumbersLocalSourceState {
+    fn name(&self) -> &'static str {
+        "NumbersLocalSourceState"
+    }
+
+    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
 impl LocalSourceState for NumbersLocalSourceState {
     fn as_mut_any(&mut self) -> &mut dyn std::any::Any {
         self
-    }
-
-    fn name(&self) -> &'static str {
-        "NumbersLocalSourceState"
     }
 
     #[inline]
@@ -142,6 +155,10 @@ impl LocalSourceState for NumbersLocalSourceState {
 }
 
 impl Stringify for Numbers {
+    fn name(&self) -> &'static str {
+        "Numbers"
+    }
+
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self)
     }
@@ -152,8 +169,8 @@ impl Stringify for Numbers {
 }
 
 impl PhysicalOperator for Numbers {
-    fn name(&self) -> &'static str {
-        "Numbers"
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 
     fn output_types(&self) -> &[LogicalType] {
@@ -197,8 +214,8 @@ impl PhysicalOperator for Numbers {
         self.read_data_in_parallel(output, global_state, local_state)
     }
 
-    fn global_source_state(&self) -> OperatorResult<Box<dyn GlobalSourceState>> {
-        Ok(Box::new(NumbersGlobalSourceState(Arc::new(
+    fn global_source_state(&self) -> OperatorResult<Arc<dyn GlobalSourceState>> {
+        Ok(Arc::new(NumbersGlobalSourceState(Arc::new(
             AtomicU64::new(self.start),
         ))))
     }

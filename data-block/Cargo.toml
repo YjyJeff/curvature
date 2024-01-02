@@ -33,8 +33,3 @@ intrinsics = []
 [[bench]]
 name = "aligned_vec"
 harness = false
-
-[[bench]]
-name = "selection"
-harness = false
-required-features = ["bench-utils"]

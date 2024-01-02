@@ -1,9 +1,11 @@
 //! Executor that execute the physical expression
 
+use std::sync::Arc;
+
 use data_block::array::ArrayImpl;
 use data_block::block::DataBlock;
 
-use super::physical_expr::{ExprResult, PhysicalExpr};
+use super::{ExprResult, PhysicalExpr};
 use crate::common::profiler::Profiler;
 
 /// Executor that executes set of expressions
@@ -18,21 +20,22 @@ pub struct ExprExecutor {
 
 impl ExprExecutor {
     /// Create a new [`ExprExecutor`] that can execute the input exprs
-    pub fn new<I: Iterator<Item = impl AsRef<dyn PhysicalExpr>>>(exprs: I) -> Self {
+    pub fn new(exprs: &[Arc<dyn PhysicalExpr>]) -> Self {
         Self {
-            ctx: exprs.map(|expr| ExprExecCtx::new(expr.as_ref())).collect(),
+            ctx: exprs.iter().map(|expr| ExprExecCtx::new(&**expr)).collect(),
         }
     }
 
     /// Execute the expression
     #[inline]
-    pub fn execute<I: Iterator<Item = impl AsRef<dyn PhysicalExpr>>>(
+    pub fn execute(
         &mut self,
-        exprs: I,
+        exprs: &[Arc<dyn PhysicalExpr>],
         input: &DataBlock,
         output: &mut DataBlock,
     ) -> ExprResult<()> {
         exprs
+            .iter()
             .zip(self.ctx.iter_mut())
             .zip(output.mutable_arrays())
             .try_for_each(|((expr, ctx), output)| execute(expr.as_ref(), ctx, input, output))

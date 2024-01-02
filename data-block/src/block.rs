@@ -73,6 +73,12 @@ impl DataBlock {
         self.length
     }
 
+    /// Returns true if the length is 0
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.length == 0
+    }
+
     /// Get number of arrays in the data block
     #[inline]
     pub fn num_arrays(&self) -> usize {

@@ -14,10 +14,14 @@ pub(crate) type BitStore = u64;
 
 /// Iterator of the bitmap
 pub type BitValIter<'a> = bitvec::slice::BitValIter<'a, BitStore, Lsb0>;
+/// Iterator that produce the index of the true
+pub type IterOnes<'a> = bitvec::slice::IterOnes<'a, BitStore, Lsb0>;
+/// A mutable reference to the bit
+pub type BitRef<'a> = bitvec::prelude::BitRef<'a, bitvec::ptr::Mut, BitStore, Lsb0>;
 
 /// Bitmap in data-block, each boolean is stored as a single bit
 ///
-/// Note that array all of the elements are not null, the [`Bitmap`] will be empty
+/// Note that array all of the elements are not null, the [`Bitmap`] could be empty
 pub struct Bitmap {
     /// Internal buffer stores the bits
     buffer: AlignedVec<BitStore>,
@@ -25,7 +29,7 @@ pub struct Bitmap {
     num_bits: usize,
 }
 
-/// FIXME: Do not use bitvec, slow 💩 !!!!
+/// FIXME: Do not use bitvec, 💩!💩!💩!💩!
 impl Bitmap {
     /// Create a new [`Bitmap`]
     #[inline]
@@ -89,6 +93,12 @@ impl Bitmap {
         self.as_bitslice().iter().by_vals()
     }
 
+    /// Get the iterator that produce the index that is true
+    #[inline]
+    pub fn iter_ones(&self) -> IterOnes<'_> {
+        self.as_bitslice().iter_ones()
+    }
+
     /// Get a reference to a single bit without bound check
     ///
     /// # Safety
@@ -99,10 +109,26 @@ impl Bitmap {
         *self.as_bitslice().get_unchecked(index).as_ref()
     }
 
+    /// Get a mutable reference to a single bit without bound check
+    ///
+    /// # Safety
+    ///
+    /// Same with [BitSlice::get_unchecked]
+    #[inline]
+    pub unsafe fn get_unchecked_mut(&mut self, index: usize) -> BitRef<'_> {
+        self.as_bitslice_mut().get_unchecked_mut(index)
+    }
+
     /// Count the number of zeros in the bitmap
     #[inline]
     pub fn count_zeros(&self) -> usize {
         self.as_bitslice().count_zeros()
+    }
+
+    /// Count the number of oness in the bitmap
+    #[inline]
+    pub fn count_ones(&self) -> usize {
+        self.as_bitslice().count_ones()
     }
 
     /// Resize the [`AlignedVec`] to new_len, all of the visible length will
@@ -110,7 +136,7 @@ impl Bitmap {
     /// caller's responsibility to init the visible region.
     #[inline]
     #[must_use]
-    pub(crate) fn clear_and_resize(&mut self, new_len: usize) -> &mut [u64] {
+    pub fn clear_and_resize(&mut self, new_len: usize) -> &mut [u64] {
         self.num_bits = new_len;
         self.buffer.clear_and_resize(elts(new_len))
     }

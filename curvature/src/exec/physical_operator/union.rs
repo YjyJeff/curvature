@@ -63,9 +63,25 @@ impl Union {
             children: vec![left, right],
         })
     }
+
+    /// Get left child of the union
+    pub fn left(&self) -> &Arc<dyn PhysicalOperator> {
+        // SAFETY: union have two children, the length of self.children is 2
+        unsafe { self.children.get_unchecked(0) }
+    }
+
+    /// Get right child of the union
+    pub fn right(&self) -> &Arc<dyn PhysicalOperator> {
+        // SAFETY: union have two children, the length of self.children is 2
+        unsafe { self.children.get_unchecked(1) }
+    }
 }
 
 impl Stringify for Union {
+    fn name(&self) -> &'static str {
+        "Union"
+    }
+
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self)
     }
@@ -76,8 +92,8 @@ impl Stringify for Union {
 }
 
 impl PhysicalOperator for Union {
-    fn name(&self) -> &'static str {
-        "Union"
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 
     fn output_types(&self) -> &[LogicalType] {

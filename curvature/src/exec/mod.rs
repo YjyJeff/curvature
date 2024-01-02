@@ -1,6 +1,5 @@
-//! Execution module contains the `PhysicalPlan` and the `Executor` that executes the
-//! `PhysicalPlan`
+//! Execution module that execute the query
 
-pub mod expr_executor;
 pub mod physical_expr;
 pub mod physical_operator;
+pub mod pipeline;

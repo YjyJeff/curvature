@@ -11,7 +11,7 @@ use super::{
     impl_regular_for_non_regular, impl_sink_for_non_sink,
     use_types_for_impl_regular_for_non_regular, use_types_for_impl_sink_for_non_sink,
     GlobalSourceState, LocalSourceState, OperatorResult, ParallelismDegree, PhysicalOperator,
-    SourceExecStatus, Stringify,
+    SourceExecStatus, StateStringify, Stringify,
 };
 
 use_types_for_impl_regular_for_non_regular!();
@@ -44,13 +44,19 @@ impl Default for EmptyTableScan {
 #[derive(Debug)]
 pub struct EmptyTableScanGlobalState;
 
+impl StateStringify for EmptyTableScanGlobalState {
+    fn name(&self) -> &'static str {
+        "EmptyTableScanGlobalState"
+    }
+
+    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
 impl GlobalSourceState for EmptyTableScanGlobalState {
     fn as_any(&self) -> &dyn std::any::Any {
         self
-    }
-
-    fn name(&self) -> &'static str {
-        "EmptyTableScanGlobalState"
     }
 }
 
@@ -58,13 +64,19 @@ impl GlobalSourceState for EmptyTableScanGlobalState {
 #[derive(Debug)]
 pub struct EmptyTableScanLocalState;
 
+impl StateStringify for EmptyTableScanLocalState {
+    fn name(&self) -> &'static str {
+        "EmptyTableScanLocalState"
+    }
+
+    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
 impl LocalSourceState for EmptyTableScanLocalState {
     fn as_mut_any(&mut self) -> &mut dyn std::any::Any {
         self
-    }
-
-    fn name(&self) -> &'static str {
-        "EmptyTableScanLocalState"
     }
 
     fn read_data(
@@ -76,6 +88,10 @@ impl LocalSourceState for EmptyTableScanLocalState {
 }
 
 impl Stringify for EmptyTableScan {
+    fn name(&self) -> &'static str {
+        "EmptyTableScan"
+    }
+
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self)
     }
@@ -86,8 +102,8 @@ impl Stringify for EmptyTableScan {
 }
 
 impl PhysicalOperator for EmptyTableScan {
-    fn name(&self) -> &'static str {
-        "EmptyTableScan"
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 
     fn output_types(&self) -> &[LogicalType] {
@@ -120,8 +136,8 @@ impl PhysicalOperator for EmptyTableScan {
         Ok(SourceExecStatus::Finished)
     }
 
-    fn global_source_state(&self) -> OperatorResult<Box<dyn GlobalSourceState>> {
-        Ok(Box::new(EmptyTableScanGlobalState))
+    fn global_source_state(&self) -> OperatorResult<Arc<dyn GlobalSourceState>> {
+        Ok(Arc::new(EmptyTableScanGlobalState))
     }
 
     fn local_source_state(

@@ -20,3 +20,8 @@ pub mod visit;
 use self::macros::mutate_data_block_safety;
 
 const STANDARD_VECTOR_SIZE: usize = 1024;
+
+mod private {
+    /// Sealed trait protect against downstream implementations
+    pub trait Sealed {}
+}

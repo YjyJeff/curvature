@@ -2,6 +2,7 @@
 //!
 //! Heavily adapted from [`DuckDB`](https://duckdb.org/)
 
+pub mod aggregate;
 pub mod empty_table_scan;
 pub mod numbers;
 pub mod projection;
@@ -66,8 +67,11 @@ pub enum OperatorError {
         op: &'static str,
         source: SendableError,
     },
-    #[snafu(display("Calling `global_sink_state` on a non sink operator: `{}`", op))]
-    GlobalSinkState { op: &'static str },
+    #[snafu(display("Failed to call `global_sink_state` on the operator: `{}`", op))]
+    GlobalSinkState {
+        op: &'static str,
+        source: SendableError,
+    },
     #[snafu(display("Calling `local_sink_state` on a non sink operator: `{}`", op))]
     LocalSinkState { op: &'static str },
     #[snafu(display(
@@ -109,6 +113,9 @@ type OperatorResult<T> = Result<T>;
 
 /// Stringify the physical operator
 pub trait Stringify {
+    /// Get name of the physical operator
+    fn name(&self) -> &'static str;
+
     /// Debug message
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
 
@@ -123,16 +130,16 @@ pub trait Stringify {
 /// that compiler compiles but user forget to implement the method that should implement.
 /// You can use some macros defined in the [utils] to avoid repeated code
 pub trait PhysicalOperator: Send + Sync + Stringify + 'static {
-    /// Get name of the physical operator
-    fn name(&self) -> &'static str;
+    /// As any for dynamic casting
+    fn as_any(&self) -> &dyn std::any::Any;
 
     /// Get the output logical type of this operator
     fn output_types(&self) -> &[LogicalType];
 
     /// Get children of this operator.
     ///
-    /// If the children is empty, it **must be** source operator.
-    /// If the children is not empty, it **may be** source operator
+    /// If the children is empty, it **must be** TableScan operator, therefore it is
+    /// a source. However, if the children is not empty, it **may be** source operator
     fn children(&self) -> &[Arc<dyn PhysicalOperator>];
 
     // Regular operator(not source and sink) methods
@@ -172,7 +179,7 @@ pub trait PhysicalOperator: Send + Sync + Stringify + 'static {
     ///
     /// Note that if this method is called on a non regular operator, it should return the
     /// [`OperatorError::GlobalOperatorState`]
-    fn global_operator_state(&self) -> Result<Box<dyn GlobalOperatorState>>;
+    fn global_operator_state(&self) -> Result<Arc<dyn GlobalOperatorState>>;
 
     /// Create a thread local state for the physical operator. Executor calls it and
     /// passes it to the `self.execute` function
@@ -207,6 +214,7 @@ pub trait PhysicalOperator: Send + Sync + Stringify + 'static {
     /// should be created with `self.global_source_state`/`self.local_source_state`
     /// method
     ///
+    ///
     /// FIXME: Async
     fn read_data(
         &self,
@@ -220,7 +228,7 @@ pub trait PhysicalOperator: Send + Sync + Stringify + 'static {
     ///
     /// Note that if this method is called on a non source operator, it should return the
     /// [`OperatorError::GlobalSourceState`]
-    fn global_source_state(&self) -> Result<Box<dyn GlobalSourceState>>;
+    fn global_source_state(&self) -> Result<Arc<dyn GlobalSourceState>>;
 
     /// Create a thread local state, morsel assigned to the thread, for the physical operator.
     /// Executor calls it and passes it to the `self.read_data` function
@@ -297,7 +305,6 @@ pub trait PhysicalOperator: Send + Sync + Stringify + 'static {
     /// FIXME: Async
     fn finish_local_sink(
         &self,
-        input: &DataBlock,
         global_state: &dyn GlobalSinkState,
         local_state: &mut dyn LocalSinkState,
     ) -> Result<()>;
@@ -323,14 +330,17 @@ pub trait PhysicalOperator: Send + Sync + Stringify + 'static {
     ///
     /// Note that if this method is called on a non sink operator, it should return the
     /// [`OperatorError::GlobalSinkState`]
-    fn global_sink_state(&self) -> Result<Box<dyn GlobalSinkState>>;
+    fn global_sink_state(&self) -> Result<Arc<dyn GlobalSinkState>>;
 
     /// Create a thread local state for the physical operator. Executor calls it and
     /// passes it to the `self.write_data` function
     ///
     /// Note that if this method is called on a non sink operator, it should return the
     /// [`OperatorError::LocalSinkState`]
-    fn local_sink_state(&self) -> Result<Box<dyn LocalSinkState>>;
+    fn local_sink_state(
+        &self,
+        global_state: &dyn GlobalSinkState,
+    ) -> Result<Box<dyn LocalSinkState>>;
 }
 
 /// Global state associated with the [`PhysicalOperator`]. It will be shared across
@@ -345,11 +355,20 @@ pub trait PhysicalOperator: Send + Sync + Stringify + 'static {
 /// [`GlobalSourceState`] fetches the data from it.
 pub trait GlobalState {}
 
+/// Trait for stringify states
+pub trait StateStringify {
+    /// Get name of the
+    fn name(&self) -> &'static str;
+
+    /// Debug message
+    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
+}
+
 // Regular operator state
 
 /// Global operator state of the [`PhysicalOperator`]. It should be built upon
 /// the [`GlobalState`] associated with the the operator.
-pub trait GlobalOperatorState: Send + Sync + 'static {
+pub trait GlobalOperatorState: Send + Sync + StateStringify + 'static {
     /// As any such that we can perform dynamic cast
     fn as_any(&self) -> &dyn std::any::Any;
 }
@@ -359,18 +378,27 @@ pub trait GlobalOperatorState: Send + Sync + 'static {
 ///
 /// The purpose of the local state is storing some states that are needed to execute
 /// the physical operator and reuse it across different [`DataBlock`]s.
-pub trait LocalOperatorState: 'static {
+pub trait LocalOperatorState: StateStringify + 'static {
     /// As any such that we can perform dynamic cast
     fn as_mut_any(&mut self) -> &mut dyn std::any::Any;
 }
 
 #[derive(Debug)]
-/// A dummy global state, operators do not have global state will use this state as
+/// A dummy global operator state, operators do not have global state will use this state as
 /// its global state
-struct DummyGlobalState;
+struct DummyGlobalOperatorState;
 
-impl GlobalOperatorState for DummyGlobalState {
-    #[inline]
+impl StateStringify for DummyGlobalOperatorState {
+    fn name(&self) -> &'static str {
+        "DummyGlobalOperatorState"
+    }
+
+    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "DummyGlobalOperatorState")
+    }
+}
+
+impl GlobalOperatorState for DummyGlobalOperatorState {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
@@ -380,12 +408,23 @@ impl GlobalOperatorState for DummyGlobalState {
 /// OperatorExecStatus indicates the status of the  operator for the `execute` call.
 /// Executor should check this status and decide how to execute the pipeline
 pub enum OperatorExecStatus {
-    /// Operator is done with the current input and can consume more input if available
+    /// Operator is done with the current input, it produce empty result and
+    /// can consume more input if available.
+    ///
     /// If there is more input the operator will be called with more input, otherwise
-    /// the operator will not be called again.
+    /// the operator will not be called again. When this status is returned, the output
+    /// should be empty
+    OutputEmptyAndNeedMoreInput,
+    /// Operator is done with the current input, it produce non empty result and
+    /// can consume more input if available
+    ///
+    /// If there is more input the operator will be called with more input, otherwise
+    /// the operator will not be called again. When this status is returned, the output
+    /// should **not** be empty
     NeedMoreInput,
     /// Operator is not finished yet with the current input. Executor should call the
-    /// `execute` method on this executor again with the same input.
+    /// `execute` method on this executor again with the same input. When this status
+    /// is returned, the output should **not** be empty
     ///
     /// Following operators may produce this status:
     /// - Join
@@ -403,12 +442,9 @@ pub enum OperatorExecStatus {
 
 /// Global source state of the [`PhysicalOperator`]. It should be built upon
 /// the [`GlobalState`] associated with the the operator.
-pub trait GlobalSourceState: Send + Sync + 'static {
+pub trait GlobalSourceState: Send + Sync + StateStringify + 'static {
     /// As any such that we can perform dynamic cast
     fn as_any(&self) -> &dyn std::any::Any;
-
-    /// Name of the global source state
-    fn name(&self) -> &'static str;
 }
 
 /// Thread local state of the source operator. It is !Send and each thread should
@@ -416,12 +452,9 @@ pub trait GlobalSourceState: Send + Sync + 'static {
 ///
 /// The purpose of the local source state is storing some states that are needed to
 /// read the data from the source operator and reuse it across different [`DataBlock`]s.
-pub trait LocalSourceState: 'static {
+pub trait LocalSourceState: StateStringify + 'static {
     /// As any such that we can perform dynamic cast
     fn as_mut_any(&mut self) -> &mut dyn std::any::Any;
-
-    /// Name of the local source state
-    fn name(&self) -> &'static str;
 
     /// Read the data from local source state
     fn read_data(&mut self, output: &mut DataBlock) -> Result<SourceExecStatus>;
@@ -433,7 +466,7 @@ pub trait LocalSourceState: 'static {
 pub enum SourceExecStatus {
     /// Source have more output, executor should pull it again.
     ///
-    /// Note that if this status is returned, the output data chunk should not be empty
+    /// Note that if this status is returned, the output data chunk should **not** be empty
     HaveMoreOutput,
     /// The source is exhausted, no more data will be produced by this source
     ///
@@ -445,7 +478,7 @@ pub enum SourceExecStatus {
 
 /// Global sink state of the [`PhysicalOperator`]. It should be built upon
 /// the [`GlobalState`] associated with the the operator.
-pub trait GlobalSinkState: Send + Sync + 'static {
+pub trait GlobalSinkState: Send + Sync + StateStringify + 'static {
     /// As any such that we can perform dynamic cast
     fn as_any(&self) -> &dyn std::any::Any;
 }
@@ -455,7 +488,7 @@ pub trait GlobalSinkState: Send + Sync + 'static {
 ///
 /// The purpose of the local source state is storing some states that are needed to
 /// write the data to the sink operator and reuse it across different [`DataBlock`]s.
-pub trait LocalSinkState: 'static {
+pub trait LocalSinkState: StateStringify + 'static {
     /// As any such that we can perform dynamic cast
     fn as_mut_any(&mut self) -> &mut dyn std::any::Any;
 }
@@ -508,3 +541,20 @@ impl Visit for dyn PhysicalOperator {
         visitor.post_visit(self)
     }
 }
+
+macro_rules! impl_debug_for_state {
+    ($ty:ty) => {
+        impl Debug for $ty {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                self.debug(f)
+            }
+        }
+    };
+}
+
+impl_debug_for_state!(dyn GlobalOperatorState);
+impl_debug_for_state!(dyn LocalOperatorState);
+impl_debug_for_state!(dyn GlobalSourceState);
+impl_debug_for_state!(dyn LocalSourceState);
+impl_debug_for_state!(dyn GlobalSinkState);
+impl_debug_for_state!(dyn LocalSinkState);

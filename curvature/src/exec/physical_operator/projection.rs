@@ -6,14 +6,13 @@ use snafu::ResultExt;
 use std::sync::Arc;
 
 use crate::error::SendableError;
-use crate::exec::expr_executor::ExprExecutor;
-use crate::exec::physical_expr::PhysicalExpr;
+use crate::exec::physical_expr::{ExprExecutor, PhysicalExpr};
 
 use super::{
     impl_sink_for_non_sink, impl_source_for_non_source, use_types_for_impl_sink_for_non_sink,
-    use_types_for_impl_source_for_non_source, DummyGlobalState, GlobalOperatorState,
+    use_types_for_impl_source_for_non_source, DummyGlobalOperatorState, GlobalOperatorState,
     LocalOperatorState, OperatorError, OperatorExecStatus, OperatorResult, PhysicalOperator,
-    Stringify,
+    StateStringify, Stringify,
 };
 
 use_types_for_impl_sink_for_non_sink!();
@@ -43,16 +42,30 @@ impl Projection {
     }
 }
 
+#[derive(Debug)]
 struct ProjectionLocalState(ExprExecutor);
 
+impl StateStringify for ProjectionLocalState {
+    fn name(&self) -> &'static str {
+        "ProjectionLocalState"
+    }
+
+    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
 impl LocalOperatorState for ProjectionLocalState {
-    #[inline]
     fn as_mut_any(&mut self) -> &mut dyn std::any::Any {
         self
     }
 }
 
 impl Stringify for Projection {
+    fn name(&self) -> &'static str {
+        "Projection"
+    }
+
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self)
     }
@@ -73,8 +86,8 @@ impl Stringify for Projection {
 }
 
 impl PhysicalOperator for Projection {
-    fn name(&self) -> &'static str {
-        "Projection"
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 
     fn output_types(&self) -> &[LogicalType] {
@@ -114,7 +127,7 @@ impl PhysicalOperator for Projection {
 
         local_state
             .0
-            .execute(self.exprs.iter(), input, output)
+            .execute(&self.exprs, input, output)
             .map_or_else(
                 |e| {
                     Err(OperatorError::Execute {
@@ -126,13 +139,13 @@ impl PhysicalOperator for Projection {
             )
     }
 
-    fn global_operator_state(&self) -> OperatorResult<Box<dyn GlobalOperatorState>> {
-        Ok(Box::new(DummyGlobalState))
+    fn global_operator_state(&self) -> OperatorResult<Arc<dyn GlobalOperatorState>> {
+        Ok(Arc::new(DummyGlobalOperatorState))
     }
 
     fn local_operator_state(&self) -> OperatorResult<Box<dyn LocalOperatorState>> {
         Ok(Box::new(ProjectionLocalState(ExprExecutor::new(
-            self.exprs.iter(),
+            &self.exprs,
         ))))
     }
 

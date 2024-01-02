@@ -1,10 +1,12 @@
 //! PhysicalExpression that can be interpreted/executed
 
+mod executor;
 pub mod field_ref;
 use crate::error::SendableError;
 use data_block::array::ArrayImpl;
 use data_block::block::DataBlock;
 use data_block::types::LogicalType;
+pub use executor::ExprExecutor;
 use snafu::Snafu;
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -24,6 +26,9 @@ pub(super) type ExprResult<T> = Result<T>;
 
 /// Stringify the [`PhysicalExpr`]
 pub trait Stringify {
+    /// Name of the expression
+    fn name(&self) -> &'static str;
+
     /// Debug message
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
 
@@ -36,9 +41,6 @@ pub trait Stringify {
 
 /// Trait for all of the physical expressions
 pub trait PhysicalExpr: Stringify + Send + Sync {
-    /// Name of the expression
-    fn name(&self) -> &'static str;
-
     /// as_any for down cast
     fn as_any(&self) -> &dyn std::any::Any;
 

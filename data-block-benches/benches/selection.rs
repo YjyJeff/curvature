@@ -2,7 +2,8 @@
 
 use bitvec::slice::BitSlice;
 use criterion::{criterion_group, criterion_main, Criterion};
-use data_block::dynamic_auto_vectorization_func;
+use data_block::bitmap::Bitmap;
+use data_block::dynamic_func;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
@@ -17,6 +18,15 @@ pub fn selection_benchmark(c: &mut Criterion) {
     c.bench_function("Selection", |b| {
         b.iter(|| {
             selection(&indices, &lhs, rhs, &mut selected_indices);
+        })
+    });
+    println!("{}", selected_indices.len());
+
+    let indices = vec![u64::MAX; 16];
+
+    c.bench_function("BitmapSelection", |b| {
+        b.iter(|| {
+            selection_bitmap(&indices, &lhs, rhs, &mut selected_indices);
         })
     });
     println!("{}", selected_indices.len());
@@ -58,10 +68,31 @@ fn selection<T: PartialOrd>(
         let mut current = 0;
         for &indice in indices {
             if lhs.get_unchecked(indice).gt(&rhs) {
-                *selected_indices.get_unchecked_mut(indice) = indice;
+                *selected_indices.get_unchecked_mut(current) = indice;
                 current += 1;
             }
         }
+        selected_indices.set_len(current);
+    }
+}
+
+/// Selection is pretty expensive(slow). Cache locality? Auto vectorization?
+/// Iter ones is slow slow.....
+fn selection_bitmap<T: PartialOrd>(
+    indices: &Vec<u64>,
+    lhs: &[T],
+    rhs: T,
+    selected_indices: &mut Vec<usize>,
+) {
+    unsafe {
+        let mut current = 0;
+        let iter = data_block_benches::bitmap::BitVecOnesIter::new(indices);
+        iter.for_each(|index| {
+            if lhs.get_unchecked(index).gt(&rhs) {
+                *selected_indices.get_unchecked_mut(current) = index;
+                current += 1;
+            }
+        });
         selected_indices.set_len(current);
     }
 }
@@ -75,12 +106,7 @@ macro_rules! gt {
 }
 
 // Unnecessary computations, but fast !!!!!
-dynamic_auto_vectorization_func!(
-    gt_avx512,
-    gt_avx2,
-    gt_neon,
-    gt_default,
-    gt_dynamic,
+dynamic_func!(
     gt,
     <T>,
     (lhs: &[T], rhs: T, result: &mut [bool]),
@@ -95,12 +121,7 @@ macro_rules! gt_bv {
     };
 }
 
-dynamic_auto_vectorization_func!(
-    gt_bv_avx512,
-    gt_bv_avx2,
-    gt_bv_neon,
-    gt_bv_default,
-    gt_bv_dynamic,
+dynamic_func!(
     gt_bv,
     <T>,
     (lhs: &[T], rhs: T, result: &mut BitSlice),

@@ -8,14 +8,15 @@ keywords = { workspace = true }
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-data-block = {path = "../data-block"}
-rand = { version = "0.8.5", features = ["std_rng"]}
-bitvec = {workspace = true}
+data-block = { path = "../data-block" }
+rand = { version = "0.8.5", features = ["std_rng"] }
+bitvec = { workspace = true }
+paste = { workspace = true }
 
 [dev-dependencies]
 criterion = "0.5"
 num-traits = "0.2.17"
-pprof = { version = "0.13.0", features = ["criterion", "flamegraph"]}
+pprof = { version = "0.13.0", features = ["criterion", "flamegraph"] }
 arrow2 = { version = "0.18", features = ["benchmarks", "compute"] }
 
 [features]
@@ -29,6 +30,9 @@ arrow2_simd = ["arrow2/simd"]
 name = "comparison"
 harness = false
 
+[[bench]]
+name = "selection"
+harness = false
 
 [[bench]]
 name = "dyn_auto_vectorization"

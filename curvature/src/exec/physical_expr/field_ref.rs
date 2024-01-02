@@ -57,11 +57,14 @@ impl FieldRef {
 }
 
 impl Stringify for FieldRef {
+    fn name(&self) -> &'static str {
+        "FieldRef"
+    }
+
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self)
     }
 
-    #[inline]
     fn display(&self, f: &mut std::fmt::Formatter<'_>, compact: bool) -> std::fmt::Result {
         if compact {
             write!(f, "{}(#{})", self.field, self.field_index)
@@ -76,10 +79,6 @@ impl Stringify for FieldRef {
 }
 
 impl PhysicalExpr for FieldRef {
-    fn name(&self) -> &'static str {
-        "FieldRef"
-    }
-
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
