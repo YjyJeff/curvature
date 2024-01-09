@@ -8,9 +8,7 @@ keywords = ["arrow"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-wyz = "0.5.1"
 strength_reduce = "0.2.4"
-bitvec = { workspace = true }
 either = { workspace = true }
 regex = { workspace = true }
 paste = { workspace = true }

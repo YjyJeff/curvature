@@ -364,7 +364,7 @@ impl_array_scalar_arith!(
     rem_scalar_
 );
 
-// TODO: Support arith on Decimal. Take care of the arith on decimal, it may panic is overflow happens. 💩
+// TODO: Support arith on Decimal. Take care of the arith on decimal, it may panic if overflow happens. 💩
 
 macro_rules! arith_scalar {
     ($func_name:ident, $op:tt, $trait_bound:ident) => {

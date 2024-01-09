@@ -35,7 +35,7 @@ pub type PipelineIndex = usize;
 pub struct Pipelines {
     /// Invariance: the pipeline in index `i` is not depend on `j` if `i < j`.
     pipelines: Vec<Pipeline<Sink>>,
-    /// Root pipelines
+    /// Root pipelines(pipeline without sink)
     root_pipelines: Vec<Pipeline<()>>,
 }
 
@@ -94,8 +94,7 @@ impl SinkTrait for Sink {
 }
 
 /// A fragment of the `PhysicalPlan` that can be executed in parallel. It consists of
-/// `Source`, `Regular` and `Sink` operators. See [`Morsel-Driven Parallelism`] for
-/// details
+/// `Source`, `Regular` and `Sink` operators.
 ///
 /// The generic parameter `S` represents the `Sink` operator in the pipeline. There are
 /// two kinds of pipelines: with sink and without sink. The pipeline without sink is the
@@ -112,8 +111,6 @@ impl SinkTrait for Sink {
 ///
 /// - Different kinds of pipelines have different executors, we can avoid calling the
 /// sink methods for the pipeline without sink in the compiler stage(in static)
-///
-/// [`Morsel-Driven Parallelism`]: https://15721.courses.cs.cmu.edu/spring2020/papers/12-scheduling/p743-leis.pdf
 #[derive(Debug)]
 pub struct Pipeline<S> {
     /// Source of the pipeline

@@ -4,7 +4,7 @@ use snafu::ensure;
 
 use super::ping_pong::PingPongPtr;
 use super::{Array, ArrayExt, InvalidLogicalTypeSnafu, Result};
-use crate::bitmap::{BitValIter, Bitmap};
+use crate::bitmap::{Bitmap, BitmapIter};
 use crate::private::Sealed;
 use crate::types::{LogicalType, PhysicalType};
 
@@ -67,7 +67,7 @@ impl Sealed for BooleanArray {}
 
 impl Array for BooleanArray {
     type ScalarType = bool;
-    type ValuesIter<'a> = BitValIter<'a>;
+    type ValuesIter<'a> = BitmapIter<'a>;
 
     #[inline]
     fn values_iter(&self) -> Self::ValuesIter<'_> {
@@ -76,9 +76,7 @@ impl Array for BooleanArray {
 
     #[inline]
     fn values_slice_iter(&self, offset: usize, length: usize) -> Self::ValuesIter<'_> {
-        self.data.as_bitslice()[offset..offset + length]
-            .iter()
-            .by_vals()
+        BitmapIter::new_with_offset_and_len(&self.data, offset, length)
     }
 
     #[inline]

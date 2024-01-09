@@ -313,9 +313,7 @@ pub trait PhysicalOperator: Send + Sync + Stringify + 'static {
     ///
     /// # Safety
     /// The finalize_sink is called when ALL threads are finished execution. It is called only once per
-    /// sink, which means that for each sink, only one thread can call it. This is achieved by
-    /// splitting the execution into the `execution` and `finalize` events, the `finalize` event
-    /// calls the finalize method
+    /// sink, which means that for each sink, only one thread can call it.
     ///
     /// Note: Finalize function can spawn threads and execute the function body in parallel
     ///

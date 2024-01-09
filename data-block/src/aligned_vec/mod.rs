@@ -195,6 +195,17 @@ impl<T: AllocType> AlignedVec<T> {
         &*self.ptr.as_ptr().add(index)
     }
 
+    /// Returns a T at the given index without bound check
+    ///
+    /// # Safety
+    /// Caller should guarantee `index < self.len()`, otherwise, [undefined behavior] happens
+    ///
+    /// [undefined behavior]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html
+    #[inline]
+    pub unsafe fn get_unchecked_mut(&mut self, index: usize) -> &mut T {
+        &mut *self.ptr.as_ptr().add(index)
+    }
+
     /// Returns a `&[T]` start from the given index with given length without bound check
     ///
     /// # Safety
@@ -263,20 +274,22 @@ impl<T: AllocType> Debug for AlignedVec<T> {
     }
 }
 
+/// Ergonomic helper functions
+impl<T: AllocType> AlignedVec<T> {
+    /// Construct Self from slice
+    pub fn from_slice(slice: &[T]) -> Self {
+        let mut new = Self::with_capacity(slice.len());
+        new.len = slice.len();
+        // SAFETY: with_capacity will allocate enough space
+        unsafe { std::ptr::copy_nonoverlapping(slice.as_ptr(), new.ptr.as_ptr(), slice.len()) };
+        new
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use num_traits::AsPrimitive;
-
-    impl<T: AllocType> AlignedVec<T> {
-        pub(crate) fn from_slice(slice: &[T]) -> Self {
-            let mut new = Self::with_capacity(slice.len());
-            new.len = slice.len();
-            // SAFETY: with_capacity will allocate enough space
-            unsafe { std::ptr::copy_nonoverlapping(slice.as_ptr(), new.ptr.as_ptr(), slice.len()) };
-            new
-        }
-    }
 
     fn enumerate_assign<'a, V, T>(vals: T)
     where

@@ -1,7 +1,7 @@
 //! Iterator of the Array
 
 use super::Array;
-use crate::bitmap::BitValIter;
+use crate::bitmap::BitmapIter;
 use crate::scalar::Scalar;
 use std::fmt::Debug;
 
@@ -70,7 +70,7 @@ impl<'a, A: Array> ExactSizeIterator for ArrayValuesIter<'a, A> {}
 /// Iterator of the [`Array`]. Especially useful for [`Debug`]
 pub struct ArrayIter<'a, A: Array> {
     pub(super) values_iter: A::ValuesIter<'a>,
-    pub(super) validity: Option<BitValIter<'a>>,
+    pub(super) validity: Option<BitmapIter<'a>>,
 }
 
 impl<'a, A: Array> Debug for ArrayIter<'a, A> {
@@ -101,4 +101,10 @@ impl<'a, A: Array> Iterator for ArrayIter<'a, A> {
             }
         })
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.values_iter.size_hint()
+    }
 }
+
+impl<'a, A: Array> ExactSizeIterator for ArrayIter<'a, A> {}

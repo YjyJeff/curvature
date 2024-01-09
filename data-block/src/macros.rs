@@ -1,6 +1,8 @@
 //! Macros used in the data-block
 
-/// {enum variant name, scalar type, array type}
+/// Macros for all of the variants in the array
+///
+/// Tuple: {enum variant name, scalar type, array type}
 #[macro_export]
 macro_rules! for_all_variants {
     ($macro:ident) => {
@@ -28,7 +30,8 @@ macro_rules! for_all_variants {
 pub(crate) use for_all_variants;
 
 /// Call macro for all primitive types.
-/// {enum variant name, scalar type, array type, logical type variant}
+///
+/// Tuple: {enum variant name, scalar type, array type, logical type variant}
 macro_rules! for_all_primitive_types {
     ($macro:ident) => {
         $macro! {
@@ -58,15 +61,45 @@ pub(crate) use for_all_primitive_types;
 ///
 /// Currently, this impl pattern is designed for auto-vectorization. It only use `avx512`,
 /// `avx2` and `neon` features. According to the [`beginner's guard`], `sse` and `sse2` is
-/// enabled by default for `x86` and `x86_64` targets
+/// enabled by default for `x86` and `x86_64` targets.
 ///
 /// Match pattern:
 /// (\
 ///     &emsp; macro that represents the pattern of the function,\
 ///     &emsp; life time and generic of the function,\
 ///     &emsp; ( parameters of the function ),\
-///     &emsp; ( complicated trait bounds)\
+///     &emsp; complicated trait bounds \
 /// )\
+///
+/// # Example
+///
+/// A simple example for adding two slices and write the result to a predefined array
+///
+/// ```
+/// use data_block::dynamic_func;
+///
+/// macro_rules! add {
+///     ($lhs:ident, $rhs:ident, $dest:ident) => {
+///         for ((lhs, rhs), dest) in $lhs.iter().zip($rhs).zip($dest) {
+///             *dest = *lhs + *rhs;
+///         }
+///     };
+/// }
+///
+/// dynamic_func!(
+///     add,
+///     <'a, T>,
+///     (a: &[T], b: &[T], c: &mut [T]),
+///     where T: std::ops::Add<Output = T> + Copy
+/// );
+///
+/// let lhs = [0, 1, 2, 3];
+/// let rhs = [0, 1, 2, 3];
+/// let mut dest = vec![0; 4];
+/// add_dynamic(&lhs, &rhs, &mut dest);
+/// assert_eq!(dest, [0, 2, 4, 6]);
+///
+/// ```
 ///
 /// [`playground`]: https://play.rust-lang.org/
 /// [`CompilerExplorer`]: https://godbolt.org/

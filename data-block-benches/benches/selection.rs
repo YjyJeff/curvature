@@ -22,7 +22,7 @@ pub fn selection_benchmark(c: &mut Criterion) {
     });
     println!("{}", selected_indices.len());
 
-    let indices = vec![u64::MAX; 16];
+    let indices = Bitmap::from_slice_and_len(&[u64::MAX; 16], LEN);
 
     c.bench_function("BitmapSelection", |b| {
         b.iter(|| {
@@ -79,14 +79,14 @@ fn selection<T: PartialOrd>(
 /// Selection is pretty expensive(slow). Cache locality? Auto vectorization?
 /// Iter ones is slow slow.....
 fn selection_bitmap<T: PartialOrd>(
-    indices: &Vec<u64>,
+    bitmap: &Bitmap,
     lhs: &[T],
     rhs: T,
     selected_indices: &mut Vec<usize>,
 ) {
     unsafe {
         let mut current = 0;
-        let iter = data_block_benches::bitmap::BitVecOnesIter::new(indices);
+        let iter = bitmap.iter_ones();
         iter.for_each(|index| {
             if lhs.get_unchecked(index).gt(&rhs) {
                 *selected_indices.get_unchecked_mut(current) = index;
