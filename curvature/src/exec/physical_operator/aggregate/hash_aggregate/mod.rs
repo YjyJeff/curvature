@@ -1,18 +1,26 @@
 //! Aggregate based on hash
+//!
+//! # Concepts
+//! - Payload
+//! - GroupByKeys
 
-use data_block::block::DataBlock;
-use data_block::types::LogicalType;
-use snafu::{ResultExt, Snafu};
+mod partitionable_hash_table;
+mod serde;
 
 use crate::error::SendableError;
 use crate::exec::physical_operator::{
     impl_regular_for_non_regular, use_types_for_impl_regular_for_non_regular, GlobalSinkState,
     GlobalSourceState, LocalSinkState, LocalSourceState, OperatorResult, ParallelismDegree,
-    PhysicalOperator, SinkExecStatus, SinkFinalizeStatus, SourceExecStatus, StateStringify,
-    Stringify,
+    PhysicalOperator, SinkExecStatus, SourceExecStatus, StateStringify, Stringify,
 };
+use data_block::block::DataBlock;
+use data_block::types::LogicalType;
+use snafu::{ResultExt, Snafu};
 use std::sync::Arc;
 use_types_for_impl_regular_for_non_regular!();
+
+/// Build hasher
+type BuildHasherDefault = std::hash::BuildHasherDefault<ahash::AHasher>;
 
 #[allow(missing_docs)]
 #[derive(Debug, Snafu)]
@@ -215,10 +223,7 @@ impl PhysicalOperator for HashAggregate {
         todo!()
     }
 
-    unsafe fn finalize_sink(
-        &self,
-        _global_state: &dyn GlobalSinkState,
-    ) -> OperatorResult<SinkFinalizeStatus> {
+    unsafe fn finalize_sink(&self, _global_state: &dyn GlobalSinkState) -> OperatorResult<()> {
         todo!()
     }
 

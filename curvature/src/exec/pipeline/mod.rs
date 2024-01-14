@@ -34,9 +34,9 @@ pub type PipelineIndex = usize;
 #[derive(Debug)]
 pub struct Pipelines {
     /// Invariance: the pipeline in index `i` is not depend on `j` if `i < j`.
-    pipelines: Vec<Pipeline<Sink>>,
+    pub(super) pipelines: Vec<Pipeline<Sink>>,
     /// Root pipelines(pipeline without sink)
-    root_pipelines: Vec<Pipeline<()>>,
+    pub(super) root_pipelines: Vec<Pipeline<()>>,
 }
 
 impl Pipelines {
@@ -114,17 +114,17 @@ impl SinkTrait for Sink {
 #[derive(Debug)]
 pub struct Pipeline<S> {
     /// Source of the pipeline
-    source: Source,
+    pub(super) source: Source,
     /// Chain of regular operators
     operators: Vec<Operator>,
     /// Sink of the pipeline.
-    sink: S,
+    pub(super) sink: S,
     /// Children of this Pipeline. This pipeline can be executed iff all of its children are
     /// finished
     ///
     /// Note that if S is (), the PipelineIndex represents the index of the array that contains
     /// `Pipeline<Sink>`
-    children: Vec<PipelineIndex>,
+    pub(super) children: Vec<PipelineIndex>,
 }
 
 impl Display for Pipeline<Sink> {
@@ -151,11 +151,11 @@ impl Display for Pipeline<()> {
 
 /// Source operator and its global source state
 #[derive(Debug)]
-struct Source {
+pub(super) struct Source {
     /// Source operator
-    op: Arc<dyn PhysicalOperator>,
+    pub op: Arc<dyn PhysicalOperator>,
     /// Global source state
-    global_state: Arc<dyn GlobalSourceState>,
+    pub global_state: Arc<dyn GlobalSourceState>,
 }
 
 /// Regular operator and its global operator state
@@ -179,7 +179,7 @@ impl Clone for Operator {
 
 /// Sink operator and its global sink state
 #[derive(Debug)]
-struct Sink {
+pub(super) struct Sink {
     /// Sink operator
     pub op: Arc<dyn PhysicalOperator>,
     /// Global sink state

@@ -1,0 +1,153 @@
+//! Aggregate functions
+
+use std::alloc::Layout;
+use std::fmt::Debug;
+use std::ptr::NonNull;
+use std::sync::Arc;
+
+use crate::common::utils::memory::next_multiple_of_align;
+use crate::exec::physical_expr::PhysicalExpr;
+use crate::exec::physical_operator::aggregate::Arena;
+
+/// Pointer that points to the `AggregationStates`
+///
+/// For each aggregation function, we need an `AggregationState` to store its state across
+/// different data blocks. When we need to compute multiple aggregation functions over
+/// same input, the naive way is allocating multiple `AggregationState`s individually.
+/// However, it is not optimal. Firstly, we do not know how many functions will be used,
+/// we need a `Vec` to store these `AggregationState`. Secondly, allocating these states
+/// individually is slow, even if we use arena. In most of the cases, these states is
+/// pretty small, we need to do lots of small memory allocation. Thirdly, accessing these
+/// small states is not cache efficient. Therefore, we combine multiple `AggregationState`s
+/// into a single struct(`AggregationStates`) to solve the above problem. However, we can
+/// not define it in the compiler time 😂!!! It is totally dynamic, different combination
+/// of aggregation functions can cause different `AggregationStates`. Therefore, we need
+/// to generate it dynamically!
+///
+/// To dynamically generate a struct, we only need to compute the [`Layout`] and its
+/// field offsets. We call it [`AggregationStatesLayout`]. Using this layout, we can
+/// allocating the struct and access its field with pointer arithmetic. The
+/// [`AggregationStatesPtr`] is the pointer that points to this dynamic struct! As
+/// we can see, using this pointer is totally **unsafe** !!! Caller should guarantee
+/// the layout that used to generate this pointer and the layout that used to access
+/// the field should be identical. Otherwise, undefined behavior happens!!
+#[derive(Debug, Clone, Copy)]
+#[repr(transparent)]
+pub struct AggregationStatesPtr(NonNull<u8>);
+
+impl AggregationStatesPtr {
+    #[inline]
+    unsafe fn add(self, offset: usize) -> Self {
+        Self(NonNull::new_unchecked(self.0.as_ptr().add(offset)))
+    }
+
+    /// View the ptr as &mut T
+    #[inline]
+    unsafe fn as_mut<'a, T>(self) -> &'a mut T {
+        self.0.cast().as_mut()
+    }
+}
+
+/// Layout of the `AggregationStates`, see [`AggregationStatesPtr`] for details
+#[derive(Debug)]
+pub struct AggregationStatesLayout {
+    /// Layout of the combined aggregation states
+    layout: Layout,
+    /// Offsets of each aggregation state in the dynamic struct
+    states_offsets: Vec<usize>,
+}
+
+impl AggregationStatesLayout {
+    fn new(funcs: &[Arc<dyn AggregationFunction>]) -> Self {
+        let mut align = 8;
+        let mut size = 0;
+        let mut states_offsets = Vec::with_capacity(funcs.len());
+
+        // Compute the size and alignment
+        funcs.iter().for_each(|func| {
+            let state_layout = func.state_layout();
+            let state_align = state_layout.align();
+
+            // Start offset of the state is multiple of the alignment
+            size = next_multiple_of_align(size, state_align);
+            states_offsets.push(size);
+            size += state_layout.size();
+            align = std::cmp::max(align, state_align);
+        });
+
+        size = next_multiple_of_align(size, align);
+        // SAFETY: align is power of two
+        Self {
+            layout: unsafe { Layout::from_size_align_unchecked(size, align) },
+            states_offsets,
+        }
+    }
+}
+
+/// A self-contained list of aggregation functions. It knows how to allocate
+/// and access the `AggregationStates`
+#[derive(Debug)]
+pub struct AggregationFunctionList {
+    /// List of the aggregation functions
+    funcs: Vec<Arc<dyn AggregationFunction>>,
+    /// Layout of the `AggregationStates`
+    states_layout: AggregationStatesLayout,
+    /// Init state of the `AggregationStates`, used to init the allocated memory
+    /// in the arena
+    init_states: Vec<u8>,
+}
+
+impl AggregationFunctionList {
+    /// Create a new [`AggregationFunctionList`]
+    pub fn new(funcs: Vec<Arc<dyn AggregationFunction>>) -> Self {
+        let states_layout = AggregationStatesLayout::new(&funcs);
+
+        // Create the init state
+        let mut init_states = vec![0; states_layout.layout.size()];
+        let mut ptr =
+            AggregationStatesPtr(unsafe { NonNull::new_unchecked(init_states.as_mut_ptr()) });
+        funcs
+            .iter()
+            .zip(states_layout.states_offsets.iter())
+            .for_each(|(func, &state_offset)| unsafe {
+                ptr = ptr.add(state_offset);
+                func.init_state(ptr);
+            });
+
+        Self {
+            states_layout,
+            funcs,
+            init_states,
+        }
+    }
+
+    /// Allocate the initialized `AggregationStates` in the arena, return the pointer to it
+    #[inline]
+    pub fn alloc_states(&self, arena: &Arena) -> AggregationStatesPtr {
+        let ptr = arena.alloc_layout(self.states_layout.layout);
+        // Init the states
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                self.init_states.as_ptr(),
+                ptr.as_ptr(),
+                self.init_states.len(),
+            );
+        }
+        AggregationStatesPtr(ptr)
+    }
+}
+
+/// Trait for all of the aggregation functions
+pub trait AggregationFunction: PhysicalExpr {
+    /// Layout of the aggregation state
+    fn state_layout(&self) -> Layout;
+
+    /// Initialize the allocated state
+    fn init_state(&self, ptr: AggregationStatesPtr);
+}
+
+impl Debug for dyn AggregationFunction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.debug(f)
+    }
+}

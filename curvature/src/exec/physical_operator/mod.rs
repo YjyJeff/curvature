@@ -16,6 +16,7 @@ use self::utils::{
     use_types_for_impl_regular_for_non_regular, use_types_for_impl_sink_for_non_sink,
     use_types_for_impl_source_for_non_source,
 };
+use crate::common::types::ParallelismDegree;
 use crate::error::SendableError;
 use crate::visit::{Visit, Visitor};
 use data_block::block::DataBlock;
@@ -25,10 +26,10 @@ use std::fmt::{Debug, Display};
 use std::ops::ControlFlow;
 use std::sync::Arc;
 
-/// Degree of the parallelism
-type ParallelismDegree = std::num::NonZeroU16;
-const MAX_PARALLELISM_DEGREE: ParallelismDegree =
-    unsafe { ParallelismDegree::new_unchecked(u16::MAX) };
+/// Maximum parallelism degree
+///
+/// FIXME: configure it via command/env?
+const MAX_PARALLELISM_DEGREE: ParallelismDegree = unsafe { ParallelismDegree::new_unchecked(256) };
 
 #[derive(Debug, Snafu)]
 #[allow(missing_docs)]
@@ -312,16 +313,16 @@ pub trait PhysicalOperator: Send + Sync + Stringify + 'static {
     /// Finalize the Sink state
     ///
     /// # Safety
-    /// The finalize_sink is called when ALL threads are finished execution. It is called only once per
-    /// sink, which means that for each sink, only one thread can call it.
     ///
-    /// Note: Finalize function can spawn threads and execute the function body in parallel
+    /// The finalize_sink is called when ALL threads are finished execution. It is called
+    /// only once per sink, which means that for each sink, only one thread can call it.
+    /// In our execution model, the main thread(thread handle the query and schedule tasks)
+    /// will call this function
     ///
-    /// If Finalize returns SinkResultType::NO_OUTPUT_POSSIBLE, the sink is marked as finished
-    unsafe fn finalize_sink(
-        &self,
-        global_state: &dyn GlobalSinkState,
-    ) -> Result<SinkFinalizeStatus>;
+    /// # Note
+    ///
+    /// Finalize function can spawn threads and execute the function body in parallel
+    unsafe fn finalize_sink(&self, global_state: &dyn GlobalSinkState) -> Result<()>;
 
     /// Create a global sink state for the physical operator. Executor calls it and
     /// passes it to the `self.write_data` function
@@ -499,17 +500,6 @@ pub enum SinkExecStatus {
     NeedMoreInput,
     /// The sink finished the executing, do not write data to it anymore
     Finished,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-/// SinkFinalizeStatus indicates the status of the operator for the `finalize_sink` call.
-/// Executor should check this status and decide how to execute the pipeline
-pub enum SinkFinalizeStatus {
-    /// `Ready` means the sink is ready for further processing
-    Ready,
-    /// `NoOutputPossible` means the sink will never provide output, and any pipelines involving
-    /// the sink can be skipped
-    NoOutputPossible,
 }
 
 // Implement traits for dyn PhysicalOperator

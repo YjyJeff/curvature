@@ -9,8 +9,20 @@ keywords.workspace = true
 
 [dependencies]
 data-block = { path = "../data-block" }
-snafu = { workspace = true, features = ["rust_1_61"] }
+bumpalo = "3.14"
+ahash = "0.8.7"
+hashbrown = { version = "0.14", default-features = false, features = [
+    "inline-more",
+    "raw",
+] }
+snafu = { workspace = true }
 quanta = { workspace = true }
+uuid = { workspace = true }
+# TODO: Remove the rayon, use monoio instead?
+rayon = { workspace = true }
+tracing = { workspace = true }
+strength_reduce = { workspace = true }
+
 
 [dev-dependencies]
 expect-test = "1.4.1"

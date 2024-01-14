@@ -2,6 +2,8 @@
 
 mod executor;
 pub mod field_ref;
+pub mod function;
+
 use crate::error::SendableError;
 use data_block::array::ArrayImpl;
 use data_block::block::DataBlock;

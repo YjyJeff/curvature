@@ -21,3 +21,6 @@ I have been using [datafusion](https://github.com/apache/arrow-datafusion) for a
     - `Normal Operator`: Internal operator in the `Pipeline`, consume DataChunk produced by other operator, and produce result. 
     - `Sink`: Last operator in the `Pipeline`, it only consumes the data, does not produce any result.
 - `Event`: Split the execution into `Events`, such that Sink's finalize could be only called once. Like `union`, the sink is shared by different pipeline. If we execute the pipeline with finalize method, the finalize will be called multiple times.
+
+# Minimum Support Rust Version(MSRV)
+This crate is guaranteed to compile on the latest stable Rust. The minimum support rust version is `1.71`

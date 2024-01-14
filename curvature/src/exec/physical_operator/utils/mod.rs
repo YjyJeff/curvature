@@ -107,7 +107,7 @@ macro_rules! use_types_for_impl_sink_for_non_sink {
         use crate::exec::physical_operator::{
             FinalizeSinkSnafu, FinishLocalSinkSnafu, GlobalSinkState, GlobalSinkStateSnafu,
             IsParallelSinkSnafu, LocalSinkState, LocalSinkStateSnafu, SinkExecStatus,
-            SinkFinalizeStatus, WriteDataSnafu,
+            WriteDataSnafu,
         };
     };
 }
@@ -151,10 +151,7 @@ macro_rules! impl_sink_for_non_sink {
             Err(error).context(FinishLocalSinkSnafu { op: self.name() })
         }
 
-        unsafe fn finalize_sink(
-            &self,
-            _global_state: &dyn GlobalSinkState,
-        ) -> OperatorResult<SinkFinalizeStatus>{
+        unsafe fn finalize_sink(&self, _global_state: &dyn GlobalSinkState) -> OperatorResult<()>{
             let error: SendableError = format!(
                 "`{}` is not a sink operator. It should never happens because pipeline should be verified before execution",
                 self.name()
