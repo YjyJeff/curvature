@@ -6,6 +6,7 @@ use crate::common::types::{HashValue, ParallelismDegree};
 use crate::exec::physical_expr::function::aggregate::{
     AggregationFunctionList, AggregationStatesPtr,
 };
+
 use crate::exec::physical_operator::aggregate::Arena;
 use crate::STANDARD_VECTOR_SIZE;
 use data_block::array::ArrayImpl;
@@ -62,7 +63,7 @@ struct RawHashTable<K> {
 ///
 /// # Generics
 ///
-/// - `K`: Type of the serde key
+/// - `K`: Type of the serde group by key
 /// - `P`: Partitioning strategy, for example radix/modulo partitioning
 pub struct PartitionableHashTable<K, P> {
     /// Swiss tables. If its length is 1, the table is not partitioned. Otherwise,
@@ -112,7 +113,7 @@ impl<K: SerdeKey, P: Partitioning> PartitionableHashTable<K, P> {
         &mut self,
         group_by_keys: &[&ArrayImpl],
         payloads: &[&ArrayImpl],
-        func_list: AggregationFunctionList,
+        agg_func_list: AggregationFunctionList,
     ) {
         todo!()
     }

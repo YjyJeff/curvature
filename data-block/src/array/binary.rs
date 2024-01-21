@@ -12,7 +12,7 @@ use crate::types::{LogicalType, PhysicalType};
 
 use super::iter::ArrayValuesIter;
 use super::ping_pong::PingPongPtr;
-use super::{Array, ArrayExt, InvalidLogicalTypeSnafu, Result};
+use super::{Array, InvalidLogicalTypeSnafu, MutateArrayExt, Result};
 
 /// Offset in the binary array
 ///
@@ -170,6 +170,11 @@ impl Array for BinaryArray {
     }
 
     #[inline]
+    fn validity_mut(&mut self) -> &mut PingPongPtr<Bitmap> {
+        &mut self.validity
+    }
+
+    #[inline]
     unsafe fn get_value_unchecked(
         &self,
         index: usize,
@@ -185,7 +190,7 @@ impl Array for BinaryArray {
     }
 }
 
-impl ArrayExt for BinaryArray {
+impl MutateArrayExt for BinaryArray {
     #[inline]
     fn reference(&mut self, other: &Self) {
         self.bytes.reference(&other.bytes);

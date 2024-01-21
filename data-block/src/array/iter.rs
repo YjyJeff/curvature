@@ -1,9 +1,10 @@
 //! Iterator of the Array
 
 use super::Array;
-use crate::bitmap::BitmapIter;
+use crate::bitmap::{Bitmap, BitmapIter};
 use crate::scalar::Scalar;
 use std::fmt::Debug;
+use std::iter::Zip;
 
 /// Default implementation for the iterator of the values in the array
 #[derive(Debug)]
@@ -68,9 +69,35 @@ impl<'a, A: Array> Iterator for ArrayValuesIter<'a, A> {
 impl<'a, A: Array> ExactSizeIterator for ArrayValuesIter<'a, A> {}
 
 /// Iterator of the [`Array`]. Especially useful for [`Debug`]
-pub struct ArrayIter<'a, A: Array> {
-    pub(super) values_iter: A::ValuesIter<'a>,
-    pub(super) validity: Option<BitmapIter<'a>>,
+pub enum ArrayIter<'a, A: Array> {
+    /// Iterator of values, all of the
+    Values(A::ValuesIter<'a>),
+    /// Iterator of values and validity bitmap
+    ValuesAndValidity(Zip<A::ValuesIter<'a>, BitmapIter<'a>>),
+}
+
+impl<'a, A: Array> ArrayIter<'a, A> {
+    /// Create a new [`ArrayIter`]
+    pub fn new(values_iter: A::ValuesIter<'a>, validity: &'a Bitmap) -> Self {
+        if validity.is_empty() {
+            Self::Values(values_iter)
+        } else {
+            Self::ValuesAndValidity(values_iter.zip(validity.iter()))
+        }
+    }
+
+    /// Create a new [`ArrayIter`] with values iterator
+    pub fn new_values(values_iter: A::ValuesIter<'a>) -> Self {
+        Self::Values(values_iter)
+    }
+
+    /// Create a new [`ArrayIter`] with values iterator and bitmap iterator
+    pub fn new_values_and_validity(
+        values_iter: A::ValuesIter<'a>,
+        bitmap_iter: BitmapIter<'a>,
+    ) -> Self {
+        Self::ValuesAndValidity(values_iter.zip(bitmap_iter))
+    }
 }
 
 impl<'a, A: Array> Debug for ArrayIter<'a, A> {
@@ -83,27 +110,24 @@ impl<'a, A: Array> Iterator for ArrayIter<'a, A> {
     type Item = Option<<A::ScalarType as Scalar>::RefType<'a>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let val = self.values_iter.next();
-        val.map(|val| {
-            let not_null = self.validity.as_mut().map(|v| {
-                v.next()
-                    .expect("Validity must have the same length with ValuesIter")
-            });
-            match not_null {
-                Some(not_null) => {
-                    if not_null {
-                        Some(val)
-                    } else {
-                        None
-                    }
+        match self {
+            Self::Values(values) => values.next().map(Some),
+            Self::ValuesAndValidity(iter) => {
+                let (value, not_null) = iter.next()?;
+                if not_null {
+                    Some(Some(value))
+                } else {
+                    Some(None)
                 }
-                None => Some(val),
             }
-        })
+        }
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        self.values_iter.size_hint()
+        match self {
+            Self::Values(values) => values.size_hint(),
+            Self::ValuesAndValidity(iter) => iter.size_hint(),
+        }
     }
 }
 

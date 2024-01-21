@@ -69,7 +69,7 @@ impl DataBlock {
 
     /// Get number of elements in the data block
     #[inline]
-    pub fn length(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.length
     }
 

@@ -86,7 +86,7 @@ pub enum Error {
 // ...
 ensure!(foo.is_implemented(), NotImplemented {
     operation_name: "foo",
-}
+})
 ```
 
 *Bad*:
@@ -96,7 +96,7 @@ use crate::errors::NotImplemented;
 // ...
 ensure!(foo.is_implemented(), NotImplemented {
     operation_name: "foo",
-}
+})
 ```
 
 ### The `Result` type alias should be defined in each module
@@ -225,7 +225,7 @@ pub enum Error {
 // ...
 
 write_lines.context(UnableToWriteGoodLines)?;
-close_writer.context(UnableToCloseTableWriter))?;
+close_writer.context(UnableToCloseTableWriter)?;
 ```
 
 *Bad*:

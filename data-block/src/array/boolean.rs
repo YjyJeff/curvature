@@ -3,7 +3,7 @@
 use snafu::ensure;
 
 use super::ping_pong::PingPongPtr;
-use super::{Array, ArrayExt, InvalidLogicalTypeSnafu, Result};
+use super::{Array, InvalidLogicalTypeSnafu, MutateArrayExt, Result};
 use crate::bitmap::{Bitmap, BitmapIter};
 use crate::private::Sealed;
 use crate::types::{LogicalType, PhysicalType};
@@ -85,6 +85,11 @@ impl Array for BooleanArray {
     }
 
     #[inline]
+    fn validity_mut(&mut self) -> &mut PingPongPtr<Bitmap> {
+        &mut self.validity
+    }
+
+    #[inline]
     fn len(&self) -> usize {
         self.data.len()
     }
@@ -100,11 +105,32 @@ impl Array for BooleanArray {
     }
 }
 
-impl ArrayExt for BooleanArray {
+impl MutateArrayExt for BooleanArray {
     #[inline]
     fn reference(&mut self, other: &Self) {
         self.data.reference(&other.data);
         self.validity.reference(&other.validity);
+    }
+}
+
+/// Mutate BooleanArray
+impl BooleanArray {
+    /// Replace the array with the trusted_len iterator that has `len` items
+    ///
+    /// # Safety
+    ///
+    /// - The `trusted_len_iterator` must has `len` items
+    ///
+    /// - Satisfy the mutate condition
+    pub unsafe fn replace_with_trusted_len_iterator(
+        &mut self,
+        len: usize,
+        trusted_len_iterator: impl Iterator<Item = bool>,
+    ) {
+        self.validity.exactly_once_mut().clear();
+        self.data
+            .exactly_once_mut()
+            .reset(len, trusted_len_iterator);
     }
 }
 

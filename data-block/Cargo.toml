@@ -16,8 +16,8 @@ libc = { workspace = true }
 snafu = { workspace = true }
 
 [dev-dependencies]
+num-traits = { workspace = true }
 criterion = "0.3"
-num-traits = "0.2.17"
 expect-test = "1.4.1"
 
 [features]

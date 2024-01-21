@@ -13,7 +13,8 @@ pub mod string;
 pub mod utils;
 
 use self::iter::ArrayIter;
-use crate::bitmap::Bitmap;
+use self::ping_pong::PingPongPtr;
+use crate::bitmap::{Bitmap, BitmapIter};
 use crate::private::Sealed;
 use crate::scalar::Scalar;
 use crate::types::{LogicalType, PhysicalType};
@@ -50,6 +51,11 @@ pub enum ArrayError {
         "Can not reference `{array}` to `{target}`, reference requires two arrays have same type"
     ))]
     Reference { array: String, target: String },
+    #[snafu(display("Can not convert `ArrayImpl::{array}` array into `{target}` array"))]
+    Convert {
+        array: &'static str,
+        target: &'static str,
+    },
 }
 
 type Result<T> = std::result::Result<T, ArrayError>;
@@ -70,9 +76,12 @@ pub trait Array: Sealed + Debug + 'static + Sized {
     /// offset + length <= self.len()
     fn values_slice_iter(&self, offset: usize, length: usize) -> Self::ValuesIter<'_>;
 
-    /// Get the validity slice. If the validity is not empty, the length must equal to
+    /// Get the validity. If the validity is not empty, the length must equal to
     /// [`Self::len`]
     fn validity(&self) -> &Bitmap;
+
+    /// Get the mutable validity.
+    fn validity_mut(&mut self) -> &mut PingPongPtr<Bitmap>;
 
     /// Get the number of elements in the [`Array`]
     fn len(&self) -> usize;
@@ -95,31 +104,22 @@ pub trait Array: Sealed + Debug + 'static + Sized {
     /// Get iterator of the array
     #[inline]
     fn iter(&self) -> ArrayIter<'_, Self> {
-        let validity = self.validity();
-        let validity = if validity.is_empty() {
-            None
-        } else {
-            Some(validity.iter())
-        };
-        ArrayIter {
-            values_iter: self.values_iter(),
-            validity,
-        }
+        ArrayIter::new(self.values_iter(), self.validity())
     }
 
     /// Get the iterator of elements in the array from offset with given length
     ///
     /// offset + length <= self.len()
     fn slice_iter(&self, offset: usize, length: usize) -> ArrayIter<'_, Self> {
-        let validity = self.validity();
-        let validity = if validity.is_empty() {
-            None
+        let bitmap = self.validity();
+        let values_iter = self.values_slice_iter(offset, length);
+        if bitmap.is_empty() {
+            ArrayIter::new_values(values_iter)
         } else {
-            Some(validity.iter())
-        };
-        ArrayIter {
-            values_iter: self.values_slice_iter(offset, length),
-            validity,
+            ArrayIter::new_values_and_validity(
+                values_iter,
+                BitmapIter::new_with_offset_and_len(bitmap, offset, length),
+            )
         }
     }
 
@@ -129,7 +129,7 @@ pub trait Array: Sealed + Debug + 'static + Sized {
 }
 
 /// Extension for array
-pub trait ArrayExt: Array {
+pub trait MutateArrayExt: Array {
     /// Reference self to other array
     fn reference(&mut self, other: &Self);
 }
@@ -187,11 +187,29 @@ macro_rules! array_impl {
                 }
             }
 
+            /// Get ident of the array
+            pub fn ident(&self) -> &'static str{
+                match self{
+                    $(
+                        Self::$variant(_) => stringify!($variant),
+                    )+
+                }
+            }
+
             /// Return the [`LogicalType`] of the array
             pub fn logical_type(&self) -> &LogicalType{
                 match self{
                     $(
                         Self::$variant(array) => array.logical_type(),
+                    )+
+                }
+            }
+
+            /// Get the validity bitmap
+            pub fn validity(&self) -> &Bitmap{
+                match self{
+                    $(
+                        Self::$variant(array) => array.validity(),
                     )+
                 }
             }
@@ -240,6 +258,38 @@ macro_rules! array_impl {
                 Ok(())
             }
         }
+
+        $(
+            impl<'a> TryFrom<&'a ArrayImpl> for &'a $array_ty {
+                type Error = ArrayError;
+
+                fn try_from(array: &'a ArrayImpl) -> Result<&'a $array_ty>{
+                    if let ArrayImpl::$variant(array) = array{
+                        Ok(array)
+                    }else{
+                        ConvertSnafu{
+                            array: array.ident(),
+                            target: stringify!($array_ty),
+                        }.fail()
+                    }
+                }
+            }
+
+            impl<'a> TryFrom<&'a mut ArrayImpl> for &'a mut $array_ty {
+                type Error = ArrayError;
+
+                fn try_from(array: &'a mut ArrayImpl) -> Result<&'a mut $array_ty>{
+                    if let ArrayImpl::$variant(array) = array{
+                        Ok(array)
+                    }else{
+                        ConvertSnafu{
+                            array: array.ident(),
+                            target: stringify!($array_ty),
+                        }.fail()
+                    }
+                }
+            }
+        )+
     };
 }
 

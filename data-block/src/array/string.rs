@@ -27,7 +27,7 @@ use std::fmt::Debug;
 
 use super::iter::ArrayValuesIter;
 use super::ping_pong::PingPongPtr;
-use super::{Array, ArrayExt, InvalidLogicalTypeSnafu, Result};
+use super::{Array, InvalidLogicalTypeSnafu, MutateArrayExt, Result};
 
 /// [`Array`] of string
 pub struct StringArray {
@@ -155,6 +155,11 @@ impl Array for StringArray {
     }
 
     #[inline]
+    fn validity_mut(&mut self) -> &mut PingPongPtr<Bitmap> {
+        &mut self.validity
+    }
+
+    #[inline]
     unsafe fn get_value_unchecked(
         &self,
         index: usize,
@@ -168,7 +173,7 @@ impl Array for StringArray {
     }
 }
 
-impl ArrayExt for StringArray {
+impl MutateArrayExt for StringArray {
     #[inline]
     fn reference(&mut self, other: &Self) {
         self._bytes.reference(&other._bytes);

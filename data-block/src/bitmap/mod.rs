@@ -142,7 +142,7 @@ impl Bitmap {
     /// Clear the bitmap, it only set the num_bits to 0 and do not free the
     /// underling buffer
     #[inline]
-    pub(crate) fn clear(&mut self) {
+    pub fn clear(&mut self) {
         self.num_bits = 0;
     }
 
@@ -168,10 +168,10 @@ impl Bitmap {
     pub(crate) unsafe fn reset(
         &mut self,
         len: usize,
-        trusted_len_iter: impl Iterator<Item = bool>,
+        trusted_len_iterator: impl Iterator<Item = bool>,
     ) {
         let uninitialized = self.clear_and_resize(len);
-        reset_bitmap_raw(uninitialized.as_mut_ptr(), len, trusted_len_iter)
+        reset_bitmap_raw(uninitialized.as_mut_ptr(), len, trusted_len_iterator)
     }
 }
 
@@ -255,7 +255,7 @@ unsafe fn set_bit_unchecked(buffer: &mut AlignedVec<BitStore>, index: usize, val
 pub(crate) unsafe fn reset_bitmap_raw(
     ptr: *mut BitStore,
     len: usize,
-    mut trusted_len_iter: impl Iterator<Item = bool>,
+    mut trusted_len_iterator: impl Iterator<Item = bool>,
 ) {
     let num_bit_store = len >> 6;
     for index in 0..num_bit_store {
@@ -264,7 +264,7 @@ pub(crate) unsafe fn reset_bitmap_raw(
         for i in 0..8 {
             mask = 1 << (i << 3);
             for _ in 0..8 {
-                match trusted_len_iter.next() {
+                match trusted_len_iterator.next() {
                     Some(value) => {
                         tmp |= if value { mask } else { 0 };
                         mask <<= 1;
@@ -283,7 +283,7 @@ pub(crate) unsafe fn reset_bitmap_raw(
         for i in 0..num_bytes {
             let mut mask = 1 << (i << 3);
             for _ in 0..8 {
-                match trusted_len_iter.next() {
+                match trusted_len_iterator.next() {
                     Some(value) => {
                         tmp |= if value { mask } else { 0 };
                         mask <<= 1;
@@ -296,7 +296,7 @@ pub(crate) unsafe fn reset_bitmap_raw(
         let remainder = remainder & 7;
         let mut mask = 1 << (num_bytes << 3);
         for _ in 0..remainder {
-            match trusted_len_iter.next() {
+            match trusted_len_iterator.next() {
                 Some(value) => {
                     tmp |= if value { mask } else { 0 };
                     mask <<= 1;

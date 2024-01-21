@@ -1,7 +1,7 @@
 //! [`PrimitiveArray`] that stores fixed byte-width data
 
 use super::ping_pong::PingPongPtr;
-use super::{Array, ArrayExt, InvalidLogicalTypeSnafu, Result};
+use super::{Array, InvalidLogicalTypeSnafu, MutateArrayExt, Result};
 use snafu::ensure;
 use std::fmt::Debug;
 use std::iter::Copied;
@@ -163,6 +163,11 @@ where
     }
 
     #[inline]
+    fn validity_mut(&mut self) -> &mut PingPongPtr<Bitmap> {
+        &mut self.validity
+    }
+
+    #[inline]
     fn len(&self) -> usize {
         self.data.len()
     }
@@ -178,15 +183,42 @@ where
     }
 }
 
-impl<T> ArrayExt for PrimitiveArray<T>
+impl<T> MutateArrayExt for PrimitiveArray<T>
 where
-    T: PrimitiveType,
-    PrimitiveArray<T>: Array,
+    T: for<'a> PrimitiveType<RefType<'a> = T>,
+    PrimitiveArray<T>: Array<ScalarType = T>,
 {
     #[inline]
     fn reference(&mut self, other: &Self) {
         self.data.reference(&other.data);
         self.validity.reference(&other.validity);
+    }
+}
+
+/// Mutate PrimitiveArray
+impl<T: PrimitiveType> PrimitiveArray<T> {
+    /// Replace the array with the trusted_len iterator that has `len` items
+    ///
+    /// # Safety
+    ///
+    /// - The `trusted_len_iterator` must has `len` items
+    ///
+    /// - Satisfy the mutate condition
+    #[inline]
+    pub unsafe fn replace_with_trusted_len_iterator(
+        &mut self,
+        len: usize,
+        trusted_len_iterator: impl Iterator<Item = T>,
+    ) {
+        self.validity.exactly_once_mut().clear();
+
+        let uninitiated = self.data.exactly_once_mut().clear_and_resize(len);
+        uninitiated
+            .iter_mut()
+            .zip(trusted_len_iterator)
+            .for_each(|(uninitiated, item)| {
+                *uninitiated = item;
+            })
     }
 }
 

@@ -13,7 +13,7 @@ use std::fmt::Debug;
 
 use super::iter::ArrayValuesIter;
 use super::ping_pong::PingPongPtr;
-use super::{Array, ArrayExt, ArrayImpl, Result};
+use super::{Array, ArrayImpl, MutateArrayExt, Result};
 
 /// [Array of lists](https://facebookincubator.github.io/velox/develop/vectors.html#flat-vectors-complex-types)
 pub struct ListArray {
@@ -120,6 +120,11 @@ impl Array for ListArray {
     }
 
     #[inline]
+    fn validity_mut(&mut self) -> &mut PingPongPtr<Bitmap> {
+        &mut self.validity
+    }
+
+    #[inline]
     unsafe fn get_value_unchecked(
         &self,
         index: usize,
@@ -137,7 +142,8 @@ impl Array for ListArray {
     }
 }
 
-impl ArrayExt for ListArray {
+impl MutateArrayExt for ListArray {
+    /// TBD: Could we reference the elements directly?
     #[inline]
     fn reference(&mut self, other: &Self) {
         self.offsets.reference(&other.offsets);

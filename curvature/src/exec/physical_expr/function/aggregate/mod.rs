@@ -1,13 +1,38 @@
 //! Aggregate functions
 
+pub mod count;
+pub mod sum;
+
 use std::alloc::Layout;
 use std::fmt::Debug;
 use std::ptr::NonNull;
 use std::sync::Arc;
 
+use data_block::array::{Array, ArrayError, ArrayImpl};
+use data_block::types::Scalar;
+use snafu::Snafu;
+
+use super::Function;
 use crate::common::utils::memory::next_multiple_of_align;
-use crate::exec::physical_expr::PhysicalExpr;
+use crate::error::SendableError;
 use crate::exec::physical_operator::aggregate::Arena;
+
+#[allow(missing_docs)]
+#[derive(Debug, Snafu)]
+pub enum AggregationError {
+    #[snafu(display("Failed to update the aggregation states of the `{func}`"))]
+    UpdateStates {
+        func: &'static str,
+        source: SendableError,
+    },
+    #[snafu(display("Failed to finalize the aggregation states of the `{func}`"))]
+    FinalizeStates {
+        func: &'static str,
+        source: SendableError,
+    },
+}
+
+type Result<T> = std::result::Result<T, AggregationError>;
 
 /// Pointer that points to the `AggregationStates`
 ///
@@ -17,12 +42,11 @@ use crate::exec::physical_operator::aggregate::Arena;
 /// However, it is not optimal. Firstly, we do not know how many functions will be used,
 /// we need a `Vec` to store these `AggregationState`. Secondly, allocating these states
 /// individually is slow, even if we use arena. In most of the cases, these states is
-/// pretty small, we need to do lots of small memory allocation. Thirdly, accessing these
-/// small states is not cache efficient. Therefore, we combine multiple `AggregationState`s
-/// into a single struct(`AggregationStates`) to solve the above problem. However, we can
-/// not define it in the compiler time 😂!!! It is totally dynamic, different combination
-/// of aggregation functions can cause different `AggregationStates`. Therefore, we need
-/// to generate it dynamically!
+/// pretty small, we need to do lots of small memory allocation. Therefore, we combine
+/// multiple `AggregationState`s into a single struct(`AggregationStates`) to solve
+/// the above problem. However, we can not define it in the compiler time 😂!!! It is
+/// totally dynamic, different combination of aggregation functions can cause different
+/// `AggregationStates`. Therefore, we need to generate it dynamically!
 ///
 /// To dynamically generate a struct, we only need to compute the [`Layout`] and its
 /// field offsets. We call it [`AggregationStatesLayout`]. Using this layout, we can
@@ -36,15 +60,14 @@ use crate::exec::physical_operator::aggregate::Arena;
 pub struct AggregationStatesPtr(NonNull<u8>);
 
 impl AggregationStatesPtr {
-    #[inline]
-    unsafe fn add(self, offset: usize) -> Self {
-        Self(NonNull::new_unchecked(self.0.as_ptr().add(offset)))
+    /// View the ptr.add(offset) as &mut T
+    unsafe fn offset_as_mut<'a, T>(self, offset: usize) -> &'a mut T {
+        &mut *(self.0.as_ptr().add(offset) as *mut T)
     }
 
-    /// View the ptr as &mut T
-    #[inline]
-    unsafe fn as_mut<'a, T>(self) -> &'a mut T {
-        self.0.cast().as_mut()
+    /// View the ptr.add(offset) as & T
+    unsafe fn offset_as<'a, T>(self, offset: usize) -> &'a T {
+        &*(self.0.as_ptr().add(offset) as *const T)
     }
 }
 
@@ -104,14 +127,13 @@ impl AggregationFunctionList {
 
         // Create the init state
         let mut init_states = vec![0; states_layout.layout.size()];
-        let mut ptr =
-            AggregationStatesPtr(unsafe { NonNull::new_unchecked(init_states.as_mut_ptr()) });
+        // SAFETY: pointer to the allocated Vec<u8> is guaranteed to be NonNull
+        let ptr = AggregationStatesPtr(unsafe { NonNull::new_unchecked(init_states.as_mut_ptr()) });
         funcs
             .iter()
             .zip(states_layout.states_offsets.iter())
             .for_each(|(func, &state_offset)| unsafe {
-                ptr = ptr.add(state_offset);
-                func.init_state(ptr);
+                func.init_state(ptr, state_offset);
             });
 
         Self {
@@ -126,6 +148,7 @@ impl AggregationFunctionList {
     pub fn alloc_states(&self, arena: &Arena) -> AggregationStatesPtr {
         let ptr = arena.alloc_layout(self.states_layout.layout);
         // Init the states
+        // SAFETY: the init_states and ptr do not overlap
         unsafe {
             std::ptr::copy_nonoverlapping(
                 self.init_states.as_ptr(),
@@ -137,17 +160,191 @@ impl AggregationFunctionList {
     }
 }
 
+/// Stringify the aggregation function
+pub trait Stringify {
+    /// Get name of the aggregation function
+    fn name(&self) -> &'static str;
+
+    /// Debug message
+    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
+
+    /// Display message
+    ///
+    /// If `compact` is true, use one line representation for each expression.
+    /// Otherwise, prints a tree of expressions one node per line
+    fn display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
+}
+
 /// Trait for all of the aggregation functions
-pub trait AggregationFunction: PhysicalExpr {
-    /// Layout of the aggregation state
+pub trait AggregationFunction: Function + Stringify {
+    /// Layout of the aggregation state, used to compute the dynamic `AggregationStates`
     fn state_layout(&self) -> Layout;
 
     /// Initialize the allocated state
-    fn init_state(&self, ptr: AggregationStatesPtr);
+    ///
+    /// # Safety
+    ///
+    /// `ptr.add(state_offset)` is valid and points to the state of the function
+    unsafe fn init_state(&self, ptr: AggregationStatesPtr, state_offset: usize);
+
+    /// Update the states of this aggregation function based on payloads of the function
+    ///
+    /// # Arguments
+    ///
+    /// - `payloads`: payloads this function accept, caller should guarantee it matches
+    /// the function's signature
+    /// - `state_ptrs`: state pointers that each element in the payload should update
+    /// - `state_offset`: offset, in bytes, of this aggregation's state in the `AggregationStates`
+    ///
+    /// # Safety
+    ///
+    /// - `payloads` match the function's signature
+    /// - `ptr.add(state_offset)` is valid and points to the state of the function
+    unsafe fn update_states(
+        &self,
+        payloads: &[&ArrayImpl],
+        state_ptrs: &[AggregationStatesPtr],
+        state_offset: usize,
+    ) -> Result<()>;
+
+    /// Combine the partial(thread-local) state into combined state
+    ///
+    /// # Arguments
+    ///
+    /// - `partial_state_ptrs`: pointers to the partial `AggregationStates`
+    /// - `combined_state_ptrs`: pointers to the combined `AggregationStates`
+    /// - `state_offset`: offset, in bytes, of this aggregation's state in the `AggregationStates`
+    ///
+    /// # Safety
+    ///
+    /// - `ptr.add(state_offset)` is valid and points to the state of the function
+    /// - `partial_state_ptrs` and `combined_state_ptrs` have same length
+    unsafe fn combine_states(
+        &self,
+        partial_state_ptrs: &[AggregationStatesPtr],
+        combined_state_ptrs: &[AggregationStatesPtr],
+        state_offset: usize,
+    );
+
+    /// Finalize the aggregation, write the result of the state into the output array
+    ///
+    /// # TBD
+    ///
+    /// This API will cause iterating the hash table two times because it separate the
+    /// key and aggregation state. Can we combine them ?
+    ///
+    /// # Safety
+    ///
+    /// - `ptr.add(state_offset)` is valid and points to the state of the function
+    /// - `output` should match function's signature
+    /// - Implementation should free the memory occupied by the state that does not in the
+    /// arena
+    unsafe fn finalize(
+        &self,
+        state_ptrs: &[AggregationStatesPtr],
+        state_offset: usize,
+        output: &mut ArrayImpl,
+    ) -> Result<()>;
 }
 
 impl Debug for dyn AggregationFunction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.debug(f)
     }
+}
+
+/// Trait for the aggregation state that take unary payload. We do no require all of
+/// the unary aggregation state implement this trait. For example, `CountState` does
+/// not implement it because it does not care the concrete payload type
+///
+/// # Generic
+///
+/// - `PayloadArray`: Array of the payload type
+pub trait UnaryAggregationState<PayloadArray: Array> {
+    /// Aggregation function
+    type Func: AggregationFunction;
+    /// Output type of the aggregation state
+    type Output;
+
+    /// Update the state based on the element in the payload
+    fn update(&mut self, payload_element: <PayloadArray::ScalarType as Scalar>::RefType<'_>);
+
+    /// Combine the unary aggregation state
+    fn combine(&mut self, partial: &Self);
+
+    /// Consume the aggregation state, return the output of the aggregation state
+    ///
+    /// # Safety
+    ///
+    /// Implementation should free the memory occupied by the state
+    unsafe fn finalize(&mut self) -> Self::Output;
+}
+
+/// Update the unary states pointers based on the element in the payload.
+///
+/// Note that we assume the state does not take `NULL` into consideration
+///
+/// # Arguments
+///
+/// - `payload`: payload the function accept. It should have same length with `state_ptrs`
+/// - `state_ptrs`: state pointers that each element in the payload should update
+/// - `state_offset`: offset, in bytes, of this aggregation's state in the `AggregationStates`
+///
+/// # Generic
+///
+/// - `PayloadArray`: Array of the payload type
+/// - `S`: Unary aggregation state type
+#[inline]
+unsafe fn unary_update_states<PayloadArray, S>(
+    payloads: &[&ArrayImpl],
+    state_ptrs: &[AggregationStatesPtr],
+    state_offset: usize,
+) where
+    PayloadArray: Array,
+    S: UnaryAggregationState<PayloadArray>,
+    for<'a> &'a PayloadArray: TryFrom<&'a ArrayImpl, Error = ArrayError>,
+{
+    let &payload = payloads.get_unchecked(0);
+    let payload: &PayloadArray = payload.try_into().unwrap_unchecked();
+
+    let validity = payload.validity();
+    if validity.is_empty() {
+        // All of the element in the payload is not null
+        payload
+            .values_iter()
+            .zip(state_ptrs)
+            .for_each(|(payload_element, ptr)| {
+                ptr.offset_as_mut::<S>(state_offset).update(payload_element)
+            });
+    } else {
+        // Some elements are null
+        payload
+            .values_iter()
+            .zip(validity.iter())
+            .zip(state_ptrs)
+            .for_each(|((payload_element, not_null), ptr)| {
+                if not_null {
+                    ptr.offset_as_mut::<S>(state_offset).update(payload_element)
+                }
+            })
+    }
+}
+
+#[inline]
+unsafe fn unary_combine_states<PayloadArray, S>(
+    partial_state_ptrs: &[AggregationStatesPtr],
+    combined_state_ptrs: &[AggregationStatesPtr],
+    state_offset: usize,
+) where
+    PayloadArray: Array,
+    S: UnaryAggregationState<PayloadArray>,
+{
+    combined_state_ptrs
+        .iter()
+        .zip(partial_state_ptrs)
+        .for_each(|(combined, partial)| {
+            let combined = combined.offset_as_mut::<S>(state_offset);
+            let partial = partial.offset_as::<S>(state_offset);
+            combined.combine(partial)
+        });
 }

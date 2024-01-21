@@ -1,6 +1,7 @@
 //! Aggregate based on hash
 //!
 //! # Concepts
+//!
 //! - Payload
 //! - GroupByKeys
 
