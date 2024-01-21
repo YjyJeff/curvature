@@ -1,7 +1,7 @@
 //! Using `sse2`/`avx2`/`sse4.1` to implement SIMD, stable code can use SIMD via this module
 //!
 
-use super::{CmpFunc, PrimitiveCmpScalar};
+use super::{CmpFunc, PrimitiveCmpElement};
 use crate::compute::comparison::primitive::{
     eq_scalar_default_, ge_scalar_default_, gt_scalar_default_, le_scalar_default_,
     lt_scalar_default_, ne_scalar_default_,
@@ -114,7 +114,7 @@ macro_rules! cmp_float_scalar {
 macro_rules! intrinsic_cmp_scalar {
     ($ty:ty) => {
         paste::paste! {
-            impl PrimitiveCmpScalar for $ty {
+            impl PrimitiveCmpElement for $ty {
                 const EQ_FUNC_AVX2: CmpFunc<Self> = [<eq_scalar_ $ty _avx2_>];
                 const EQ_FUNC_SSE2: CmpFunc<Self> = [<eq_scalar_ $ty _sse2_>];
                 const NE_FUNC_AVX2: CmpFunc<Self> = [<ne_scalar_ $ty _avx2_>];
@@ -150,7 +150,7 @@ macro_rules! impl_primitive_cmp_trait {
         $lt_avx2:ident, $lt_sse2:ident,
         $le_avx2:ident, $le_sse2:ident
     ) => {
-        impl PrimitiveCmpScalar for $ty {
+        impl PrimitiveCmpElement for $ty {
             const EQ_FUNC_AVX2: CmpFunc<Self> = $eq_avx2;
             const EQ_FUNC_SSE2: CmpFunc<Self> = $eq_sse2;
             const NE_FUNC_AVX2: CmpFunc<Self> = $ne_avx2;

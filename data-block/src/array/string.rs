@@ -20,8 +20,8 @@ use snafu::ensure;
 
 use crate::aligned_vec::AlignedVec;
 use crate::bitmap::Bitmap;
+use crate::element::string::{StringElement, StringView, INLINE_LEN};
 use crate::private::Sealed;
-use crate::scalar::string::{StringScalar, StringView, INLINE_LEN};
 use crate::types::{LogicalType, PhysicalType};
 use std::fmt::Debug;
 
@@ -129,7 +129,7 @@ impl Debug for StringArray {
 impl Sealed for StringArray {}
 
 impl Array for StringArray {
-    type ScalarType = StringScalar;
+    type Element = StringElement;
 
     type ValuesIter<'a> = ArrayValuesIter<'a, Self>;
 
@@ -163,7 +163,7 @@ impl Array for StringArray {
     unsafe fn get_value_unchecked(
         &self,
         index: usize,
-    ) -> <Self::ScalarType as crate::scalar::Scalar>::RefType<'_> {
+    ) -> <Self::Element as crate::element::Element>::ElementRef<'_> {
         self.views.get_unchecked(index).shorten()
     }
 

@@ -290,31 +290,31 @@ where
 type ArithFunc<T> = fn(&[T], T, &mut [T]);
 
 /// Trait for add array with scalar
-pub trait ArrayAddScalar: PrimitiveType + Add<Output = Self> {
+pub trait ArrayAddElement: PrimitiveType + Add<Output = Self> {
     /// Add func
     const FUNC: ArithFunc<Self>;
 }
 
 /// Trait for sub array with scalar
-pub trait ArraySubScalar: PrimitiveType + Sub<Output = Self> {
+pub trait ArraySubElement: PrimitiveType + Sub<Output = Self> {
     /// Sub func
     const FUNC: ArithFunc<Self>;
 }
 
 /// Trait for multiple array with scalar
-pub trait ArrayMulScalar: PrimitiveType + Mul<Output = Self> {
+pub trait ArrayMulElement: PrimitiveType + Mul<Output = Self> {
     /// Multiple func
     const FUNC: ArithFunc<Self>;
 }
 
 /// Trait for div array with scalar
-pub trait ArrayDivScalar: PrimitiveType + DivExt {
+pub trait ArrayDivElement: PrimitiveType + DivExt {
     /// Div func
     const FUNC: ArithFunc<Self>;
 }
 
 /// Trait for rem array with scalar
-pub trait ArrayRemScalar: PrimitiveType + RemExt {
+pub trait ArrayRemElement: PrimitiveType + RemExt {
     /// rem func
     const FUNC: ArithFunc<Self>;
 }
@@ -323,23 +323,23 @@ macro_rules! impl_array_scalar_arith {
     ({$($ty:ty),+}, $add:ident, $sub:ident, $mul:ident, $div:ident, $rem:ident) => {
         // Intrinsic type
         $(
-            impl ArrayAddScalar for $ty {
+            impl ArrayAddElement for $ty {
                 const FUNC: ArithFunc<Self> = $add;
             }
 
-            impl ArraySubScalar for $ty {
+            impl ArraySubElement for $ty {
                 const FUNC: ArithFunc<Self> = $sub;
             }
 
-            impl ArrayMulScalar for $ty {
+            impl ArrayMulElement for $ty {
                 const FUNC: ArithFunc<Self> = $mul;
             }
 
-            impl ArrayDivScalar for $ty {
+            impl ArrayDivElement for $ty {
                 const FUNC: ArithFunc<Self> = $div;
             }
 
-            impl ArrayRemScalar for $ty {
+            impl ArrayRemElement for $ty {
                 const FUNC: ArithFunc<Self> = $rem;
             }
         )+
@@ -385,11 +385,11 @@ macro_rules! arith_scalar {
     };
 }
 
-arith_scalar!(add_scalar, +, ArrayAddScalar);
-arith_scalar!(sub_scalar, -, ArraySubScalar);
-arith_scalar!(mul_scalar, *, ArrayMulScalar);
-arith_scalar!(div_scalar, /, ArrayDivScalar);
-arith_scalar!(rem_scalar, %, ArrayRemScalar);
+arith_scalar!(add_scalar, +, ArrayAddElement);
+arith_scalar!(sub_scalar, -, ArraySubElement);
+arith_scalar!(mul_scalar, *, ArrayMulElement);
+arith_scalar!(div_scalar, /, ArrayDivElement);
+arith_scalar!(rem_scalar, %, ArrayRemElement);
 
 #[cfg(test)]
 mod tests {

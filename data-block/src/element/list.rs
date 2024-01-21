@@ -1,28 +1,28 @@
-//! ListScalar
+//! ListElement
 
 use std::fmt::Debug;
 
-use super::{Scalar, ScalarRef};
+use super::{Element, ElementRef};
 use crate::array::ArrayImpl;
 use crate::private::Sealed;
 use crate::types::PhysicalType;
 
-/// List as a scalar
+/// List as a element
 #[derive(Debug)]
-pub struct ListScalar(ArrayImpl);
+pub struct ListElement(ArrayImpl);
 
-impl Sealed for ListScalar {}
+impl Sealed for ListElement {}
 
-impl Scalar for ListScalar {
+impl Element for ListElement {
     const NAME: &'static str = "List";
 
     const PHYSICAL_TYPE: PhysicalType = PhysicalType::List;
 
-    type RefType<'a> = ListScalarRef<'a>;
+    type ElementRef<'a> = ListElementRef<'a>;
 
     #[inline]
-    fn as_ref(&self) -> Self::RefType<'_> {
-        ListScalarRef {
+    fn as_ref(&self) -> Self::ElementRef<'_> {
+        ListElementRef {
             array: &self.0,
             offset: 0,
             len: self.0.len() as u32,
@@ -30,26 +30,26 @@ impl Scalar for ListScalar {
     }
 }
 
-/// Reference to the ListScalar
+/// Reference to the ListElement
 #[derive(Clone, Copy)]
-pub struct ListScalarRef<'a> {
+pub struct ListElementRef<'a> {
     array: &'a ArrayImpl,
     offset: u32,
     len: u32,
 }
 
-impl<'a> ListScalarRef<'a> {
-    /// Create a new ListScalarRef
+impl<'a> ListElementRef<'a> {
+    /// Create a new ListElementRef
     #[inline]
     pub fn new(array: &'a ArrayImpl, offset: u32, len: u32) -> Self {
         Self { array, offset, len }
     }
 }
 
-impl<'a> Sealed for ListScalarRef<'a> {}
+impl<'a> Sealed for ListElementRef<'a> {}
 
-impl<'a> ScalarRef<'a> for ListScalarRef<'a> {
-    type OwnedType = ListScalar;
+impl<'a> ElementRef<'a> for ListElementRef<'a> {
+    type OwnedType = ListElement;
 
     #[inline]
     fn to_owned(self) -> Self::OwnedType {
@@ -57,7 +57,7 @@ impl<'a> ScalarRef<'a> for ListScalarRef<'a> {
     }
 }
 
-impl<'a> Debug for ListScalarRef<'a> {
+impl<'a> Debug for ListElementRef<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.array
             .debug_array_slice(f, self.offset as usize, self.len as usize)
@@ -80,7 +80,7 @@ mod tests {
             Some(2.74),
         ]));
 
-        let list_ref = ListScalarRef::new(&array, 0, 3);
+        let list_ref = ListElementRef::new(&array, 0, 3);
         let expect = expect_test::expect![[r#"
             Float32Array { len: 3, data: [
                 Some(

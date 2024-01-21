@@ -2,7 +2,7 @@
 
 /// Macros for all of the variants in the array
 ///
-/// Tuple: {enum variant name, scalar type, array type}
+/// Tuple: {enum variant name, element type, array type}
 #[macro_export]
 macro_rules! for_all_variants {
     ($macro:ident) => {
@@ -19,10 +19,10 @@ macro_rules! for_all_variants {
             {Float64, f64, Float64Array},
             {Int128, i128, Int128Array},
             {DayTime, DayTime, DayTimeArray},
-            {String, StringScalar, StringArray},
+            {String, StringElement, StringArray},
             {Binary, Vec<u8>, BinaryArray},
             {Boolean, bool, BooleanArray},
-            {List, ListScalar, ListArray}
+            {List, ListElement, ListArray}
         }
     };
 }
@@ -31,7 +31,7 @@ pub(crate) use for_all_variants;
 
 /// Call macro for all primitive types.
 ///
-/// Tuple: {enum variant name, scalar type, array type, logical type variant}
+/// Tuple: {enum variant name, element type, array type, logical type variant}
 macro_rules! for_all_primitive_types {
     ($macro:ident) => {
         $macro! {

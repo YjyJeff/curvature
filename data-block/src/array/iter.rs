@@ -2,7 +2,7 @@
 
 use super::Array;
 use crate::bitmap::{Bitmap, BitmapIter};
-use crate::scalar::Scalar;
+use crate::element::Element;
 use std::fmt::Debug;
 use std::iter::Zip;
 
@@ -35,7 +35,7 @@ impl<'a, A: Array> ArrayValuesIter<'a, A> {
 }
 
 impl<'a, A: Array> Iterator for ArrayValuesIter<'a, A> {
-    type Item = <A::ScalarType as Scalar>::RefType<'a>;
+    type Item = <A::Element as Element>::ElementRef<'a>;
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
@@ -107,7 +107,7 @@ impl<'a, A: Array> Debug for ArrayIter<'a, A> {
 }
 
 impl<'a, A: Array> Iterator for ArrayIter<'a, A> {
-    type Item = Option<<A::ScalarType as Scalar>::RefType<'a>>;
+    type Item = Option<<A::Element as Element>::ElementRef<'a>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self {

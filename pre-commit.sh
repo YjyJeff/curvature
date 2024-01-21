@@ -84,7 +84,7 @@ if ${CHANGED_BY_CARGO_FMT}; then
 fi
 
 # 3. cargo doc: check the doc is not broken
-echo -e "$(GREEN INFO): cargo clippy ..."
+echo -e "$(GREEN INFO): cargo doc ..."
 cargo doc --no-deps
 if [ $? -ne 0 ]; then
     echo -e "$(RED FAIL): cargo doc failed. git commit $(RED ABORTED), please have a look and run git add/commit again"

@@ -28,10 +28,10 @@ type CmpFunc<T> = unsafe fn(&AlignedVec<T>, T, *mut BitStore);
 
 /// TODO:
 /// - sse4.1 and neon
-/// - Should we provide two traits: IntrinsicCmpScalar and PrimitiveCmpScalar?
+/// - Should we provide two traits: IntrinsicCmpElement and PrimitiveCmpElement?
 ///
 /// Comparison array with scalar functions associated with each primitive type
-pub trait PrimitiveCmpScalar: PrimitiveType + PartialOrd {
+pub trait PrimitiveCmpElement: PrimitiveType + PartialOrd {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     /// Equal function implemented with avx2
     const EQ_FUNC_AVX2: CmpFunc<Self>;
@@ -95,7 +95,7 @@ macro_rules! cmp_scalar {
             #[doc = concat!("Perform `lhs ", stringify!($op), " rhs` between `PrimitiveArray<T>` and `T`")]
             pub unsafe fn $func_name<T>(lhs: &PrimitiveArray<T>, rhs: T, dst: &mut BooleanArray)
             where
-                T: PrimitiveCmpScalar,
+                T: PrimitiveCmpElement,
                 PrimitiveArray<T>: Array,
             {
                 // Reference dst's validity to lhs'validity

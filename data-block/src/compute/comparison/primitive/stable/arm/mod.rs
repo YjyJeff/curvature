@@ -2,7 +2,7 @@
 //!
 //! I can not avoid using macro, therefore, I do not use macro mix trait...
 
-use super::{CmpFunc, PrimitiveCmpScalar};
+use super::{CmpFunc, PrimitiveCmpElement};
 use crate::aligned_vec::AlignedVec;
 use crate::bitmap::BitStore;
 use crate::utils::roundup_loops;
@@ -110,7 +110,7 @@ macro_rules! cmp_scalar {
             $inner_macro!([<lt_scalar_ $ty>], $ty, [<vdupq_n_ $suffix>], [<vld1q_ $suffix>], [<vcltq_ $suffix>], );
             $inner_macro!([<le_scalar_ $ty>], $ty, [<vdupq_n_ $suffix>], [<vld1q_ $suffix>], [<vcleq_ $suffix>], );
 
-            impl PrimitiveCmpScalar for $ty {
+            impl PrimitiveCmpElement for $ty {
                 const EQ_FUNC_NEON: CmpFunc<Self> = [<eq_scalar_ $ty>];
                 const NE_FUNC_NEON: CmpFunc<Self> = [<ne_scalar_ $ty>];
                 const GT_FUNC_NEON: CmpFunc<Self> = [<gt_scalar_ $ty>];

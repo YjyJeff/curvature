@@ -9,7 +9,7 @@ use std::ptr::NonNull;
 use std::sync::Arc;
 
 use data_block::array::{Array, ArrayError, ArrayImpl};
-use data_block::types::Scalar;
+use data_block::types::Element;
 use snafu::Snafu;
 
 use super::Function;
@@ -267,7 +267,7 @@ pub trait UnaryAggregationState<PayloadArray: Array> {
     type Output;
 
     /// Update the state based on the element in the payload
-    fn update(&mut self, payload_element: <PayloadArray::ScalarType as Scalar>::RefType<'_>);
+    fn update(&mut self, payload_element: <PayloadArray::Element as Element>::ElementRef<'_>);
 
     /// Combine the unary aggregation state
     fn combine(&mut self, partial: &Self);

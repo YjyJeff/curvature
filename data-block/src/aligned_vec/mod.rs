@@ -10,8 +10,8 @@ use std::fmt::{Debug, Display};
 use std::mem::size_of;
 use std::ptr::{copy_nonoverlapping, NonNull};
 
+use crate::element::interval::DayTime;
 use crate::private::Sealed;
-use crate::scalar::interval::DayTime;
 use crate::utils::roundup_to_multiple_of;
 
 /// Size of the cache line in bytes

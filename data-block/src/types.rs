@@ -17,9 +17,9 @@ pub use crate::compute::IntrinsicType;
 pub use crate::compute::IntrinsicSimdType;
 
 pub use crate::array::Array;
-pub use crate::scalar::{Scalar, ScalarRef};
+pub use crate::element::{Element, ElementRef};
 
-/// Physical type has a one-to-one mapping to each struct that implements [`Scalar`]
+/// Physical type has a one-to-one mapping to each struct that implements [`Element`]
 ///
 /// [`PhysicalType`] and `encoding` could determine the memory representation of the
 /// [`Array`].

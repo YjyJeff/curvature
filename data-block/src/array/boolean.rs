@@ -66,7 +66,7 @@ impl BooleanArray {
 impl Sealed for BooleanArray {}
 
 impl Array for BooleanArray {
-    type ScalarType = bool;
+    type Element = bool;
     type ValuesIter<'a> = BitmapIter<'a>;
 
     #[inline]

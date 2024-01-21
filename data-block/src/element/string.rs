@@ -9,7 +9,7 @@ use std::fmt::{Debug, Display};
 use std::slice::from_raw_parts;
 use std::str::from_utf8_unchecked;
 
-use super::{Scalar, ScalarRef};
+use super::{Element, ElementRef};
 use libc::memcmp;
 
 /// Length of the prefix
@@ -312,15 +312,15 @@ impl<'a> Sealed for StringView<'a> {}
 impl AllocType for StringView<'static> {}
 
 /// Scala of the String with the StringView, it owns the StringData
-pub struct StringScalar {
+pub struct StringElement {
     /// The 'static lifetime is fake !!! If the view is indirect, it will points to
     /// [`Self::_data`]
     view: StringView<'static>,
     _data: Option<String>,
 }
 
-impl StringScalar {
-    /// Create a new StringScalar from the String
+impl StringElement {
+    /// Create a new StringElement from the String
     pub fn new(string: String) -> Self {
         if string.len() <= INLINE_LEN {
             Self {
@@ -336,31 +336,31 @@ impl StringScalar {
     }
 }
 
-impl Debug for StringScalar {
+impl Debug for StringElement {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self.view)
     }
 }
-impl Sealed for StringScalar {}
+impl Sealed for StringElement {}
 
-impl Scalar for StringScalar {
+impl Element for StringElement {
     const NAME: &'static str = "String";
     const PHYSICAL_TYPE: PhysicalType = PhysicalType::String;
 
-    type RefType<'a> = StringView<'a>;
+    type ElementRef<'a> = StringView<'a>;
 
     #[inline]
-    fn as_ref(&self) -> Self::RefType<'_> {
+    fn as_ref(&self) -> Self::ElementRef<'_> {
         self.view.shorten()
     }
 }
 
-impl<'a> ScalarRef<'a> for StringView<'a> {
-    type OwnedType = StringScalar;
+impl<'a> ElementRef<'a> for StringView<'a> {
+    type OwnedType = StringElement;
     #[inline]
     fn to_owned(self) -> Self::OwnedType {
         if self.is_inlined() {
-            StringScalar {
+            StringElement {
                 view: StringView {
                     length: self.length,
                     content: StringViewContent {
@@ -383,7 +383,7 @@ impl<'a> ScalarRef<'a> for StringView<'a> {
                         },
                     },
                 };
-                StringScalar {
+                StringElement {
                     view,
                     _data: Some(data),
                 }

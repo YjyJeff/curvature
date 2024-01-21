@@ -5,9 +5,9 @@ use snafu::ensure;
 use crate::aligned_vec::AlignedVec;
 use crate::array::InvalidLogicalTypeSnafu;
 use crate::bitmap::Bitmap;
+use crate::element::list::{ListElement, ListElementRef};
+use crate::element::Element;
 use crate::private::Sealed;
-use crate::scalar::list::{ListScalar, ListScalarRef};
-use crate::scalar::Scalar;
 use crate::types::{LogicalType, PhysicalType};
 use std::fmt::Debug;
 
@@ -94,7 +94,7 @@ impl ListArray {
 impl Sealed for ListArray {}
 
 impl Array for ListArray {
-    type ScalarType = ListScalar;
+    type Element = ListElement;
 
     type ValuesIter<'a> = ArrayValuesIter<'a, Self>;
 
@@ -128,8 +128,8 @@ impl Array for ListArray {
     unsafe fn get_value_unchecked(
         &self,
         index: usize,
-    ) -> <Self::ScalarType as Scalar>::RefType<'_> {
-        ListScalarRef::new(
+    ) -> <Self::Element as Element>::ElementRef<'_> {
+        ListElementRef::new(
             &self.elements,
             *self.offsets.get_unchecked(index),
             *self.lengths.get_unchecked(index),

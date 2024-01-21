@@ -37,8 +37,8 @@ pub mod array;
 pub mod bitmap;
 pub mod block;
 pub mod compute;
+pub mod element;
 mod macros;
-pub mod scalar;
 pub mod types;
 mod utils;
 

@@ -18,7 +18,7 @@ where
 macro_rules! cmp_scalar {
     ($func_name:ident, $cmp:tt, $trait_bound:ident) => {
         mutate_array_func!(
-            #[doc = concat!("Perform `left ", stringify!($cmp), " right` operation on a [`BinaryArray`] and a Scalar")]
+            #[doc = concat!("Perform `left ", stringify!($cmp), " right` operation on a [`BinaryArray`] and a Element")]
             pub unsafe fn $func_name(
                 lhs: &BinaryArray,
                 rhs: &[u8],

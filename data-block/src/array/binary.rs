@@ -6,8 +6,8 @@ use snafu::ensure;
 
 use crate::aligned_vec::AlignedVec;
 use crate::bitmap::Bitmap;
+use crate::element::Element;
 use crate::private::Sealed;
-use crate::scalar::Scalar;
 use crate::types::{LogicalType, PhysicalType};
 
 use super::iter::ArrayValuesIter;
@@ -144,7 +144,7 @@ impl Debug for BinaryArray {
 impl Sealed for BinaryArray {}
 
 impl Array for BinaryArray {
-    type ScalarType = Vec<u8>;
+    type Element = Vec<u8>;
 
     type ValuesIter<'a> = ArrayValuesIter<'a, Self>;
 
@@ -178,7 +178,7 @@ impl Array for BinaryArray {
     unsafe fn get_value_unchecked(
         &self,
         index: usize,
-    ) -> <Self::ScalarType as Scalar>::RefType<'_> {
+    ) -> <Self::Element as Element>::ElementRef<'_> {
         let start = *self.offsets.get_unchecked(index) as usize;
         let end = *self.offsets.get_unchecked(index + 1) as usize;
         self.bytes.get_slice_unchecked(start, end - start)

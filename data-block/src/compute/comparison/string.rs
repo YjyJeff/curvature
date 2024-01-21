@@ -3,8 +3,8 @@
 use libc::memcmp;
 
 use crate::array::{Array, BooleanArray, StringArray};
+use crate::element::string::{StringView, PREFIX_LEN};
 use crate::mutate_array_func;
-use crate::scalar::string::{StringView, PREFIX_LEN};
 
 macro_rules! impl_eq_scalar {
     ($func:ident, $op:tt, $conjunct:tt) => {

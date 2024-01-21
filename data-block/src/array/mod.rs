@@ -15,8 +15,8 @@ pub mod utils;
 use self::iter::ArrayIter;
 use self::ping_pong::PingPongPtr;
 use crate::bitmap::{Bitmap, BitmapIter};
+use crate::element::Element;
 use crate::private::Sealed;
-use crate::scalar::Scalar;
 use crate::types::{LogicalType, PhysicalType};
 pub use binary::*;
 pub use boolean::BooleanArray;
@@ -62,11 +62,11 @@ type Result<T> = std::result::Result<T, ArrayError>;
 
 /// A trait over all arrays
 pub trait Array: Sealed + Debug + 'static + Sized {
-    /// Scalar type of the [`Array`]
-    type ScalarType: Scalar;
+    /// Element of the [`Array`]
+    type Element: Element;
 
-    /// Iterator of the values in the [`Array`], it returns the reference to the scalar
-    type ValuesIter<'a>: Iterator<Item = <Self::ScalarType as Scalar>::RefType<'a>>;
+    /// Iterator of the values in the [`Array`], it returns the reference to the element
+    type ValuesIter<'a>: Iterator<Item = <Self::Element as Element>::ElementRef<'a>>;
 
     /// Get the iterator of values in the [`Array`]
     fn values_iter(&self) -> Self::ValuesIter<'_>;
@@ -92,14 +92,16 @@ pub trait Array: Sealed + Debug + 'static + Sized {
         self.len() == 0
     }
 
-    /// Returns a reference to the scalar at the given index without bound check
+    /// Returns a reference to the element at the given index without bound check
     ///
     /// # Safety
     /// Caller should guarantee `index < self.len()`, otherwise, [undefined behavior] happens
     ///
     /// [undefined behavior]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html
-    unsafe fn get_value_unchecked(&self, index: usize)
-        -> <Self::ScalarType as Scalar>::RefType<'_>;
+    unsafe fn get_value_unchecked(
+        &self,
+        index: usize,
+    ) -> <Self::Element as Element>::ElementRef<'_>;
 
     /// Get iterator of the array
     #[inline]
@@ -135,12 +137,12 @@ pub trait MutateArrayExt: Array {
 }
 
 macro_rules! array_impl {
-    ($({$variant:ident, $scalar_ty:ty, $array_ty:ident}),+) => {
+    ($({$variant:ident, $element_ty:ty, $array_ty:ident}),+) => {
         /// Implementations of the [`Array`], enum dispatch
         #[derive(Debug)]
         pub enum ArrayImpl {
             $(
-                #[doc = concat!("Array of `", stringify!($scalar_ty), "`")]
+                #[doc = concat!("Array of `", stringify!($element_ty), "`")]
                 $variant($array_ty)
             ),+
         }

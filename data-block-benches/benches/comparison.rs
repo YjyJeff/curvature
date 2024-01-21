@@ -2,12 +2,12 @@ use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criteri
 use data_block::array::{Array, BooleanArray, PrimitiveArray};
 use data_block::compute::comparison;
 #[cfg(not(feature = "portable_simd"))]
-use data_block::compute::comparison::primitive::PrimitiveCmpScalar;
+use data_block::compute::comparison::primitive::PrimitiveCmpElement;
 #[cfg(feature = "portable_simd")]
 use data_block::compute::{
     comparison::primitive::IntrinsicSimdOrd, IntrinsicSimdType, IntrinsicType,
 };
-use data_block::scalar::string::StringView;
+use data_block::element::string::StringView;
 use pprof::criterion::{Output, PProfProfiler};
 
 use data_block_benches::{
@@ -19,7 +19,7 @@ use rand::distributions::{Distribution, Standard};
 #[cfg(not(feature = "portable_simd"))]
 fn bench_primitive_array<T>(c: &mut Criterion, rhs: T, null_density: f32, seed: u64)
 where
-    T: PrimitiveCmpScalar + arrow2::types::NativeType + arrow2::compute::comparison::Simd8,
+    T: PrimitiveCmpElement + arrow2::types::NativeType + arrow2::compute::comparison::Simd8,
     Standard: Distribution<T>,
     PrimitiveArray<T>: Array,
     T::Simd: arrow2::compute::comparison::Simd8PartialOrd,

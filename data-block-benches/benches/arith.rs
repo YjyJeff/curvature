@@ -2,9 +2,9 @@ use std::ops::{Add, Div};
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use data_block::array::{Array, PrimitiveArray};
-use data_block::compute::arith::ArrayDivScalar;
+use data_block::compute::arith::ArrayDivElement;
 use data_block::compute::{arith, IntrinsicType};
-use data_block::scalar::Scalar;
+use data_block::element::Element;
 use data_block_benches::create_primitive_array_with_seed;
 use rand::distributions::{Distribution, Standard};
 
@@ -15,13 +15,13 @@ where
         + Div<Output = T>
         + PartialEq
         + Default
-        + ArrayDivScalar
-        + for<'a> Scalar<RefType<'a> = T>
+        + ArrayDivElement
+        + for<'a> Element<ElementRef<'a> = T>
         + arrow2::compute::arithmetics::basic::NativeArithmetics
         + arrow2::types::NativeType
         + num_traits::NumCast,
     Standard: Distribution<T>,
-    PrimitiveArray<T>: Array<ScalarType = T>,
+    PrimitiveArray<T>: Array<Element = T>,
 {
     let mut group = c.benchmark_group(format!("Compare{}", std::any::type_name::<T>()));
     (10..=12).step_by(2).for_each(|log2_size| {

@@ -5,18 +5,18 @@ use std::fmt::Debug;
 // use std::iter::{once, Once};
 
 use crate::bitmap::Bitmap;
+use crate::element::Element;
 use crate::private::Sealed;
-use crate::scalar::Scalar;
 
 // use super::Array;
 
-/// An array contains a single constant Scalar
+/// An array contains a single constant Element
 pub struct ConstantArray<T> {
     data: T,
     validity: Bitmap,
 }
 
-impl<T: Scalar> Debug for ConstantArray<T> {
+impl<T: Element> Debug for ConstantArray<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}ConstantArray{{ ", T::NAME)?;
         if unsafe { self.validity.get_unchecked(0) } {
@@ -27,12 +27,12 @@ impl<T: Scalar> Debug for ConstantArray<T> {
     }
 }
 
-impl<T: Scalar> Sealed for ConstantArray<T> {}
+impl<T: Element> Sealed for ConstantArray<T> {}
 
-// impl<T: Scalar> Array for ConstantArray<T> {
-//     type ScalarType = T;
+// impl<T: Element> Array for ConstantArray<T> {
+//     type Element = T;
 
-//     type ValuesIter<'a> = Once<T::RefType<'a>>;
+//     type ValuesIter<'a> = Once<T::ElementRef<'a>>;
 
 //     #[inline]
 //     fn values_iter(&self) -> Self::ValuesIter<'_> {
@@ -49,12 +49,12 @@ impl<T: Scalar> Sealed for ConstantArray<T> {}
 //         1
 //     }
 
-//     /// Not matter what index is passed, we always return the ScalarRef
+//     /// Not matter what index is passed, we always return the ElementRef
 //     #[inline]
 //     unsafe fn get_value_unchecked(
 //         &self,
 //         _index: usize,
-//     ) -> <Self::ScalarType as Scalar>::RefType<'_> {
+//     ) -> <Self::Element as Element>::ElementRef<'_> {
 //         self.data.as_ref()
 //     }
 // }

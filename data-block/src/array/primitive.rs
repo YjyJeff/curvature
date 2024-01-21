@@ -9,22 +9,22 @@ use std::slice::Iter;
 
 use crate::aligned_vec::{AlignedVec, AllocType};
 use crate::bitmap::Bitmap;
+use crate::element::interval::DayTime;
+use crate::element::Element;
 use crate::macros::for_all_primitive_types;
 use crate::private::Sealed;
-use crate::scalar::interval::DayTime;
-use crate::scalar::Scalar;
 use crate::types::LogicalType;
 
 /// Trait for types that can be placed on the [`PrimitiveArray`]
-pub trait PrimitiveType: AllocType + Scalar + Copy {
+pub trait PrimitiveType: AllocType + Element + Copy {
     /// Default logical type of this primitive type
     const LOGICAL_TYPE: LogicalType;
 }
 
 macro_rules! impl_primitive_type {
-    ($({$pt_variant:ident, $primitive_scalar_ty:ty, $alias:ident, $lt:ident}),*) => {
+    ($({$pt_variant:ident, $primitive_element_ty:ty, $alias:ident, $lt:ident}),*) => {
         $(
-            impl PrimitiveType for $primitive_scalar_ty {
+            impl PrimitiveType for $primitive_element_ty {
                 const LOGICAL_TYPE: LogicalType = LogicalType::$lt;
             }
         )*
@@ -139,9 +139,9 @@ impl<T: PrimitiveType> Sealed for PrimitiveArray<T> {}
 
 impl<T> Array for PrimitiveArray<T>
 where
-    T: for<'a> PrimitiveType<RefType<'a> = T>,
+    T: for<'a> PrimitiveType<ElementRef<'a> = T>,
 {
-    type ScalarType = T;
+    type Element = T;
 
     type ValuesIter<'a> = Copied<Iter<'a, T>>;
 
@@ -185,8 +185,8 @@ where
 
 impl<T> MutateArrayExt for PrimitiveArray<T>
 where
-    T: for<'a> PrimitiveType<RefType<'a> = T>,
-    PrimitiveArray<T>: Array<ScalarType = T>,
+    T: for<'a> PrimitiveType<ElementRef<'a> = T>,
+    PrimitiveArray<T>: Array<Element = T>,
 {
     #[inline]
     fn reference(&mut self, other: &Self) {

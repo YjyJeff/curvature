@@ -8,7 +8,7 @@ use std::ops::AddAssign;
 use std::sync::Arc;
 
 use data_block::array::{Array, ArrayError, ArrayImpl, PrimitiveType};
-use data_block::types::{LogicalType, Scalar};
+use data_block::types::{Element, LogicalType};
 
 use crate::exec::physical_expr::function::Function;
 use crate::exec::physical_expr::PhysicalExpr;
@@ -55,7 +55,7 @@ impl_payload_cast!(f32, {f32, f64});
 /// Aggregation state of the sum function
 #[derive(Debug)]
 pub struct SumState<SumArray: Array> {
-    sum: Option<SumArray::ScalarType>,
+    sum: Option<SumArray::Element>,
 }
 
 /// Aggregation function that sum the numeric array
@@ -99,7 +99,7 @@ impl<PayloadArray, SumArray> Stringify for Sum<PayloadArray, SumArray> {
 impl<PayloadArray, SumArray, SumT> Function for Sum<PayloadArray, SumArray>
 where
     PayloadArray: Array,
-    SumArray: Array<ScalarType = SumT>,
+    SumArray: Array<Element = SumT>,
     SumT: SumStateType,
 {
     fn arguments(&self) -> &[Arc<dyn PhysicalExpr>] {
@@ -113,9 +113,9 @@ where
 
 impl<PayloadArray, SumArray, PayloadT, SumT> AggregationFunction for Sum<PayloadArray, SumArray>
 where
-    PayloadArray: Array<ScalarType = PayloadT>,
-    for<'a> PayloadT: Scalar<RefType<'a> = PayloadT> + PayloadCast<SumType = SumT>,
-    SumArray: Array<ScalarType = SumT>,
+    PayloadArray: Array<Element = PayloadT>,
+    for<'a> PayloadT: Element<ElementRef<'a> = PayloadT> + PayloadCast<SumType = SumT>,
+    SumArray: Array<Element = SumT>,
     SumT: SumStateType + SaturatingAdd + AddAssign,
     for<'a> &'a PayloadArray: TryFrom<&'a ArrayImpl, Error = ArrayError>,
     for<'a> &'a mut SumArray: TryFrom<&'a mut ArrayImpl, Error = ArrayError>,
@@ -165,9 +165,9 @@ where
 impl<PayloadArray, SumArray, PayloadT, SumT> UnaryAggregationState<PayloadArray>
     for SumState<SumArray>
 where
-    PayloadArray: Array<ScalarType = PayloadT>,
-    for<'a> PayloadT: Scalar<RefType<'a> = PayloadT> + PayloadCast<SumType = SumT>,
-    SumArray: Array<ScalarType = SumT>,
+    PayloadArray: Array<Element = PayloadT>,
+    for<'a> PayloadT: Element<ElementRef<'a> = PayloadT> + PayloadCast<SumType = SumT>,
+    SumArray: Array<Element = SumT>,
     SumT: SumStateType + SaturatingAdd + AddAssign,
     for<'a> &'a PayloadArray: TryFrom<&'a ArrayImpl, Error = ArrayError>,
     for<'a> &'a mut SumArray: TryFrom<&'a mut ArrayImpl, Error = ArrayError>,
