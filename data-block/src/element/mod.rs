@@ -26,6 +26,14 @@ pub trait Element: Sealed + Debug + 'static {
 
     /// Get the reference of the [`Element`]
     fn as_ref(&self) -> Self::ElementRef<'_>;
+
+    /// Replace self with the element ref, used in the aggregation to avoid
+    /// repeated memory allocation
+    fn replace_with(&mut self, element_ref: Self::ElementRef<'_>);
+
+    /// Convert long lifetime to short lifetime. Manually covariance
+    fn upcast_gat<'short, 'long: 'short>(long: Self::ElementRef<'long>)
+        -> Self::ElementRef<'short>;
 }
 
 /// ElementRef represents a reference to the [`Element`]
@@ -54,6 +62,18 @@ macro_rules! impl_element_for_primitive_types {
                 #[inline]
                 fn as_ref(&self) -> Self::ElementRef<'_> {
                     *self
+                }
+
+                #[inline]
+                fn replace_with(&mut self, element_ref: Self::ElementRef<'_>){
+                    *self = element_ref;
+                }
+
+                #[inline]
+                fn upcast_gat<'short, 'long: 'short>(
+                    long: Self::ElementRef<'long>,
+                ) -> Self::ElementRef<'short> {
+                    long
                 }
 
             }
@@ -87,6 +107,18 @@ impl Element for bool {
     fn as_ref(&self) -> Self::ElementRef<'_> {
         *self
     }
+
+    #[inline]
+    fn replace_with(&mut self, element_ref: Self::ElementRef<'_>) {
+        *self = element_ref;
+    }
+
+    #[inline]
+    fn upcast_gat<'short, 'long: 'short>(
+        long: Self::ElementRef<'long>,
+    ) -> Self::ElementRef<'short> {
+        long
+    }
 }
 
 impl<'a> ElementRef<'a> for bool {
@@ -108,6 +140,19 @@ impl Element for Vec<u8> {
     #[inline]
     fn as_ref(&self) -> Self::ElementRef<'_> {
         self.as_slice()
+    }
+
+    #[inline]
+    fn replace_with(&mut self, element_ref: Self::ElementRef<'_>) {
+        self.clear();
+        self.extend_from_slice(element_ref)
+    }
+
+    #[inline]
+    fn upcast_gat<'short, 'long: 'short>(
+        long: Self::ElementRef<'long>,
+    ) -> Self::ElementRef<'short> {
+        long
     }
 }
 

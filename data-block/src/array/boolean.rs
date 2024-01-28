@@ -1,15 +1,16 @@
 //! BooleanArray
 
+use std::fmt::Debug;
+
 use snafu::ensure;
 
 use super::ping_pong::PingPongPtr;
-use super::{Array, InvalidLogicalTypeSnafu, MutateArrayExt, Result};
+use super::{Array, InvalidLogicalTypeSnafu, MutateArrayExt, Result, ScalarArray};
 use crate::bitmap::{Bitmap, BitmapIter};
 use crate::private::Sealed;
 use crate::types::{LogicalType, PhysicalType};
 
 /// Boolean Array
-#[derive(Debug)]
 pub struct BooleanArray {
     logical_type: LogicalType,
     pub(crate) data: PingPongPtr<Bitmap>,
@@ -113,16 +114,8 @@ impl MutateArrayExt for BooleanArray {
     }
 }
 
-/// Mutate BooleanArray
-impl BooleanArray {
-    /// Replace the array with the trusted_len iterator that has `len` items
-    ///
-    /// # Safety
-    ///
-    /// - The `trusted_len_iterator` must has `len` items
-    ///
-    /// - Satisfy the mutate condition
-    pub unsafe fn replace_with_trusted_len_iterator(
+impl ScalarArray for BooleanArray {
+    unsafe fn replace_with_trusted_len_values_iterator(
         &mut self,
         len: usize,
         trusted_len_iterator: impl Iterator<Item = bool>,
@@ -131,6 +124,42 @@ impl BooleanArray {
         self.data
             .exactly_once_mut()
             .reset(len, trusted_len_iterator);
+    }
+
+    unsafe fn replace_with_trusted_len_iterator(
+        &mut self,
+        len: usize,
+        trusted_len_iterator: impl Iterator<Item = Option<bool>>,
+    ) {
+        let uninitiated = self.data.exactly_once_mut();
+        let _ = uninitiated.clear_and_resize(len);
+        let uninitiated_validity = self.validity.exactly_once_mut();
+
+        // FIXME: set the data with unfold loop
+        uninitiated_validity.reset(
+            len,
+            trusted_len_iterator.enumerate().map(|(i, val)| {
+                if let Some(val) = val {
+                    uninitiated.set_unchecked(i, val);
+                    true
+                } else {
+                    false
+                }
+            }),
+        );
+    }
+}
+
+impl Debug for BooleanArray {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "BooleanArray {{ logical_type: {:?}, len: {}, data: ",
+            self.logical_type,
+            self.len()
+        )?;
+        f.debug_list().entries(self.iter()).finish()?;
+        write!(f, "}}")
     }
 }
 

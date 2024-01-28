@@ -130,10 +130,39 @@ pub trait Array: Sealed + Debug + 'static + Sized {
     fn logical_type(&self) -> &LogicalType;
 }
 
-/// Extension for array
+/// Extension for mutate array
 pub trait MutateArrayExt: Array {
     /// Reference self to other array
     fn reference(&mut self, other: &Self);
+}
+
+/// Trait for arrays that element is scalar type
+pub trait ScalarArray: Array {
+    /// Replace the array with the trusted_len values iterator that has `len` items
+    ///
+    /// # Safety
+    ///
+    /// - The `trusted_len_iterator` must has `len` items
+    ///
+    /// - Satisfy the mutate condition
+    unsafe fn replace_with_trusted_len_values_iterator(
+        &mut self,
+        len: usize,
+        trusted_len_iterator: impl Iterator<Item = Self::Element>,
+    );
+
+    /// Replace the array with the trusted_len iterator that has `len` items
+    ///
+    /// # Safety
+    ///
+    /// - The `trusted_len_iterator` must has `len` items
+    ///
+    /// - Satisfy the mutate condition
+    unsafe fn replace_with_trusted_len_iterator(
+        &mut self,
+        len: usize,
+        trusted_len_iterator: impl Iterator<Item = Option<Self::Element>>,
+    );
 }
 
 macro_rules! array_impl {

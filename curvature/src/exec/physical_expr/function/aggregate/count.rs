@@ -1,7 +1,6 @@
 //! Count function
 
-use data_block::array::ArrayImpl;
-use data_block::array::UInt64Array;
+use data_block::array::{ArrayImpl, ScalarArray, UInt64Array};
 use data_block::types::{Array, LogicalType};
 
 use crate::exec::physical_expr::{function::Function, PhysicalExpr};
@@ -127,7 +126,7 @@ impl<const STAR: bool> AggregationFunction for Count<STAR> {
         // it is created!
         output.validity_mut().exactly_once_mut().clear();
 
-        output.replace_with_trusted_len_iterator(
+        output.replace_with_trusted_len_values_iterator(
             state_ptrs.len(),
             state_ptrs
                 .iter()

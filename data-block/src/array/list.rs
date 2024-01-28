@@ -31,8 +31,14 @@ pub struct ListArray {
 }
 
 impl Debug for ListArray {
+    /// FIXME: implement debug
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "ListArray{{ len : {}, data: [] }}", self.len())
+        write!(
+            f,
+            "ListArray{{ logical_type: {:?}, len : {}, data: [] }}",
+            self.logical_type,
+            self.len()
+        )
     }
 }
 

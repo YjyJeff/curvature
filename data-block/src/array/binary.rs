@@ -135,7 +135,12 @@ impl BinaryArray {
 
 impl Debug for BinaryArray {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "BinaryArray {{ len: {}, data: ", self.len())?;
+        write!(
+            f,
+            "BinaryArray {{ logical_type: {:?} len: {}, data: ",
+            self.logical_type,
+            self.len()
+        )?;
         f.debug_list().entries(self.iter()).finish()?;
         writeln!(f, "}}")
     }

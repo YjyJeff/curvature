@@ -28,6 +28,18 @@ impl Element for ListElement {
             len: self.0.len() as u32,
         }
     }
+
+    #[inline]
+    fn replace_with(&mut self, element_ref: Self::ElementRef<'_>) {
+        todo!()
+    }
+
+    #[inline]
+    fn upcast_gat<'short, 'long: 'short>(
+        long: Self::ElementRef<'long>,
+    ) -> Self::ElementRef<'short> {
+        long
+    }
 }
 
 /// Reference to the ListElement

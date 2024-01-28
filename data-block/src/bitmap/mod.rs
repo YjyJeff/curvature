@@ -165,11 +165,7 @@ impl Bitmap {
     ///
     /// - len should equal to trusted_iter's length
     #[inline]
-    pub(crate) unsafe fn reset(
-        &mut self,
-        len: usize,
-        trusted_len_iterator: impl Iterator<Item = bool>,
-    ) {
+    pub unsafe fn reset(&mut self, len: usize, trusted_len_iterator: impl Iterator<Item = bool>) {
         let uninitialized = self.clear_and_resize(len);
         reset_bitmap_raw(uninitialized.as_mut_ptr(), len, trusted_len_iterator)
     }
@@ -222,7 +218,7 @@ impl Eq for Bitmap {}
 
 /// Compute the number of [`BitStore`] to store the required number of bits
 #[inline]
-fn elts(num_bits: usize) -> usize {
+pub fn elts(num_bits: usize) -> usize {
     (num_bits / BIT_STORE_BITS) + (num_bits % BIT_STORE_BITS != 0) as usize
 }
 

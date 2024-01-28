@@ -170,6 +170,8 @@ impl<T: AllocType> AlignedVec<T> {
         // 2. [`ALIGNMENT`] is guaranteed to be power of two
         unsafe {
             let new_cap_in_bytes = roundup_to_multiple_of(new_cap_in_bytes, CACHE_LINE_SIZE);
+            // The new memory region is at least two times larger than the old region
+            let new_cap_in_bytes = std::cmp::max(new_cap_in_bytes, self.capacity_in_bytes * 2);
             let new_layout = Layout::from_size_align_unchecked(new_cap_in_bytes, ALIGNMENT);
             let ptr = if self.capacity_in_bytes == 0 {
                 // ptr is not allocated, according to [`Safety`](https://doc.rust-lang.org/std/alloc/trait.GlobalAlloc.html#safety-4)

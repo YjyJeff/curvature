@@ -136,7 +136,7 @@ mod tests {
 
         let expect = expect![[r#"
             String(
-                StringArray { len: 4, data: [
+                StringArray { logical_type: VarChar, len: 4, data: [
                     None,
                     Some(
                         Curvature,

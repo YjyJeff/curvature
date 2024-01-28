@@ -23,7 +23,7 @@ pub(crate) const INLINE_LEN: usize = 12;
 /// of the pointed string should outlive this struct**
 ///
 /// [`Umbra`]: https://db.in.tum.de/~freitag/papers/p29-neumann-cidr20.pdf
-#[repr(C, align(8))]
+#[repr(C, align(16))]
 #[derive(Clone, Copy)]
 pub struct StringView<'a> {
     /// Length of the string
@@ -79,8 +79,8 @@ impl<'a> StringView<'a> {
     /// The returned [`StringView`] with 'static lifetime is fake !!! Caller should
     /// guarantee it should only used during the input ptr is valid
     #[inline]
-    pub(crate) unsafe fn new_indirect(ptr: *const u8, length: usize) -> StringView<'static> {
-        debug_assert!(length > INLINE_LEN);
+    pub(crate) unsafe fn new_indirect(ptr: *const u8, length: u32) -> StringView<'static> {
+        debug_assert!(length > INLINE_LEN as u32);
 
         // SAFETY:
         // length > INLINE_LEN, get bytes 0..PREFIX_LEN is valid
@@ -91,7 +91,7 @@ impl<'a> StringView<'a> {
                 .try_into()
                 .unwrap_unchecked();
             StringView {
-                length: length as u32,
+                length,
                 content: StringViewContent {
                     indirect: PrefixAndPointer {
                         _prefix: prefix,
@@ -109,7 +109,7 @@ impl<'a> StringView<'a> {
             Self::new_inline(str)
         } else {
             // Safety: str is &'static,  the returned pointer &'static ptr is not fake
-            unsafe { Self::new_indirect(str.as_ptr(), str.len()) }
+            unsafe { Self::new_indirect(str.as_ptr(), str.len() as u32) }
         }
     }
 
@@ -133,6 +133,20 @@ impl<'a> StringView<'a> {
     pub(crate) fn shorten(&self) -> StringView<'_> {
         // Just copy self !!!
         *self
+    }
+
+    /// Expand the lifetime to static
+    ///
+    /// # Safety
+    ///
+    /// [`StringView`] should be inlined
+    ///
+    /// # Allow
+    ///
+    /// The clippy hint is wrong!
+    #[allow(clippy::unnecessary_cast)]
+    unsafe fn expand(&self) -> StringView<'static> {
+        *((self as *const _) as *const StringView<'static>)
     }
 
     /// Calibrate the old pointer to new pointer. Reallocation, serialization would invalid
@@ -255,6 +269,7 @@ impl<'a> Ord for StringView<'a> {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         if self.prefix_as_u32() != other.prefix_as_u32() {
             // We can decide the result on prefix
+            // Note that we can not compare the prefix as u32, it only works for MSB!
             unsafe {
                 return memcmp(
                     self.inlined_ptr() as _,
@@ -315,8 +330,8 @@ impl AllocType for StringView<'static> {}
 pub struct StringElement {
     /// The 'static lifetime is fake !!! If the view is indirect, it will points to
     /// [`Self::_data`]
-    view: StringView<'static>,
-    _data: Option<String>,
+    pub(crate) view: StringView<'static>,
+    pub(crate) _data: Option<String>,
 }
 
 impl StringElement {
@@ -329,10 +344,22 @@ impl StringElement {
             }
         } else {
             Self {
-                view: unsafe { StringView::new_indirect(string.as_ptr(), string.len()) },
+                view: unsafe { StringView::new_indirect(string.as_ptr(), string.len() as _) },
                 _data: Some(string),
             }
         }
+    }
+
+    /// Get view
+    #[inline]
+    pub fn view(&self) -> StringView<'_> {
+        self.view.shorten()
+    }
+
+    /// Convert self to str
+    #[inline]
+    pub fn as_str(&self) -> &str {
+        self.view.as_str()
     }
 }
 
@@ -352,6 +379,35 @@ impl Element for StringElement {
     #[inline]
     fn as_ref(&self) -> Self::ElementRef<'_> {
         self.view.shorten()
+    }
+
+    #[inline]
+    fn replace_with(&mut self, element_ref: Self::ElementRef<'_>) {
+        if element_ref.is_inlined() {
+            // We do not need to modify the _data, just modify the view
+            self.view = unsafe { element_ref.expand() };
+        } else {
+            let ptr = if let Some(data) = &mut self._data {
+                // Reuse the memory allocated by the _data
+                data.clear();
+                data.push_str(element_ref.as_str());
+                data.as_ptr()
+            } else {
+                let data = element_ref.as_str().to_string();
+                let ptr = data.as_ptr();
+                self._data = Some(data);
+                ptr
+            };
+            // Update view in self
+            self.view = unsafe { StringView::new_indirect(ptr, element_ref.length) };
+        }
+    }
+
+    #[inline]
+    fn upcast_gat<'short, 'long: 'short>(
+        long: Self::ElementRef<'long>,
+    ) -> Self::ElementRef<'short> {
+        long
     }
 }
 
@@ -395,12 +451,35 @@ impl<'a> ElementRef<'a> for StringView<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::mem::size_of;
+    use std::mem::{align_of, size_of};
 
     #[test]
     fn test_memory_layout() {
         assert_eq!(size_of::<PrefixAndPointer<'_>>(), INLINE_LEN);
         assert_eq!(size_of::<StringViewContent<'_>>(), INLINE_LEN);
         assert_eq!(size_of::<StringView<'_>>(), 16);
+        assert_eq!(align_of::<StringView<'_>>(), 16);
+    }
+
+    #[test]
+    fn test_replace_string_element() {
+        let s0 = "wtf";
+        let s1 = "01234567891234";
+        let s2 = "StringView is pretty awesome";
+        let mut string_element = StringElement::new(String::new());
+
+        let view_0 = StringView::from_static_str(s0);
+        string_element.replace_with(view_0);
+        assert_eq!(string_element.as_str(), s0);
+
+        // allocate memory
+        string_element.replace_with(StringView::from_static_str(s1));
+        assert_eq!(string_element.as_str(), s1);
+        assert!(string_element._data.is_some());
+
+        // re-allocate memory
+        string_element.replace_with(StringView::from_static_str(s2));
+        assert_eq!(string_element.as_str(), s2);
+        assert!(string_element._data.is_some());
     }
 }

@@ -1,6 +1,7 @@
 //! Aggregate functions
 
 pub mod count;
+pub mod min_max;
 pub mod sum;
 
 use std::alloc::Layout;
@@ -8,7 +9,7 @@ use std::fmt::Debug;
 use std::ptr::NonNull;
 use std::sync::Arc;
 
-use data_block::array::{Array, ArrayError, ArrayImpl};
+use data_block::array::{Array, ArrayError, ArrayImpl, ScalarArray};
 use data_block::types::Element;
 use snafu::Snafu;
 
@@ -63,11 +64,6 @@ impl AggregationStatesPtr {
     /// View the ptr.add(offset) as &mut T
     unsafe fn offset_as_mut<'a, T>(self, offset: usize) -> &'a mut T {
         &mut *(self.0.as_ptr().add(offset) as *mut T)
-    }
-
-    /// View the ptr.add(offset) as & T
-    unsafe fn offset_as<'a, T>(self, offset: usize) -> &'a T {
-        &*(self.0.as_ptr().add(offset) as *const T)
     }
 }
 
@@ -184,7 +180,12 @@ pub trait AggregationFunction: Function + Stringify {
     ///
     /// # Safety
     ///
-    /// `ptr.add(state_offset)` is valid and points to the state of the function
+    /// - `ptr.add(state_offset)` is valid and points to the state of the function
+    ///
+    /// - the state is allocated but uninitiated, therefore init it should be careful!
+    /// Especially for state that contains memory allocation, you should use
+    /// `std::ptr::write` to override the memory and do not drop the old value! Otherwise,
+    /// dropping the uninitiated value may cause core dumped!
     unsafe fn init_state(&self, ptr: AggregationStatesPtr, state_offset: usize);
 
     /// Update the states of this aggregation function based on payloads of the function
@@ -218,7 +219,11 @@ pub trait AggregationFunction: Function + Stringify {
     /// # Safety
     ///
     /// - `ptr.add(state_offset)` is valid and points to the state of the function
+    ///
     /// - `partial_state_ptrs` and `combined_state_ptrs` have same length
+    ///
+    /// - Implementation should free the memory occupied by the `partial-state` that does not
+    /// in the arena
     unsafe fn combine_states(
         &self,
         partial_state_ptrs: &[AggregationStatesPtr],
@@ -270,13 +275,17 @@ pub trait UnaryAggregationState<PayloadArray: Array> {
     fn update(&mut self, payload_element: <PayloadArray::Element as Element>::ElementRef<'_>);
 
     /// Combine the unary aggregation state
-    fn combine(&mut self, partial: &Self);
+    ///
+    /// # Safety
+    ///
+    /// Implementation should free the memory occupied by the state that does not in arena
+    unsafe fn combine(&mut self, partial: &mut Self);
 
     /// Consume the aggregation state, return the output of the aggregation state
     ///
     /// # Safety
     ///
-    /// Implementation should free the memory occupied by the state
+    /// Implementation should free the memory occupied by the state that does not in arena
     unsafe fn finalize(&mut self) -> Self::Output;
 }
 
@@ -304,7 +313,20 @@ unsafe fn unary_update_states<PayloadArray, S>(
     S: UnaryAggregationState<PayloadArray>,
     for<'a> &'a PayloadArray: TryFrom<&'a ArrayImpl, Error = ArrayError>,
 {
+    #[cfg(debug_assertions)]
+    let &payload = payloads
+        .first()
+        .expect("Unary aggregation accept one payload, the input payloads should not be empty");
+
+    #[cfg(not(debug_assertions))]
     let &payload = payloads.get_unchecked(0);
+
+    #[cfg(debug_assertions)]
+    let payload: &PayloadArray = payload
+        .try_into()
+        .expect("Unary aggregation's payload array should match its signature");
+
+    #[cfg(not(debug_assertions))]
     let payload: &PayloadArray = payload.try_into().unwrap_unchecked();
 
     let validity = payload.validity();
@@ -344,7 +366,34 @@ unsafe fn unary_combine_states<PayloadArray, S>(
         .zip(partial_state_ptrs)
         .for_each(|(combined, partial)| {
             let combined = combined.offset_as_mut::<S>(state_offset);
-            let partial = partial.offset_as::<S>(state_offset);
+            let partial = partial.offset_as_mut::<S>(state_offset);
             combined.combine(partial)
         });
+}
+
+#[inline]
+unsafe fn unary_finalize_states<PayloadArray, OutputArray, S>(
+    state_ptrs: &[AggregationStatesPtr],
+    state_offset: usize,
+    output: &mut ArrayImpl,
+) where
+    PayloadArray: Array,
+    OutputArray: ScalarArray,
+    S: UnaryAggregationState<PayloadArray, Output = Option<OutputArray::Element>>,
+    for<'a> &'a mut OutputArray: TryFrom<&'a mut ArrayImpl, Error = ArrayError>,
+{
+    #[cfg(debug_assertions)]
+    let output: &mut OutputArray = output
+        .try_into()
+        .expect("Output of the unary aggregation should match its signature");
+
+    #[cfg(not(debug_assertions))]
+    let output: &mut OutputArray = output.try_into().unwrap_unchecked();
+
+    let trusted_len_iterator = state_ptrs.iter().map(|ptr| {
+        let state = ptr.offset_as_mut::<S>(state_offset);
+        state.finalize()
+    });
+
+    output.replace_with_trusted_len_iterator(state_ptrs.len(), trusted_len_iterator)
 }

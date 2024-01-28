@@ -1,7 +1,7 @@
 //! [`PrimitiveArray`] that stores fixed byte-width data
 
 use super::ping_pong::PingPongPtr;
-use super::{Array, InvalidLogicalTypeSnafu, MutateArrayExt, Result};
+use super::{Array, InvalidLogicalTypeSnafu, MutateArrayExt, Result, ScalarArray};
 use snafu::ensure;
 use std::fmt::Debug;
 use std::iter::Copied;
@@ -16,7 +16,7 @@ use crate::private::Sealed;
 use crate::types::LogicalType;
 
 /// Trait for types that can be placed on the [`PrimitiveArray`]
-pub trait PrimitiveType: AllocType + Element + Copy {
+pub trait PrimitiveType: AllocType + for<'a> Element<ElementRef<'a> = Self> + Copy {
     /// Default logical type of this primitive type
     const LOGICAL_TYPE: LogicalType;
 }
@@ -129,9 +129,15 @@ where
     Self: Array,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}Array {{ len: {}, data: ", T::NAME, self.len())?;
+        write!(
+            f,
+            "{}Array {{ logical_type: {:?}, len: {}, data: ",
+            T::NAME,
+            self.logical_type,
+            self.len()
+        )?;
         f.debug_list().entries(self.iter()).finish()?;
-        writeln!(f, "}}")
+        write!(f, "}}")
     }
 }
 
@@ -195,17 +201,12 @@ where
     }
 }
 
-/// Mutate PrimitiveArray
-impl<T: PrimitiveType> PrimitiveArray<T> {
-    /// Replace the array with the trusted_len iterator that has `len` items
-    ///
-    /// # Safety
-    ///
-    /// - The `trusted_len_iterator` must has `len` items
-    ///
-    /// - Satisfy the mutate condition
+impl<T> ScalarArray for PrimitiveArray<T>
+where
+    T: for<'a> PrimitiveType<ElementRef<'a> = T>,
+{
     #[inline]
-    pub unsafe fn replace_with_trusted_len_iterator(
+    unsafe fn replace_with_trusted_len_values_iterator(
         &mut self,
         len: usize,
         trusted_len_iterator: impl Iterator<Item = T>,
@@ -219,6 +220,28 @@ impl<T: PrimitiveType> PrimitiveArray<T> {
             .for_each(|(uninitiated, item)| {
                 *uninitiated = item;
             })
+    }
+
+    #[inline]
+    unsafe fn replace_with_trusted_len_iterator(
+        &mut self,
+        len: usize,
+        trusted_len_iterator: impl Iterator<Item = Option<T>>,
+    ) {
+        let uninitiated = self.data.exactly_once_mut().clear_and_resize(len);
+        let uninitiated_validity = self.validity.exactly_once_mut();
+
+        uninitiated_validity.reset(
+            len,
+            trusted_len_iterator.enumerate().map(|(i, val)| {
+                if let Some(val) = val {
+                    *uninitiated.get_unchecked_mut(i) = val;
+                    true
+                } else {
+                    false
+                }
+            }),
+        );
     }
 }
 

@@ -20,7 +20,6 @@ quanta = { workspace = true }
 uuid = { workspace = true }
 tracing = { workspace = true }
 strength_reduce = { workspace = true }
-num-traits = { workspace = true }
 
 # TODO: Remove the rayon, use monoio instead?
 rayon = { workspace = true }
@@ -32,6 +31,3 @@ expect-test = "1.4.1"
 [features]
 default = []
 profile = []
-# Feature for arithmetic if overflow happens. If `saturating` is enabled, aggregations
-# will saturate if overflow happens. Otherwise, we do not check overflow
-saturating = []

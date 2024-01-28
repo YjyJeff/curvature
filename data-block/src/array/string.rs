@@ -27,7 +27,7 @@ use std::fmt::Debug;
 
 use super::iter::ArrayValuesIter;
 use super::ping_pong::PingPongPtr;
-use super::{Array, InvalidLogicalTypeSnafu, MutateArrayExt, Result};
+use super::{Array, InvalidLogicalTypeSnafu, MutateArrayExt, Result, ScalarArray};
 
 /// [`Array`] of string
 pub struct StringArray {
@@ -40,6 +40,10 @@ pub struct StringArray {
     /// is a hack to allow the self-referential
     pub(crate) views: PingPongPtr<AlignedVec<StringView<'static>>>,
     pub(crate) validity: PingPongPtr<Bitmap>,
+    // An auxiliary vector to record the offset to the bytes. Reallocation
+    // invalid the address of the bytes, therefore, if we store the pointer
+    // to the bytes directly, we will get invalid pointer
+    _calibrate_offsets: Vec<usize>,
 }
 
 impl StringArray {
@@ -86,6 +90,7 @@ impl StringArray {
             _bytes: PingPongPtr::default(),
             views: PingPongPtr::new(AlignedVec::with_capacity(capacity)),
             validity: PingPongPtr::default(),
+            _calibrate_offsets: Vec::with_capacity(capacity),
         }
     }
 
@@ -99,28 +104,34 @@ impl StringArray {
         // An auxiliary vector to record the offset to the bytes. Reallocation
         // invalid the address of the bytes, therefore, if we store the pointer
         // to the bytes directly, we will get invalid pointer
-        let mut offsets = Vec::<usize>::with_capacity(lower);
+        let mut calibrate_offsets = Vec::<usize>::with_capacity(lower);
 
         for val in iter {
             views.reserve(1);
-            push_str(val.as_ref(), &mut bytes, &mut views, &mut offsets);
+            push_str(val.as_ref(), &mut bytes, &mut views, &mut calibrate_offsets);
             views.len += 1;
         }
 
-        calibrate_pointers(bytes.ptr.as_ptr(), views.as_mut_slice(), &offsets);
+        calibrate_pointers(bytes.ptr.as_ptr(), views.as_mut_slice(), &calibrate_offsets);
 
         Self {
             logical_type: LogicalType::VarChar,
             _bytes: PingPongPtr::new(bytes),
             views: PingPongPtr::new(views),
             validity: PingPongPtr::default(),
+            _calibrate_offsets: calibrate_offsets,
         }
     }
 }
 
 impl Debug for StringArray {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "StringArray {{ len: {}, data: ", self.len())?;
+        write!(
+            f,
+            "StringArray {{ logical_type: {:?}, len: {}, data: ",
+            self.logical_type,
+            self.len()
+        )?;
         f.debug_list().entries(self.iter()).finish()?;
         writeln!(f, "}}")
     }
@@ -186,21 +197,21 @@ fn push_str(
     val: &str,
     bytes: &mut AlignedVec<u8>,
     views: &mut AlignedVec<StringView<'static>>,
-    offsets: &mut Vec<usize>,
+    calibrate_offsets: &mut Vec<usize>,
 ) {
     let len = val.len();
     let view = if len <= INLINE_LEN {
-        offsets.push(usize::MAX);
+        calibrate_offsets.push(usize::MAX);
         StringView::new_inline(val)
     } else {
-        offsets.push(bytes.len);
+        calibrate_offsets.push(bytes.len);
         bytes.reserve(len);
         unsafe {
             // Copy the string content to bytes
             let dst = bytes.ptr.as_ptr().add(bytes.len);
             std::ptr::copy_nonoverlapping(val.as_ptr(), dst, len);
             bytes.len += len;
-            StringView::new_indirect(dst, len)
+            StringView::new_indirect(dst, len as _)
         }
     };
     unsafe {
@@ -208,8 +219,37 @@ fn push_str(
     }
 }
 
-fn calibrate_pointers(base_ptr: *mut u8, views: &mut [StringView<'static>], offsets: &[usize]) {
-    offsets
+#[inline]
+unsafe fn assign_string_element(
+    element: StringElement,
+    bytes: &mut AlignedVec<u8>,
+    views: &mut [StringView<'static>],
+    index: usize,
+    calibrate_offsets: &mut Vec<usize>,
+) {
+    *views.get_unchecked_mut(index) = element.view;
+
+    if let Some(data) = element._data {
+        let len = data.len();
+        calibrate_offsets.push(bytes.len);
+        bytes.reserve(len);
+        unsafe {
+            // Copy the string content to bytes
+            let dst = bytes.ptr.as_ptr().add(bytes.len);
+            std::ptr::copy_nonoverlapping(data.as_ptr(), dst, len);
+            bytes.len += len;
+        }
+    } else {
+        calibrate_offsets.push(usize::MAX);
+    }
+}
+
+fn calibrate_pointers(
+    base_ptr: *mut u8,
+    views: &mut [StringView<'static>],
+    calibrate_offsets: &[usize],
+) {
+    calibrate_offsets
         .iter()
         .zip(views)
         .for_each(|(&offset, view)| unsafe {
@@ -226,38 +266,101 @@ impl<V: AsRef<str> + Debug> FromIterator<Option<V>> for StringArray {
         let (lower, _) = iter.size_hint();
         let mut bytes = AlignedVec::<u8>::new();
         let mut views = AlignedVec::<StringView<'static>>::with_capacity(lower);
-        // An auxiliary vector to record the offset to the bytes. Reallocation
-        // invalid the address of the bytes, therefore, if we store the pointer
-        // to the bytes directly, we will get invalid pointer
-        let mut offsets = Vec::<usize>::with_capacity(lower);
+        let mut calibrate_offsets = Vec::<usize>::with_capacity(lower);
         let mut validity = Bitmap::new();
 
         for val in iter {
             views.reserve(1);
             match val {
                 Some(val) => {
-                    push_str(val.as_ref(), &mut bytes, &mut views, &mut offsets);
+                    push_str(val.as_ref(), &mut bytes, &mut views, &mut calibrate_offsets);
                     validity.push(true);
                 }
                 None => {
                     unsafe {
                         *views.ptr.as_ptr().add(views.len) = StringView::default();
                     }
-                    offsets.push(usize::MAX);
+                    calibrate_offsets.push(usize::MAX);
                     validity.push(false);
                 }
             }
             views.len += 1;
         }
 
-        calibrate_pointers(bytes.ptr.as_ptr(), views.as_mut_slice(), &offsets);
+        calibrate_pointers(bytes.ptr.as_ptr(), views.as_mut_slice(), &calibrate_offsets);
 
         Self {
             logical_type: LogicalType::VarChar,
             _bytes: PingPongPtr::new(bytes),
             views: PingPongPtr::new(views),
             validity: PingPongPtr::new(validity),
+            _calibrate_offsets: calibrate_offsets,
         }
+    }
+}
+
+impl ScalarArray for StringArray {
+    #[inline]
+    unsafe fn replace_with_trusted_len_values_iterator(
+        &mut self,
+        len: usize,
+        trusted_len_iterator: impl Iterator<Item = Self::Element>,
+    ) {
+        self.validity.exactly_once_mut().clear();
+
+        let uninitiated_views = self.views.exactly_once_mut().clear_and_resize(len);
+        let uninitiated_bytes = self._bytes.exactly_once_mut();
+        uninitiated_bytes.clear();
+        self._calibrate_offsets.clear();
+
+        trusted_len_iterator
+            .enumerate()
+            .for_each(|(index, element)| {
+                assign_string_element(
+                    element,
+                    uninitiated_bytes,
+                    uninitiated_views,
+                    index,
+                    &mut self._calibrate_offsets,
+                )
+            });
+
+        calibrate_pointers(
+            uninitiated_bytes.ptr.as_ptr(),
+            uninitiated_views,
+            &self._calibrate_offsets,
+        )
+    }
+
+    unsafe fn replace_with_trusted_len_iterator(
+        &mut self,
+        len: usize,
+        trusted_len_iterator: impl Iterator<Item = Option<Self::Element>>,
+    ) {
+        let uninitiated_validity = self.validity.exactly_once_mut();
+
+        let uninitiated_views = self.views.exactly_once_mut().clear_and_resize(len);
+        let uninitiated_bytes = self._bytes.exactly_once_mut();
+        uninitiated_bytes.clear();
+        self._calibrate_offsets.clear();
+
+        uninitiated_validity.reset(
+            len,
+            trusted_len_iterator.enumerate().map(|(index, element)| {
+                if let Some(element) = element {
+                    assign_string_element(
+                        element,
+                        uninitiated_bytes,
+                        uninitiated_views,
+                        index,
+                        &mut self._calibrate_offsets,
+                    );
+                    true
+                } else {
+                    false
+                }
+            }),
+        );
     }
 }
 
@@ -295,6 +398,30 @@ mod tests {
             data.iter()
                 .map(|v| v.as_ref().map(|v| v.to_string()))
                 .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_string_array_replace_with_trusted_len_values_iter() {
+        let data = [
+            "curvature",
+            "",
+            "auto",
+            "vectorization",
+            "auto-vectorization",
+        ];
+
+        let iter = data.iter().map(|v| StringElement::new(v.to_string()));
+
+        let mut string_array = StringArray::new(LogicalType::VarChar).unwrap();
+        unsafe { string_array.replace_with_trusted_len_values_iterator(5, iter) }
+
+        assert_eq!(
+            string_array
+                .values_iter()
+                .map(|v| v.as_str().to_string())
+                .collect::<Vec<_>>(),
+            data
         );
     }
 }
