@@ -1,4 +1,5 @@
 use super::{Operator, Pipeline, PipelineIndex, Sink, Source};
+use crate::common::client_context::ClientContext;
 use crate::exec::physical_operator::union::Union;
 use crate::exec::physical_operator::{OperatorError, PhysicalOperator};
 use snafu::{ensure, OptionExt, ResultExt, Snafu};
@@ -78,10 +79,13 @@ pub struct PipelineBuilder<'p> {
     /// Union Builders created by Union. The union_builder may have its own union_builders because
     /// chain of multiple unions
     union_builders: Vec<Self>,
+
+    /// Client context
+    client_ctx: &'p ClientContext,
 }
 
 impl<'p> PipelineBuilder<'p> {
-    pub fn new(pipelines: &'p RefCell<Vec<Pipeline<Sink>>>) -> Self {
+    pub fn new(pipelines: &'p RefCell<Vec<Pipeline<Sink>>>, client_ctx: &'p ClientContext) -> Self {
         Self {
             pipelines,
             operators: vec![],
@@ -89,6 +93,7 @@ impl<'p> PipelineBuilder<'p> {
             children_indexes: vec![],
             join_children_indexes: vec![],
             union_builders: Vec::with_capacity(2),
+            client_ctx,
         }
     }
 
@@ -101,6 +106,7 @@ impl<'p> PipelineBuilder<'p> {
             children_indexes: vec![],
             join_children_indexes: vec![],
             union_builders: Vec::with_capacity(2),
+            client_ctx: self.client_ctx,
         });
 
         // SAFETY: we push a new builder above
@@ -126,11 +132,11 @@ impl<'p> PipelineBuilder<'p> {
             // Children is empty, it must be table scan. Set the operator as source
             let source = Source {
                 op: Arc::clone(operator),
-                global_state: operator.global_source_state().with_context(|_| {
-                    CreateGlobalSourceStateSnafu {
+                global_state: operator
+                    .global_source_state(self.client_ctx)
+                    .with_context(|_| CreateGlobalSourceStateSnafu {
                         source_op: operator.name(),
-                    }
-                })?,
+                    })?,
             };
             self.source = Some(source);
             ensure!(
@@ -161,11 +167,11 @@ impl<'p> PipelineBuilder<'p> {
                 // Regular operator, push to operators directly
                 let operator = Operator {
                     op: Arc::clone(operator),
-                    global_state: operator.global_operator_state().with_context(|_| {
-                        CreateGlobalOperatorStateSnafu {
+                    global_state: operator
+                        .global_operator_state(self.client_ctx)
+                        .with_context(|_| CreateGlobalOperatorStateSnafu {
                             op: operator.name(),
-                        }
-                    })?,
+                        })?,
                 };
                 self.handle_regular_operator(operator);
             }
@@ -202,7 +208,7 @@ impl<'p> PipelineBuilder<'p> {
         let sink = Sink {
             op: Arc::clone(op),
             global_state: op
-                .global_sink_state()
+                .global_sink_state(self.client_ctx)
                 .with_context(|_| CreateGlobalSinkStateSnafu { sink_op: op.name() })?,
         };
         if self.union_builders.is_empty() {
@@ -227,7 +233,7 @@ impl<'p> PipelineBuilder<'p> {
         // Sink is the source of the later pipeline
         let source = Source {
             op: Arc::clone(op),
-            global_state: op.global_source_state().with_context(|_| {
+            global_state: op.global_source_state(self.client_ctx).with_context(|_| {
                 CreateGlobalSourceStateSnafu {
                     source_op: op.name(),
                 }
@@ -334,6 +340,7 @@ mod tests {
 
     use super::*;
     use crate::exec::physical_expr::field_ref::FieldRef;
+    use crate::exec::physical_expr::function::aggregate::count::CountStart;
     use crate::exec::physical_operator::aggregate::hash_aggregate::HashAggregate;
     use crate::exec::physical_operator::numbers::Numbers;
     use crate::exec::physical_operator::projection::Projection;
@@ -363,14 +370,22 @@ mod tests {
     }
 
     fn aggregate(input: Arc<dyn PhysicalOperator>) -> Arc<dyn PhysicalOperator> {
-        Arc::new(HashAggregate::try_new(input).unwrap())
+        // FIXME: The serde is incorrect
+        Arc::new(
+            HashAggregate::<crate::exec::physical_operator::aggregate::hash_aggregate::serde::FixedSizedSerdeKeySerializer<u64>>::try_new(
+                input,
+                vec![Arc::new( CountStart::new())],
+            )
+            .unwrap(),
+        )
     }
 
     fn build_pipelines(
         operator: &Arc<dyn PhysicalOperator>,
     ) -> (Vec<Pipeline<()>>, Vec<Pipeline<Sink>>) {
         let pipelines = RefCell::new(vec![]);
-        let mut builder = PipelineBuilder::new(&pipelines);
+        let client_ctx = crate::common::client_context::tests::mock_client_context();
+        let mut builder = PipelineBuilder::new(&pipelines, &client_ctx);
         builder.build_pipelines(operator).unwrap();
         let root_pipelines = builder.finish().unwrap();
         (root_pipelines, pipelines.into_inner())

@@ -21,8 +21,8 @@ use super::{
 use_types_for_impl_regular_for_non_regular!();
 use_types_for_impl_sink_for_non_sink!();
 
-use crate::error::SendableError;
 use crate::STANDARD_VECTOR_SIZE;
+use crate::{common::client_context::ClientContext, error::SendableError};
 use data_block::array::utils::physical_array_name;
 use data_block::array::ArrayImpl;
 use data_block::block::DataBlock;
@@ -214,7 +214,10 @@ impl PhysicalOperator for Numbers {
         self.read_data_in_parallel(output, global_state, local_state)
     }
 
-    fn global_source_state(&self) -> OperatorResult<Arc<dyn GlobalSourceState>> {
+    fn global_source_state(
+        &self,
+        _client_ctx: &ClientContext,
+    ) -> OperatorResult<Arc<dyn GlobalSourceState>> {
         Ok(Arc::new(NumbersGlobalSourceState(Arc::new(
             AtomicU64::new(self.start),
         ))))
@@ -326,9 +329,10 @@ mod tests {
         }
 
         Report::capture(|| {
+            let client_ctx = crate::common::client_context::tests::mock_client_context();
             let count = Numbers::MORSEL_SIZE * 3;
             let numbers = Numbers::new(0, NonZeroU64::new(count).unwrap());
-            let global_state = numbers.global_source_state()?;
+            let global_state = numbers.global_source_state(&client_ctx)?;
             let sum = std::thread::scope(|s| {
                 let jh_0 = s.spawn(|| sum_read_numbers(&numbers, &*global_state));
                 let jh_1 = s.spawn(|| sum_read_numbers(&numbers, &*global_state));

@@ -8,6 +8,9 @@ use std::{alloc::Layout, sync::Arc};
 
 use super::{AggregationFunction, AggregationStatesPtr, Result, Stringify};
 
+/// Count(*) function
+pub type CountStart = Count<true>;
+
 /// Aggregation state of the count function
 #[derive(Debug)]
 #[repr(transparent)]
@@ -36,9 +39,13 @@ impl<const STAR: bool> Stringify for Count<STAR> {
     }
 
     fn display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Count(")?;
-        self.args[0].display(f, true)?;
-        write!(f, ")")
+        if STAR {
+            write!(f, "CountStar")
+        } else {
+            write!(f, "Count(")?;
+            self.args[0].display(f, true)?;
+            write!(f, ")")
+        }
     }
 }
 
@@ -134,5 +141,28 @@ impl<const STAR: bool> AggregationFunction for Count<STAR> {
         );
 
         Ok(())
+    }
+}
+
+impl CountStart {
+    /// Create a new `Count(*)`
+    #[inline]
+    pub fn new() -> Self {
+        Self { args: vec![] }
+    }
+}
+
+impl Default for CountStart {
+    #[inline]
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Count<false> {
+    /// Create a new `Count(expr)` function
+    #[inline]
+    pub fn new(arg: Arc<dyn PhysicalExpr>) -> Self {
+        Self { args: vec![arg] }
     }
 }

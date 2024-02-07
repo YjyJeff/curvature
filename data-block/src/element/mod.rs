@@ -5,17 +5,18 @@ pub mod list;
 pub mod string;
 
 use self::interval::DayTime;
-use self::list::ListElement;
-use self::string::StringElement;
-use std::fmt::Debug;
+use self::list::{ListElement, ListElementRef};
+use self::string::{StringElement, StringView};
+use std::fmt::{Debug, Display};
 
+use crate::for_all_variants;
 use crate::macros::for_all_primitive_types;
 use crate::private::Sealed;
 use crate::types::PhysicalType;
 
 /// Element represents the owned single value in an `Array`
 pub trait Element: Sealed + Debug + 'static {
-    /// Unique name of the Element,
+    /// Unique name of the Element
     const NAME: &'static str;
 
     /// Physical type of this Element
@@ -181,3 +182,59 @@ macro_rules! element_impl {
 }
 
 crate::macros::for_all_variants!(element_impl);
+
+/// Reference to the [`ElementImpl`]
+///
+/// FIXME: include it in macro
+#[derive(Debug)]
+pub enum ElementImplRef<'a> {
+    /// Int8
+    Int8(i8),
+    /// Uint8
+    UInt8(u8),
+    /// Int16
+    Int16(i16),
+    /// Uint16
+    UInt16(u16),
+    /// Int32
+    Int32(i32),
+    /// UInt32
+    UInt32(u32),
+    /// Int64
+    Int64(i64),
+    /// Uint64
+    UInt64(u64),
+    /// Float32
+    Float32(f32),
+    /// Float64
+    Float64(f64),
+    /// Int128
+    Int128(i128),
+    /// DayTime
+    DayTime(DayTime),
+    /// StringView
+    String(StringView<'a>),
+    /// Binary blob
+    Binary(&'a [u8]),
+    /// Boolean
+    Boolean(bool),
+    /// List
+    List(ListElementRef<'a>),
+}
+
+macro_rules! impl_element_impl_ref {
+    ($({$variant:ident, $_:ty, $__:ident}),+) => {
+        impl<'a> Display for ElementImplRef<'a> {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                match self {
+                    $(
+                        // FIXME: Display instead of Debug
+                        Self::$variant(element) => write!(f, "{:?}", element),
+                    )+
+                }
+            }
+        }
+    };
+}
+
+for_all_variants!(impl_element_impl_ref);

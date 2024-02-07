@@ -20,6 +20,9 @@ quanta = { workspace = true }
 uuid = { workspace = true }
 tracing = { workspace = true }
 strength_reduce = { workspace = true }
+libc = { workspace = true }
+num-traits = { workspace = true }
+parking_lot = { workspace = true }
 
 # TODO: Remove the rayon, use monoio instead?
 rayon = { workspace = true }

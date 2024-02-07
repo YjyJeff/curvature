@@ -10,7 +10,7 @@ use std::ptr::NonNull;
 use std::sync::Arc;
 
 use data_block::array::{Array, ArrayError, ArrayImpl, ScalarArray};
-use data_block::types::Element;
+use data_block::types::{Element, LogicalType};
 use snafu::Snafu;
 
 use super::Function;
@@ -33,7 +33,8 @@ pub enum AggregationError {
     },
 }
 
-type Result<T> = std::result::Result<T, AggregationError>;
+/// Aggregation result
+pub type Result<T> = std::result::Result<T, AggregationError>;
 
 /// Pointer that points to the `AggregationStates`
 ///
@@ -62,8 +63,15 @@ pub struct AggregationStatesPtr(NonNull<u8>);
 
 impl AggregationStatesPtr {
     /// View the ptr.add(offset) as &mut T
+    #[inline]
     unsafe fn offset_as_mut<'a, T>(self, offset: usize) -> &'a mut T {
         &mut *(self.0.as_ptr().add(offset) as *mut T)
+    }
+
+    /// Create a new dangling pointer
+    #[inline]
+    pub fn dangling() -> Self {
+        AggregationStatesPtr(NonNull::dangling())
     }
 }
 
@@ -119,6 +127,8 @@ pub struct AggregationFunctionList {
 impl AggregationFunctionList {
     /// Create a new [`AggregationFunctionList`]
     pub fn new(funcs: Vec<Arc<dyn AggregationFunction>>) -> Self {
+        debug_assert!(!funcs.is_empty());
+
         let states_layout = AggregationStatesLayout::new(&funcs);
 
         // Create the init state
@@ -139,6 +149,11 @@ impl AggregationFunctionList {
         }
     }
 
+    /// Get output logical types of the aggregation function
+    pub fn output_types(&self) -> Vec<LogicalType> {
+        self.funcs.iter().map(|func| func.return_type()).collect()
+    }
+
     /// Allocate the initialized `AggregationStates` in the arena, return the pointer to it
     #[inline]
     pub fn alloc_states(&self, arena: &Arena) -> AggregationStatesPtr {
@@ -153,6 +168,29 @@ impl AggregationFunctionList {
             );
         }
         AggregationStatesPtr(ptr)
+    }
+
+    /// Update the states in the
+    ///
+    /// # Safety
+    ///
+    /// - Payloads should match the signature of `self.funcs`
+    /// - `ptr` is a valid pointer
+    pub(crate) unsafe fn update_states(
+        &self,
+        payloads: &[&ArrayImpl],
+        state_ptrs: &[AggregationStatesPtr],
+    ) -> Result<()> {
+        let mut payload_index = 0;
+        self.funcs
+            .iter()
+            .zip(self.states_layout.states_offsets.iter())
+            .try_for_each(|(func, &state_offset)| {
+                let old = payload_index;
+                payload_index += func.arguments().len();
+                let func_paylods = &payloads[old..payload_index];
+                func.update_states(func_paylods, state_ptrs, state_offset)
+            })
     }
 }
 

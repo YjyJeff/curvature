@@ -174,6 +174,7 @@ where
 
     type Output = Option<PayloadArray::Element>;
 
+    /// FIXME: accelerate with likely
     #[inline]
     fn update(
         &mut self,
@@ -194,6 +195,7 @@ where
         }
     }
 
+    /// FIXME: accelerate with likely
     #[inline]
     unsafe fn combine(&mut self, partial: &mut Self) {
         if let Some(partial) = partial.state.take() {

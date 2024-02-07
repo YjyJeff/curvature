@@ -15,7 +15,7 @@ pub mod utils;
 use self::iter::ArrayIter;
 use self::ping_pong::PingPongPtr;
 use crate::bitmap::{Bitmap, BitmapIter};
-use crate::element::Element;
+use crate::element::{Element, ElementImplRef};
 use crate::private::Sealed;
 use crate::types::{LogicalType, PhysicalType};
 pub use binary::*;
@@ -102,6 +102,25 @@ pub trait Array: Sealed + Debug + 'static + Sized {
         &self,
         index: usize,
     ) -> <Self::Element as Element>::ElementRef<'_>;
+
+    /// Returns a reference to the element at the given index without bound check
+    ///
+    /// # Safety
+    /// Caller should guarantee `index < self.len()`, otherwise, [undefined behavior] happens
+    ///
+    /// [undefined behavior]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html
+    #[inline]
+    unsafe fn get_unchecked(
+        &self,
+        index: usize,
+    ) -> Option<<Self::Element as Element>::ElementRef<'_>> {
+        let validity = self.validity();
+        if validity.is_empty() || validity.get_unchecked(index) {
+            Some(self.get_value_unchecked(index))
+        } else {
+            None
+        }
+    }
 
     /// Get iterator of the array
     #[inline]
@@ -197,7 +216,6 @@ macro_rules! array_impl {
                 unsafe {
                     create_array_with_physical_type!()
                 }
-
             }
 
             /// Get the number of elements in the Array
@@ -245,10 +263,21 @@ macro_rules! array_impl {
                 }
             }
 
+            /// # Safety
+            ///
+            /// `index < self.len()`
+            pub unsafe fn get_unchecked(&self, index: usize) -> Option<ElementImplRef<'_>> {
+                match self {
+                    $(
+                        Self::$variant(array) => array.get_unchecked(index).map(ElementImplRef::$variant),
+                    )+
+                }
+            }
+
             /// Debug the array slice
             ///
-            /// start + len <= self.len()
-            pub fn debug_array_slice(
+            /// `start + len <= self.len()`
+            pub(crate) fn debug_array_slice(
                 &self,
                 f: &mut std::fmt::Formatter<'_>,
                 offset: usize,

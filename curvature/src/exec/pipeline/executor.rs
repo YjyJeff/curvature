@@ -329,7 +329,8 @@ mod tests {
 
         let count = Numbers::MORSEL_SIZE * 3;
         let root: Arc<dyn PhysicalOperator> = projection(numbers(count));
-        let pipelines = Arc::new(Pipelines::try_new(&root).unwrap());
+        let client_ctx = crate::common::client_context::tests::mock_client_context();
+        let pipelines = Arc::new(Pipelines::try_new(&root, &client_ctx).unwrap());
 
         let sum = std::thread::scope(|s| {
             let pipelines_ = Arc::clone(&pipelines);

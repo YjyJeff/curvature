@@ -19,3 +19,17 @@ pub struct ExecArgs {
     /// Execution parallelism
     pub parallelism: ParallelismDegree,
 }
+
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+
+    pub(crate) fn mock_client_context() -> ClientContext {
+        ClientContext {
+            query_id: QueryId::from_u128(44),
+            exec_args: ExecArgs {
+                parallelism: ParallelismDegree::new(2).unwrap(),
+            },
+        }
+    }
+}

@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use crate::common::client_context::ClientContext;
 use crate::error::SendableError;
 use data_block::block::DataBlock;
 use data_block::types::LogicalType;

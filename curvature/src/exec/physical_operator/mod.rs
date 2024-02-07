@@ -16,6 +16,7 @@ use self::utils::{
     use_types_for_impl_regular_for_non_regular, use_types_for_impl_sink_for_non_sink,
     use_types_for_impl_source_for_non_source,
 };
+use crate::common::client_context::ClientContext;
 use crate::common::types::ParallelismDegree;
 use crate::error::SendableError;
 use crate::visit::{Visit, Visitor};
@@ -180,7 +181,10 @@ pub trait PhysicalOperator: Send + Sync + Stringify + 'static {
     ///
     /// Note that if this method is called on a non regular operator, it should return the
     /// [`OperatorError::GlobalOperatorState`]
-    fn global_operator_state(&self) -> Result<Arc<dyn GlobalOperatorState>>;
+    fn global_operator_state(
+        &self,
+        client_ctx: &ClientContext,
+    ) -> Result<Arc<dyn GlobalOperatorState>>;
 
     /// Create a thread local state for the physical operator. Executor calls it and
     /// passes it to the `self.execute` function
@@ -229,7 +233,8 @@ pub trait PhysicalOperator: Send + Sync + Stringify + 'static {
     ///
     /// Note that if this method is called on a non source operator, it should return the
     /// [`OperatorError::GlobalSourceState`]
-    fn global_source_state(&self) -> Result<Arc<dyn GlobalSourceState>>;
+    fn global_source_state(&self, client_ctx: &ClientContext)
+        -> Result<Arc<dyn GlobalSourceState>>;
 
     /// Create a thread local state, morsel assigned to the thread, for the physical operator.
     /// Executor calls it and passes it to the `self.read_data` function
@@ -329,7 +334,7 @@ pub trait PhysicalOperator: Send + Sync + Stringify + 'static {
     ///
     /// Note that if this method is called on a non sink operator, it should return the
     /// [`OperatorError::GlobalSinkState`]
-    fn global_sink_state(&self) -> Result<Arc<dyn GlobalSinkState>>;
+    fn global_sink_state(&self, client_ctx: &ClientContext) -> Result<Arc<dyn GlobalSinkState>>;
 
     /// Create a thread local state for the physical operator. Executor calls it and
     /// passes it to the `self.write_data` function

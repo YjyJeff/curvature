@@ -14,6 +14,7 @@ regex = { workspace = true }
 paste = { workspace = true }
 libc = { workspace = true }
 snafu = { workspace = true }
+tabled = { version = "0.15.0", features = ["std"] }
 
 [dev-dependencies]
 num-traits = { workspace = true }

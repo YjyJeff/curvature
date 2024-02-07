@@ -8,7 +8,9 @@ use data_block::types::LogicalType;
 
 use super::PhysicalExpr;
 
-/// Trait for all of the functions
+/// Trait describes the function signature
+///
+/// TBD: arguments should return Logical type instead of PhysicalExpr!
 pub trait Function: Send + Sync + 'static {
     /// Get arguments of the function
     fn arguments(&self) -> &[Arc<dyn PhysicalExpr>];

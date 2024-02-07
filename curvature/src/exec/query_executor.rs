@@ -14,8 +14,6 @@ use crate::common::types::ParallelismDegree;
 use std::fmt::Display;
 use std::sync::Arc;
 
-const SINGLE: ParallelismDegree = unsafe { ParallelismDegree::new_unchecked(1) };
-
 #[allow(missing_docs)]
 #[derive(Debug, Snafu)]
 pub enum QueryExecutorError {
@@ -75,7 +73,7 @@ impl QueryExecutor {
         root: &Arc<dyn PhysicalOperator>,
         client_ctx: Arc<ClientContext>,
     ) -> Result<Self> {
-        let pipelines = Pipelines::try_new(root).context(CreateSnafu)?;
+        let pipelines = Pipelines::try_new(root, &client_ctx).context(CreateSnafu)?;
         Ok(Self {
             client_ctx,
             pipelines,
@@ -100,7 +98,7 @@ impl QueryExecutor {
             let parallelism =
                 parallelism_degree(root_pipeline, self.client_ctx.exec_args.parallelism)?;
 
-            if parallelism > SINGLE {
+            if parallelism > ParallelismDegree::MIN {
                 // FIXME: remove rayon, use monoio instead?
                 (0..parallelism.get())
                     .into_par_iter()
@@ -133,7 +131,7 @@ impl QueryExecutor {
 
         let parallelism = parallelism_degree(pipeline, self.client_ctx.exec_args.parallelism)?;
 
-        if parallelism > SINGLE {
+        if parallelism > ParallelismDegree::MIN {
             // FIXME: remove rayon, use monoio instead?
             (0..parallelism.get())
                 .into_par_iter()

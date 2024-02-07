@@ -36,7 +36,7 @@ macro_rules! impl_regular_for_non_regular {
             Err(error).context(ExecuteSnafu { op: self.name() })
         }
 
-        fn global_operator_state(&self) -> OperatorResult<Arc<dyn GlobalOperatorState>> {
+        fn global_operator_state(&self, _client_ctx: &ClientContext) -> OperatorResult<Arc<dyn GlobalOperatorState>> {
             GlobalOperatorStateSnafu { op: self.name() }.fail()
         }
 
@@ -85,7 +85,7 @@ macro_rules! impl_source_for_non_source {
             Err(error).context(ReadDataSnafu { op: self.name() })
         }
 
-        fn global_source_state(&self) -> OperatorResult<Arc<dyn GlobalSourceState>> {
+        fn global_source_state(&self, _client_ctx: &ClientContext) -> OperatorResult<Arc<dyn GlobalSourceState>> {
             GlobalSourceStateSnafu { op: self.name() }.fail()
         }
 
@@ -160,7 +160,7 @@ macro_rules! impl_sink_for_non_sink {
             Err(error).context(FinalizeSinkSnafu { op: self.name() })
         }
 
-        fn global_sink_state(&self) -> OperatorResult<Arc<dyn GlobalSinkState>> {
+        fn global_sink_state(&self, _client_ctx: &ClientContext) -> OperatorResult<Arc<dyn GlobalSinkState>> {
             let error: SendableError = format!("`{}` is not a sink operator", self.name()).into();
             Err(error).context(GlobalSinkStateSnafu { op: self.name() })
         }

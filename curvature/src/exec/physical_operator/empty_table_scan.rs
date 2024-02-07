@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use crate::error::SendableError;
+use crate::{common::client_context::ClientContext, error::SendableError};
 use data_block::block::DataBlock;
 use data_block::types::LogicalType;
 use snafu::ResultExt;
@@ -136,7 +136,10 @@ impl PhysicalOperator for EmptyTableScan {
         Ok(SourceExecStatus::Finished)
     }
 
-    fn global_source_state(&self) -> OperatorResult<Arc<dyn GlobalSourceState>> {
+    fn global_source_state(
+        &self,
+        _client_ctx: &ClientContext,
+    ) -> OperatorResult<Arc<dyn GlobalSourceState>> {
         Ok(Arc::new(EmptyTableScanGlobalState))
     }
 

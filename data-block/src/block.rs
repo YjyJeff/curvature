@@ -1,9 +1,12 @@
 //! [`DataBlock`] is a collection of [`ArrayImpl`]
 
+use std::fmt::Display;
+
 use snafu::{ensure, Snafu};
 
 use crate::array::ArrayImpl;
 use crate::types::LogicalType;
+use tabled::builder::Builder as TableBuilder;
 
 #[allow(missing_docs)]
 #[derive(Debug, Snafu)]
@@ -107,5 +110,64 @@ impl DataBlock {
     #[inline]
     pub fn mutable_arrays(&mut self) -> &mut [ArrayImpl] {
         &mut self.arrays
+    }
+
+    /// Format the data block with given table builder
+    pub fn fmt_table(&self, table_builder: &mut TableBuilder, with_logical_type: bool) {
+        if with_logical_type {
+            table_builder.push_record(
+                self.arrays
+                    .iter()
+                    .map(|array| format!("{:?}", array.logical_type())),
+            );
+        }
+
+        (0..self.length).for_each(|index| unsafe {
+            table_builder.push_record(self.arrays.iter().map(|array| {
+                array
+                    .get_unchecked(index)
+                    .map_or_else(|| "Null".to_string(), |element| element.to_string())
+            }));
+        });
+    }
+}
+
+impl Display for DataBlock {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut table_builder = TableBuilder::default();
+        self.fmt_table(&mut table_builder, true);
+        write!(
+            f,
+            "{}",
+            table_builder
+                .build()
+                .with(tabled::settings::style::Style::modern())
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_display_data_block() {
+        let block = DataBlock::try_new(vec![
+            ArrayImpl::Int32([Some(10), None, Some(-1)].into_iter().collect()),
+            ArrayImpl::Float32([None, Some(-1.0), Some(9.9)].into_iter().collect()),
+        ])
+        .unwrap();
+
+        let expect = expect_test::expect![[r#"
+            ┌─────────┬───────┐
+            │ Integer │ Float │
+            ├─────────┼───────┤
+            │ 10      │ Null  │
+            ├─────────┼───────┤
+            │ Null    │ -1.0  │
+            ├─────────┼───────┤
+            │ -1      │ 9.9   │
+            └─────────┴───────┘"#]];
+        expect.assert_eq(&block.to_string());
     }
 }

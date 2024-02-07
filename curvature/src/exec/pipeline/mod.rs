@@ -14,6 +14,7 @@ use super::physical_operator::{
     GlobalOperatorState, GlobalSinkState, GlobalSourceState, LocalSinkState, OperatorError,
     PhysicalOperator,
 };
+use crate::common::client_context::ClientContext;
 use crate::private::Sealed;
 use crate::visit::display::IndentDisplayWrapper;
 
@@ -41,9 +42,12 @@ pub struct Pipelines {
 
 impl Pipelines {
     /// Try to create a [`Pipelines`] with given root operator.
-    pub fn try_new(root: &Arc<dyn PhysicalOperator>) -> Result<Self, BuildPipelineError> {
+    pub fn try_new(
+        root: &Arc<dyn PhysicalOperator>,
+        client_ctx: &ClientContext,
+    ) -> Result<Self, BuildPipelineError> {
         let pipelines = RefCell::new(Vec::new());
-        let mut builder = PipelineBuilder::new(&pipelines);
+        let mut builder = PipelineBuilder::new(&pipelines, client_ctx);
         builder
             .build_pipelines(root)
             .with_context(|_| BuildPipelineSnafu {

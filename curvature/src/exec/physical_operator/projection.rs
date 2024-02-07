@@ -5,6 +5,7 @@ use data_block::types::LogicalType;
 use snafu::ResultExt;
 use std::sync::Arc;
 
+use crate::common::client_context::ClientContext;
 use crate::error::SendableError;
 use crate::exec::physical_expr::{ExprExecutor, PhysicalExpr};
 
@@ -139,7 +140,10 @@ impl PhysicalOperator for Projection {
             )
     }
 
-    fn global_operator_state(&self) -> OperatorResult<Arc<dyn GlobalOperatorState>> {
+    fn global_operator_state(
+        &self,
+        _client_ctx: &ClientContext,
+    ) -> OperatorResult<Arc<dyn GlobalOperatorState>> {
         Ok(Arc::new(DummyGlobalOperatorState))
     }
 
