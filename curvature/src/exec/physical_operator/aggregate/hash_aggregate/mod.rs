@@ -1,49 +1,105 @@
-//! Aggregate based on hash
+//! Aggregate based on hash table
 //!
 //! # Concepts
 //!
-//! - Payload
-//! - GroupByKeys
+//! - `Payloads`: For each [`AggregationFunction`], it take expressions as inputs. These
+//! inputs are called payloads. Aggregation can compute many [`AggregationFunction`],
+//! therefore, their `payloads` may contain redundant computation.
+//! For example: `select min(a / 2), sum(a / 2) from table group by a`. To avoid above
+//! problem, we enforce the `Payloads` to be [`FieldRef`] and transfer this problem to
+//! planner/optimizer! It is the planner/optimizer's responsibility to extract the common
+//! expressions, sounds make sense 😄
+//!
+//! - `GroupByKeys`: expressions after the `group by` keywords.
 
 mod hash_table;
 pub mod serde;
 
+use data_block::array::ArrayImpl;
+use data_block::block::DataBlock;
+use data_block::types::{LogicalType, PhysicalSize};
+use hashbrown::raw::{RawIntoIter, RawTable as SwissTable};
+use parking_lot::Mutex;
+use rayon::iter::{IntoParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
+use snafu::{ensure, ResultExt, Snafu};
+use strength_reduce::StrengthReducedU64;
+
 use std::fmt::Debug;
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::Ordering;
+use std::ops::DerefMut;
+use std::sync::atomic::Ordering::Relaxed;
+use std::sync::atomic::{AtomicBool, AtomicUsize};
 use std::sync::Arc;
 
-use self::hash_table::Element;
-use self::hash_table::HashTable;
-use self::serde::Serde;
+use self::hash_table::{probing_swiss_table, Element, HashTable};
+use self::serde::{Serde, SerdeKey};
 use crate::common::client_context::ClientContext;
 use crate::common::types::HashValue;
 use crate::error::SendableError;
+use crate::exec::physical_expr::field_ref::FieldRef;
 use crate::exec::physical_expr::function::aggregate::{
-    AggregationFunction, AggregationFunctionList,
+    AggregationFunction, AggregationFunctionList, AggregationStatesPtr,
 };
+use crate::exec::physical_expr::PhysicalExpr;
+use crate::exec::physical_operator::source_ext::SourceOperatorExt;
 use crate::exec::physical_operator::{
-    impl_regular_for_non_regular, use_types_for_impl_regular_for_non_regular, GlobalSinkState,
-    GlobalSourceState, LocalSinkState, LocalSourceState, OperatorResult, ParallelismDegree,
-    PhysicalOperator, SinkExecStatus, SourceExecStatus, StateStringify, Stringify,
+    impl_regular_for_non_regular, use_types_for_impl_regular_for_non_regular, FinalizeSinkSnafu,
+    GlobalSinkState, GlobalSourceState, InvalidGlobalSinkStateSnafu, InvalidGlobalSourceStateSnafu,
+    InvalidLocalSinkStateSnafu, LocalSinkState, LocalSourceState, OperatorError, OperatorResult,
+    ParallelismDegree, PhysicalOperator, ReadDataSnafu, SinkExecStatus, SourceExecStatus,
+    StateStringify, Stringify, WriteDataSnafu,
 };
 use crate::STANDARD_VECTOR_SIZE;
-use data_block::block::DataBlock;
-use data_block::types::LogicalType;
-use hashbrown::raw::RawTable as SwissTable;
-use parking_lot::RwLock;
-use snafu::ensure;
-use snafu::{ResultExt, Snafu};
-use strength_reduce::StrengthReducedU64;
 
-use super::ThreadSafeArena;
+use super::Arena;
+
 use_types_for_impl_regular_for_non_regular!();
 
 #[allow(missing_docs)]
 #[derive(Debug, Snafu)]
 pub enum HashAggregateError {
+    #[snafu(display(
+        "Group by keys passed to HashAggregate is empty, use `SimpleAggregate` instead "
+    ))]
+    EmptyGroupByKeys,
+    #[snafu(display(
+        "Group by keys passed to hash aggregate should be `FieldRef` such that we can avoid redundant computation, found group by key: {}",
+        group_by_key
+    ))]
+    NotFieldRefGroupByKeys { group_by_key: String },
+    #[snafu(display("`FieldRef` with index `{ref_index}` is out or range, the input only has `{input_size}` fields"))]
+    FieldRefOutOfRange { ref_index: usize, input_size: usize },
+    #[snafu(display(
+        "TypeMismatch: `FieldRef` with index `{ref_index}` has logical type `{:?}`, however the field in the input has logical type `{:?}`",
+        ref_type,
+        input_type
+    ))]
+    FieldRefTypeMismatch {
+        ref_index: usize,
+        ref_type: LogicalType,
+        input_type: LogicalType,
+    },
+    #[snafu(display(
+        "Serde key `{}` is smaller than group by keys `{:?}`",
+        serde_key,
+        group_by_keys
+    ))]
+    SerdeKeySmallerThanGroupByKeys {
+        serde_key: &'static str,
+        group_by_keys: Vec<Arc<dyn PhysicalExpr>>,
+    },
+    #[snafu(display("All of the payloads/args_of_aggregation_function should be `FieldRef` such that we can avoid redundant computation, found payload: {}", payload))]
+    NotFieldRefPayloads { payload: String },
     #[snafu(display("Aggregation functions passed to HashAggregate is empty. HashAggregate needs at least one aggregation function"))]
     EmptyAggregationFuncs,
+    #[snafu(display(
+        "HashAggregate can not take the lock of the GlobalSinkState in `finalize_sink`, some threads holding the lock.
+         It should never happens, query executor should guarantees `finalize_sink` is called exactly once and after all of the sink process have finished"
+    ))]
+    FinalizeContention,
+    #[snafu(display("HashAggregate can not take the lock of the GlobalState in `source_parallelism_degree`, some threads holding the lock."))]
+    SourceParallelismDegreeContention,
+    #[snafu(display("HashAggregate do not have any table for new `local_source_state`. This is caused by calling `local_source_state`"))]
+    ExhaustedTables,
 }
 
 type Result<T> = std::result::Result<T, HashAggregateError>;
@@ -51,79 +107,254 @@ type Result<T> = std::result::Result<T, HashAggregateError>;
 /// A hyper-parameter that determine when to partition the map. Tune me!
 const PARTITION_THRESHOLD: usize = 8192;
 
-/// Aggregate based on hash
+/// Aggregate based on hash table
+///
+/// # Generic
+///
+/// `S`: Serde used to serialize/deserialize `GroupByKeys`
 #[derive(Debug)]
 pub struct HashAggregate<S: Serde> {
     output_types: Vec<LogicalType>,
     children: Vec<Arc<dyn PhysicalOperator>>,
-    agg_func_list: AggregationFunctionList,
+    _group_by_keys: Vec<Arc<dyn PhysicalExpr>>,
+    group_by_keys_indexes: Vec<usize>,
+    agg_func_list: Arc<AggregationFunctionList>,
+    payloads_indexes: Vec<usize>,
     global_state: Arc<GlobalState<S::SerdeKey>>,
 }
 
 #[derive(Debug)]
 struct GlobalState<K> {
-    /// Swiss tables collected from local states.
+    /// Swiss tables collected from different threads. In different phases, this struct
+    /// has different meaning. In the `sink` phase, It represents partitioned/un-partitioned
+    /// tables collected from different threads. In the `source` phase, it represents
+    /// the partitioned/un-partitioned combined tables for reading data, therefore, all of
+    /// the `tables` field in the `ThreadLocalTables` should only contain 1 combined table
     ///
     /// TBD: Use dash map here, such that we can combine the aggregation states
-    /// immediately in the `finsh_local_sink` call. Will the synchronization become
+    /// immediately in the `finish_local_sink` call. Will the synchronization become
     /// bottleneck? Currently, we will combine the swiss tables from different threads
     /// in the `finalize_sink` call with multi-threading
-    swiss_tables: RwLock<Vec<SwissTables<Element<K>>>>,
-    /// Until now, does any thread has partitioned the swiss table? The `finsh_local_sink`
+    collected_swiss_tables: Mutex<Vec<ThreadLocalTables<K>>>,
+
+    //Sink
+    /// Until now, does any thread has partitioned the swiss table? The `finish_local_sink`
     /// method should check it. If it is true, the method should partition the swiss
-    /// table before insert into `self.swiss_tables`. The `finalize_sink` method should also
+    /// table before insert into `self.collected_swiss_tables`. The `finalize_sink` method should also
     /// check it. If it is true, the method should partition the swiss table that
     /// is not partitioned. All of the memory ordering used to access this variable
     /// is `Relaxed`!
     any_partitioned: AtomicBool,
+
+    // Source
+    /// The total number of elements in the combined tables. It is set by the `finalize_sink`
+    /// method and read in the `source` phase. Other methods should never use it! Actually,
+    /// it do not need to be atomic, only single thread write it and many threads read it.
+    /// The write and read will never happen at the same time. However, the compiler can not
+    /// know it.
+    total_elements_count: AtomicUsize,
 }
 
-/// Swiss tables collected from local states.
-struct SwissTables<K> {
+/// Swiss tables collected from a single thread's local states.
+struct ThreadLocalTables<K> {
     /// Swiss tables produced by a single thread. It is guaranteed to be non-empty
     tables: Vec<SwissTable<Element<K>>>,
     /// Arena the element in the tables located on
-    arena: ThreadSafeArena,
+    arena: Arena,
 }
 
-impl<K: Debug> Debug for SwissTables<K> {
+impl<K: Debug> Debug for ThreadLocalTables<K> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "SwissTables {{ [")?;
+        write!(f, "ThreadLocalTables {{ [")?;
         for table in self.tables.iter() {
             f.debug_list()
                 .entries(unsafe { table.iter().map(|bucket| bucket.as_ref()) })
                 .finish()?;
+            write!(f, ", ")?;
         }
         write!(f, "] }}")
     }
 }
 
 impl<S: Serde> HashAggregate<S> {
-    /// FIXME: lots of check
+    /// Try to create a HashAggregate
     pub fn try_new(
         input: Arc<dyn PhysicalOperator>,
+        group_by_keys: Vec<Arc<dyn PhysicalExpr>>,
         agg_funcs: Vec<Arc<dyn AggregationFunction>>,
     ) -> Result<Self> {
+        let input_logical_types = input.output_types();
+        let input_size = input_logical_types.len();
+
+        let mut output_types = Vec::with_capacity(input_size + agg_funcs.len());
+        let mut group_by_keys_indexes = Vec::with_capacity(group_by_keys.len());
+
+        let mut payloads_indexes = Vec::with_capacity(agg_funcs.len());
+
+        ensure!(!group_by_keys.is_empty(), EmptyGroupByKeysSnafu);
+
+        let total_size = group_by_keys
+            .iter()
+            .try_fold(PhysicalSize::Fixed(0), |acc, expr| {
+                if let Some(field_ref) = expr.as_any().downcast_ref::<FieldRef>() {
+                    ensure!(
+                        field_ref.field_index < input_size,
+                        FieldRefOutOfRangeSnafu {
+                            ref_index: field_ref.field_index,
+                            input_size
+                        }
+                    );
+
+                    ensure!(
+                        field_ref.output_type == input_logical_types[field_ref.field_index],
+                        FieldRefTypeMismatchSnafu {
+                            ref_index: field_ref.field_index,
+                            ref_type: field_ref.output_type.clone(),
+                            input_type: input_logical_types[field_ref.field_index].clone()
+                        }
+                    );
+
+                    output_types.push(field_ref.output_type.clone());
+                    group_by_keys_indexes.push(field_ref.field_index);
+
+                    Ok(acc + field_ref.output_type.physical_type().size())
+                } else {
+                    NotFieldRefGroupByKeysSnafu {
+                        group_by_key: format!("{}", expr),
+                    }
+                    .fail()
+                }
+            })?;
+
+        // Make sure the group by keys can be serde into the serde key
+        ensure!(
+            total_size <= S::SerdeKey::PHYSICAL_SIZE,
+            SerdeKeySmallerThanGroupByKeysSnafu {
+                serde_key: std::any::type_name::<S::SerdeKey>(),
+                group_by_keys
+            }
+        );
+
         ensure!(!agg_funcs.is_empty(), EmptyAggregationFuncsSnafu {});
 
-        let agg_func_list = AggregationFunctionList::new(agg_funcs);
+        agg_funcs.iter().try_for_each(|agg_func| {
+            agg_func.arguments().iter().try_for_each(|arg| {
+                if let Some(field_ref) = arg.as_any().downcast_ref::<FieldRef>() {
+                    ensure!(
+                        field_ref.field_index < input_size,
+                        FieldRefOutOfRangeSnafu {
+                            ref_index: field_ref.field_index,
+                            input_size
+                        }
+                    );
+
+                    ensure!(
+                        field_ref.output_type == input_logical_types[field_ref.field_index],
+                        FieldRefTypeMismatchSnafu {
+                            ref_index: field_ref.field_index,
+                            ref_type: field_ref.output_type.clone(),
+                            input_type: input_logical_types[field_ref.field_index].clone()
+                        }
+                    );
+
+                    payloads_indexes.push(field_ref.field_index);
+                    Ok(())
+                } else {
+                    NotFieldRefPayloadsSnafu {
+                        payload: format!("{}", arg),
+                    }
+                    .fail()
+                }
+            })?;
+
+            output_types.push(agg_func.return_type());
+            Ok(())
+        })?;
+
+        let agg_func_list = Arc::new(AggregationFunctionList::new(agg_funcs));
+
         Ok(Self {
-            output_types: agg_func_list.output_types(),
+            output_types,
             children: vec![input],
+            _group_by_keys: group_by_keys,
+            group_by_keys_indexes,
             agg_func_list,
+            payloads_indexes,
             global_state: Arc::new(GlobalState {
-                swiss_tables: RwLock::new(Vec::new()),
+                collected_swiss_tables: Mutex::new(Vec::new()),
                 any_partitioned: AtomicBool::new(false),
+                total_elements_count: AtomicUsize::new(0),
             }),
         })
     }
+
+    #[inline]
+    fn downcast_global_sink_state(
+        global_state: &dyn GlobalSinkState,
+    ) -> OperatorResult<&HashAggregateGlobalSinkState<S::SerdeKey>> {
+        if let Some(global_state) = global_state
+            .as_any()
+            .downcast_ref::<HashAggregateGlobalSinkState<S::SerdeKey>>()
+        {
+            Ok(global_state)
+        } else {
+            InvalidGlobalSinkStateSnafu {
+                op: "HashAggregate",
+                state: global_state.name(),
+            }
+            .fail()
+        }
+    }
+
+    #[inline]
+    fn downcast_global_source_state(
+        global_state: &dyn GlobalSourceState,
+    ) -> OperatorResult<&HashAggregateGlobalSourceState<S::SerdeKey>> {
+        if let Some(global_state) = global_state
+            .as_any()
+            .downcast_ref::<HashAggregateGlobalSourceState<S::SerdeKey>>()
+        {
+            Ok(global_state)
+        } else {
+            InvalidGlobalSourceStateSnafu {
+                op: "HashAggregate",
+                state: global_state.name(),
+            }
+            .fail()
+        }
+    }
+}
+
+/// We have to use macro here. It is pretty annoying, see [`issue`] for details.
+/// Fucking borrow checker !!!!!
+///
+/// [`issue`]: https://github.com/rust-lang/rust/issues/54663
+macro_rules! downcast_local_sink_state {
+    ($local_state:ident) => {
+        if let Some(local_state) = $local_state
+            .as_mut_any()
+            .downcast_mut::<HashAggregateLocalSinkState<S>>()
+        {
+            local_state
+        } else {
+            return InvalidLocalSinkStateSnafu {
+                op: "HashAggregate",
+                state: $local_state.name(),
+            }
+            .fail();
+        }
+    };
 }
 
 /// Global source state for [`HashAggregate`]
 #[derive(Debug)]
-pub struct HashAggregateGlobalSourceState;
+pub struct HashAggregateGlobalSourceState<K> {
+    state: Arc<GlobalState<K>>,
+    /// Until now, how many elements have been read
+    read_count: Arc<AtomicUsize>,
+}
 
-impl StateStringify for HashAggregateGlobalSourceState {
+impl<K: Debug> StateStringify for HashAggregateGlobalSourceState<K> {
     fn name(&self) -> &'static str {
         "HashAggregateGlobalSourceState"
     }
@@ -133,7 +364,7 @@ impl StateStringify for HashAggregateGlobalSourceState {
     }
 }
 
-impl GlobalSourceState for HashAggregateGlobalSourceState {
+impl<K: Send + Sync + 'static + Debug> GlobalSourceState for HashAggregateGlobalSourceState<K> {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
@@ -141,9 +372,41 @@ impl GlobalSourceState for HashAggregateGlobalSourceState {
 
 /// Local source state for [`HashAggregate`]
 #[derive(Debug)]
-pub struct HashAggregateLocalSourceState;
+pub struct HashAggregateLocalSourceState<K> {
+    table_into_iter: TableIntoIter<K>,
+    read_count: Arc<AtomicUsize>,
+    /// Arena the table allocated in
+    _arena: Arena,
 
-impl StateStringify for HashAggregateLocalSourceState {
+    state_ptrs: Vec<AggregationStatesPtr>,
+}
+
+struct TableIntoIter<K> {
+    inner: RawIntoIter<Element<K>>,
+    agg_func_list: Arc<AggregationFunctionList>,
+}
+
+impl<K> Debug for TableIntoIter<K> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "TableIntoIter {{}}")
+    }
+}
+
+/// Drop the elements that have not been consumed. It happens in many cases, for example
+/// `limit` may only take the k elements from the table or query is cancelled, etc.
+impl<K> Drop for TableIntoIter<K> {
+    fn drop(&mut self) {
+        let mut state_ptrs = Vec::with_capacity(self.inner.len());
+        for element in &mut self.inner {
+            state_ptrs.push(element.agg_states_ptr)
+        }
+
+        // SAFETY: the elements are allocated in the `self._arena`
+        unsafe { self.agg_func_list.drop_states(&state_ptrs) }
+    }
+}
+
+impl<K: Debug> StateStringify for HashAggregateLocalSourceState<K> {
     fn name(&self) -> &'static str {
         "HashAggregateLocalSourceState"
     }
@@ -153,26 +416,50 @@ impl StateStringify for HashAggregateLocalSourceState {
     }
 }
 
-impl LocalSourceState for HashAggregateLocalSourceState {
+impl<K: Debug + 'static> LocalSourceState for HashAggregateLocalSourceState<K> {
     fn as_mut_any(&mut self) -> &mut dyn std::any::Any {
         self
     }
 
-    fn read_data(&mut self, _output: &mut DataBlock) -> OperatorResult<SourceExecStatus> {
-        todo!()
+    /// FIXME: deserialize the key
+    fn read_data(&mut self, output: &mut DataBlock) -> OperatorResult<SourceExecStatus> {
+        let iter_count = std::cmp::min(STANDARD_VECTOR_SIZE, self.table_into_iter.inner.len());
+        if iter_count == 0 {
+            return Ok(SourceExecStatus::Finished);
+        }
+
+        self.state_ptrs.clear();
+
+        (0..iter_count).for_each(|_| {
+            let element = unsafe { self.table_into_iter.inner.next().unwrap_unchecked() };
+            self.state_ptrs.push(element.agg_states_ptr);
+        });
+
+        unsafe {
+            self.table_into_iter
+                .agg_func_list
+                .take_states(&self.state_ptrs, output)
+                .boxed()
+                .context(ReadDataSnafu {
+                    op: "HashAggregate",
+                })?;
+        };
+
+        Ok(SourceExecStatus::HaveMoreOutput)
     }
 }
 
 /// Global sink state for [`HashAggregate`]
 ///
-/// TBD: Use radix partitioning ?
+/// TBD: Advantage of radix partitioning?
 #[derive(Debug)]
 pub struct HashAggregateGlobalSinkState<K> {
-    global_state: Arc<GlobalState<K>>,
+    state: Arc<GlobalState<K>>,
     partitioning: Option<ModuloPartitioning>,
 }
 
 impl<K: Debug> StateStringify for HashAggregateGlobalSinkState<K> {
+    /// FIXME: Include generic info
     fn name(&self) -> &'static str {
         "HashAggregateGlobalSinkState"
     }
@@ -188,10 +475,29 @@ impl<K: Send + Sync + 'static + Debug> GlobalSinkState for HashAggregateGlobalSi
     }
 }
 
+impl<K> HashAggregateGlobalSinkState<K> {
+    /// Combine the thread local swiss tables into self
+    fn combine(&self, thread_local_tables: ThreadLocalTables<K>) {
+        self.state
+            .collected_swiss_tables
+            .lock()
+            .push(thread_local_tables)
+    }
+}
+
 /// Local sink state for [`HashAggregate`]
 #[derive(Debug)]
 pub struct HashAggregateLocalSinkState<S: Serde> {
     hash_table: HashTable<S>,
+    /// Note: The 'static lifetime is fake.....
+    /// The group_by_keys is used in the `write_data` method, it reference the input and will be cleared
+    /// immediately after the `write_data` is finshed. The LocalState requires a 'static
+    /// lifetime, in this use case, it will only holds a reference in the execution of `write_data` but it
+    /// needs to outlive the `write_data` function. Therefore, I use 'static here to cheat the
+    /// compiler.
+    group_by_keys: Vec<&'static ArrayImpl>,
+    /// Note: The 'static lifetime is fake.....
+    payloads: Vec<&'static ArrayImpl>,
 }
 
 impl<S: Serde> StateStringify for HashAggregateLocalSinkState<S> {
@@ -207,6 +513,33 @@ impl<S: Serde> StateStringify for HashAggregateLocalSinkState<S> {
 impl<S: Serde> LocalSinkState for HashAggregateLocalSinkState<S> {
     fn as_mut_any(&mut self) -> &mut dyn std::any::Any {
         self
+    }
+}
+
+impl<S: Serde> HashAggregateLocalSinkState<S> {
+    /// Partition self then combine self into the global state
+    #[inline]
+    fn partition_then_combine_into<P: Partitioning>(
+        &mut self,
+        global_state: &HashAggregateGlobalSinkState<S::SerdeKey>,
+        partitioning: &P,
+    ) {
+        let (swiss_table, arena) = self.hash_table.finalize();
+        let mut local_partitioned_tables = Vec::new();
+        partition::<S, _>(swiss_table, &mut local_partitioned_tables, partitioning);
+        global_state.combine(ThreadLocalTables {
+            tables: local_partitioned_tables,
+            arena,
+        });
+    }
+
+    #[inline]
+    fn combine_into(&mut self, global_state: &HashAggregateGlobalSinkState<S::SerdeKey>) {
+        let (swiss_table, arena) = self.hash_table.finalize();
+        global_state.combine(ThreadLocalTables {
+            tables: vec![swiss_table],
+            arena,
+        });
     }
 }
 
@@ -250,34 +583,79 @@ impl<S: Serde> PhysicalOperator for HashAggregate<S> {
         &self,
         _global_state: &dyn GlobalSourceState,
     ) -> OperatorResult<ParallelismDegree> {
-        todo!()
+        self.global_state
+            .collected_swiss_tables
+            .try_lock()
+            .map_or_else(
+                || {
+                    Err(OperatorError::SourceParallelismDegree {
+                        op: "HashAggregate",
+                        source: Box::new(HashAggregateError::SourceParallelismDegreeContention),
+                    })
+                },
+                |combined_tables| {
+                    // SAFETY: The collected_swiss_tables is guaranteed to be non-empty
+                    Ok(unsafe { ParallelismDegree::new_unchecked(combined_tables.len() as _) })
+                },
+            )
     }
 
     fn read_data(
         &self,
-        _output: &mut DataBlock,
-        _global_state: &dyn GlobalSourceState,
-        _local_state: &mut dyn LocalSourceState,
+        output: &mut DataBlock,
+        global_state: &dyn GlobalSourceState,
+        local_state: &mut dyn LocalSourceState,
     ) -> OperatorResult<SourceExecStatus> {
-        todo!()
+        self.read_data_in_parallel(output, global_state, local_state)
     }
 
     fn global_source_state(
         &self,
         _client_ctx: &ClientContext,
     ) -> OperatorResult<Arc<dyn GlobalSourceState>> {
-        Ok(Arc::new(HashAggregateGlobalSourceState))
+        Ok(Arc::new(HashAggregateGlobalSourceState {
+            state: Arc::clone(&self.global_state),
+            read_count: Arc::new(AtomicUsize::new(0)),
+        }))
     }
 
     fn local_source_state(
         &self,
-        _global_state: &dyn GlobalSourceState,
+        global_state: &dyn GlobalSourceState,
     ) -> OperatorResult<Box<dyn LocalSourceState>> {
-        Ok(Box::new(HashAggregateLocalSourceState))
+        let global_state = Self::downcast_global_source_state(global_state)?;
+
+        let mut combined_table = global_state
+            .state
+            .collected_swiss_tables
+            .lock()
+            .pop()
+            .ok_or_else(|| OperatorError::LocalSourceState {
+                op: "HashAggregate",
+                source: Box::new(HashAggregateError::ExhaustedTables),
+            })?;
+
+        Ok(Box::new(HashAggregateLocalSourceState {
+            table_into_iter: TableIntoIter {
+                inner: combined_table
+                    .tables
+                    .pop()
+                    .expect("The combined table is guaranteed to be non-empty")
+                    .into_iter(),
+                agg_func_list: Arc::clone(&self.agg_func_list),
+            },
+            read_count: Arc::clone(&global_state.read_count),
+            _arena: combined_table.arena,
+            state_ptrs: Vec::new(),
+        }))
     }
 
-    fn progress(&self, _global_state: &dyn GlobalSourceState) -> OperatorResult<f64> {
-        todo!()
+    fn progress(&self, global_state: &dyn GlobalSourceState) -> OperatorResult<f64> {
+        Self::downcast_global_source_state(global_state).map(|global_state| {
+            let read_count = global_state.read_count.load(Relaxed) as f64;
+            let total_count = self.global_state.total_elements_count.load(Relaxed) as f64;
+            read_count / total_count
+        })
     }
 
     // Sink
@@ -292,23 +670,156 @@ impl<S: Serde> PhysicalOperator for HashAggregate<S> {
 
     fn write_data(
         &self,
-        _input: &DataBlock,
+        input: &DataBlock,
         _global_state: &dyn GlobalSinkState,
-        _local_state: &mut dyn LocalSinkState,
+        local_state: &mut dyn LocalSinkState,
     ) -> OperatorResult<SinkExecStatus> {
-        todo!()
+        debug_assert_eq!(input.num_arrays(), self.children[0].output_types().len());
+        debug_assert!(input
+            .arrays()
+            .iter()
+            .map(|array| array.logical_type())
+            .zip(self.children[0].output_types())
+            .all(|(input, output)| input == output));
+
+        let local_state = downcast_local_sink_state!(local_state);
+
+        self.group_by_keys_indexes.iter().for_each(|&index| unsafe {
+            #[cfg(debug_assertions)]
+            let group_by_key = input
+                    .get_array(index)
+                    .expect("Index in group_by_keys is guaranteed to be valid, checked by the `try_new` constructor");
+            #[cfg(not(debug_assertions))]
+            let group_by_key = input.get_array_unchecked(index);
+
+            local_state.group_by_keys.push(&*( group_by_key as *const _));
+        });
+
+        self.payloads_indexes.iter().for_each(|&index| unsafe{
+            #[cfg(debug_assertions)]
+            let payload = input
+                    .get_array(index)
+                    .expect("Index in payloads_indexes is guaranteed to be valid, checked by the `try_new` constructor");
+            #[cfg(not(debug_assertions))]
+            let payload = input.get_array_unchecked(index);
+
+            local_state.payloads.push(&*(payload as *const _))
+        });
+
+        // SAFETY:
+        // - `group_by_keys` and `payloads` are referenced from input, the `DataBlock` guarantees
+        // all of the arrays have same length
+        //
+        // - `group_by_keys` are guaranteed to fit into `S::SerdeKey`, checked by `try_new` constructor
+        //
+        // - `payloads` are computed from `self.payloads_indexes`, it matches `self.agg_func_list`
+        unsafe {
+            local_state.hash_table.add_block(
+                &local_state.group_by_keys,
+                &local_state.payloads,
+                input.len(),
+                &self.agg_func_list,
+            )
+        }
+        .boxed()
+        .context(WriteDataSnafu {
+            op: "HashAggregate",
+        })?;
+
+        // Important, otherwise use after free happens. Never deleting following code!!!
+        local_state.group_by_keys.clear();
+        local_state.payloads.clear();
+
+        Ok(SinkExecStatus::NeedMoreInput)
     }
 
     fn finish_local_sink(
         &self,
-        _global_state: &dyn GlobalSinkState,
-        _local_state: &mut dyn LocalSinkState,
+        global_state: &dyn GlobalSinkState,
+        local_state: &mut dyn LocalSinkState,
     ) -> OperatorResult<()> {
-        todo!()
+        let global_state = Self::downcast_global_sink_state(global_state)?;
+        let local_state = downcast_local_sink_state!(local_state);
+
+        match &global_state.partitioning {
+            Some(partitioning) if local_state.hash_table.len() > PARTITION_THRESHOLD => {
+                // We need to partition the hash table
+                // Info some local threads have many keys, we need to partition to support multi-threads
+                global_state.state.any_partitioned.store(true, Relaxed);
+                local_state.partition_then_combine_into(global_state, partitioning);
+            }
+            Some(partitioning) if global_state.state.any_partitioned.load(Relaxed) => {
+                local_state.partition_then_combine_into(global_state, partitioning);
+            }
+            _ => local_state.combine_into(global_state),
+        }
+        Ok(())
     }
 
-    unsafe fn finalize_sink(&self, _global_state: &dyn GlobalSinkState) -> OperatorResult<()> {
-        todo!()
+    unsafe fn finalize_sink(&self, global_state: &dyn GlobalSinkState) -> OperatorResult<()> {
+        let global_state = Self::downcast_global_sink_state(global_state)?;
+
+        let mut collected_swiss_tables = global_state
+            .state
+            .collected_swiss_tables
+            .try_lock()
+            .ok_or_else(|| OperatorError::FinalizeSink {
+                op: "HashAggregate",
+                source: Box::new(HashAggregateError::FinalizeContention),
+            })?;
+
+        match &global_state.partitioning {
+            Some(partitioning) => {
+                if global_state.state.any_partitioned.load(Relaxed) {
+                    // Partitioning the tables that have not partitioned yet. Unlikely to happen
+
+                    collected_swiss_tables
+                        .par_iter_mut()
+                        .for_each(|thread_local_tables| {
+                            if thread_local_tables.tables.len() == 1 {
+                                // SAFETY: the length is 1
+                                let swiss_table =
+                                    unsafe { thread_local_tables.tables.pop().unwrap_unchecked() };
+                                partition::<S, _>(
+                                    swiss_table,
+                                    &mut thread_local_tables.tables,
+                                    partitioning,
+                                );
+                            }
+                        });
+
+                    combine_partitioned_tables(
+                        collected_swiss_tables.deref_mut(),
+                        &self.agg_func_list,
+                        partitioning.partition_count,
+                    )?;
+                } else {
+                    // All of the tables have not partitioned. Combine them into the first table
+                    combine_not_partitioned_tables(
+                        collected_swiss_tables.deref_mut(),
+                        &self.agg_func_list,
+                    )?;
+                }
+            }
+            None => {
+                // Single thread
+                debug_assert_eq!(collected_swiss_tables.len(), 1);
+            }
+        }
+
+        // Write the total_elements_count
+        let total_element_count = collected_swiss_tables
+            .iter()
+            .map(|thread_local_table| {
+                debug_assert_eq!(thread_local_table.tables.len(), 1);
+                thread_local_table.tables[0].len()
+            })
+            .sum::<usize>();
+
+        self.global_state
+            .total_elements_count
+            .store(total_element_count, Relaxed);
+        Ok(())
     }
 
     fn global_sink_state(
@@ -318,7 +829,7 @@ impl<S: Serde> PhysicalOperator for HashAggregate<S> {
         let parallelism = client_ctx.exec_args.parallelism;
 
         Ok(Arc::new(HashAggregateGlobalSinkState {
-            global_state: Arc::clone(&self.global_state),
+            state: Arc::clone(&self.global_state),
             partitioning: if parallelism > ParallelismDegree::MIN {
                 Some(ModuloPartitioning::new(parallelism))
             } else {
@@ -333,8 +844,174 @@ impl<S: Serde> PhysicalOperator for HashAggregate<S> {
     ) -> OperatorResult<Box<dyn LocalSinkState>> {
         Ok(Box::new(HashAggregateLocalSinkState::<S> {
             hash_table: HashTable::new(),
+            group_by_keys: Vec::new(),
+            payloads: Vec::new(),
         }))
     }
+}
+
+impl<S: Serde> SourceOperatorExt for HashAggregate<S> {
+    type GlobalSourceState = HashAggregateGlobalSourceState<S::SerdeKey>;
+    type LocalSourceState = HashAggregateLocalSourceState<S::SerdeKey>;
+
+    #[inline]
+    fn next_morsel(
+        &self,
+        global_state: &Self::GlobalSourceState,
+        local_state: &mut Self::LocalSourceState,
+    ) -> bool {
+        if let Some(mut combined_table) = global_state.state.collected_swiss_tables.lock().pop() {
+            true
+        } else {
+            false
+        }
+    }
+}
+
+/// FIXME: Reuse the arena and hash table
+/// Yeah, we can do it in this way: reuse the arena in the thread_index as combined
+/// arena and create new arena if `parallelism > partition`. Combine all of the hash tables
+/// into the hash table produced by the first thread! This method sounds queer: elements
+/// in one hash table may located in different arena! But we can proof it is correct 😊
+fn combine_partitioned_tables<K: SerdeKey>(
+    collected_swiss_tables: &mut Vec<ThreadLocalTables<K>>,
+    agg_func_list: &AggregationFunctionList,
+    partition_count: ParallelismDegree,
+) -> OperatorResult<()> {
+    let partition_count = partition_count.get() as usize;
+
+    // Check the input is valid, all of them have same partition count
+    debug_assert!(collected_swiss_tables.len() >= 2);
+    debug_assert!(collected_swiss_tables
+        .iter()
+        .all(|thread_local_table| thread_local_table.tables.len() == partition_count));
+
+    // Transpose the two dimension vector from `parallelism * partition` to `partition * parallelism`
+    // Note that the arena still in the collected_swiss_tables
+    let transposed = (0..partition_count)
+        .map(|partition_index| {
+            collected_swiss_tables
+                .iter_mut()
+                .map(|thread_local_tables| unsafe {
+                    std::mem::take(
+                        thread_local_tables
+                            .tables
+                            .get_unchecked_mut(partition_index),
+                    )
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+
+    let combined_tables = transposed
+        .into_par_iter()
+        .map(|partial_tables| {
+            let mut combined_table = SwissTable::new();
+            let combined_arena = Arena::new();
+            let mut combined_state_ptrs = Vec::new();
+            let mut partial_state_ptrs = Vec::new();
+            // SAFETY: all of the partial tables' arena are located in the collected_swiss_tables,
+            // which outlive this function
+            partial_tables
+                .into_iter()
+                .try_for_each(|partial_table| unsafe {
+                    combine_swiss_table(
+                        partial_table,
+                        &mut partial_state_ptrs,
+                        &mut combined_table,
+                        &combined_arena,
+                        &mut combined_state_ptrs,
+                        agg_func_list,
+                    )
+                })
+                .map(|_| ThreadLocalTables {
+                    tables: vec![combined_table],
+                    arena: combined_arena,
+                })
+        })
+        .collect::<OperatorResult<Vec<_>>>()?;
+
+    *collected_swiss_tables = combined_tables;
+
+    Ok(())
+}
+
+fn combine_not_partitioned_tables<K: SerdeKey>(
+    collected_swiss_tables: &mut Vec<ThreadLocalTables<K>>,
+    agg_func_list: &AggregationFunctionList,
+) -> OperatorResult<()> {
+    debug_assert!(!collected_swiss_tables.is_empty());
+    debug_assert!(collected_swiss_tables
+        .iter()
+        .all(|thread_local_tables| thread_local_tables.tables.len() == 1));
+
+    let mut combined_state_ptrs = Vec::new();
+    let mut partial_state_ptrs = Vec::new();
+
+    unsafe {
+        while collected_swiss_tables.len() >= 2 {
+            // SAFETY: length larger than or equal to 2
+            let mut partial_table = collected_swiss_tables.pop().unwrap_unchecked();
+            // SAFETY: We have already checked all of the ThreadLocalTables have 1 swiss table
+            let partial_table = partial_table.tables.pop().unwrap_unchecked();
+            // SAFETY: after the first pop, the length is larger than or equal to 1
+            let combined_table = collected_swiss_tables.first_mut().unwrap_unchecked();
+            // SAFETY: the arena of the partial_table lives until end of the block, has same life time with the above first pop
+            combine_swiss_table(
+                partial_table,
+                &mut partial_state_ptrs,
+                combined_table.tables.first_mut().unwrap_unchecked(),
+                &combined_table.arena,
+                &mut combined_state_ptrs,
+                agg_func_list,
+            )?;
+        }
+    }
+    Ok(())
+}
+
+/// Combine the partial table into combined table
+///
+/// # Safety
+///
+/// Arena of the partial table should outlive this function
+unsafe fn combine_swiss_table<'a, K: SerdeKey>(
+    partial_table: SwissTable<Element<K>>,
+    partial_state_ptrs: &mut Vec<AggregationStatesPtr>,
+    combined_table: &'a mut SwissTable<Element<K>>,
+    combined_arena: &'a Arena,
+    combined_state_ptrs: &mut Vec<AggregationStatesPtr>,
+    agg_func_list: &AggregationFunctionList,
+) -> OperatorResult<()> {
+    combined_state_ptrs.resize(partial_table.len(), AggregationStatesPtr::dangling());
+    partial_state_ptrs.resize(partial_table.len(), AggregationStatesPtr::dangling());
+
+    partial_table
+        .iter()
+        .map(|bucket| bucket.as_mut())
+        .zip(partial_state_ptrs.iter_mut())
+        .zip(combined_state_ptrs.iter_mut())
+        .for_each(|((element, partial_ptr), combined_ptr)| {
+            *partial_ptr = element.agg_states_ptr;
+
+            probing_swiss_table(
+                combined_table,
+                combined_arena,
+                &mut element.serde_key_and_hash,
+                combined_ptr,
+                agg_func_list,
+            )
+        });
+
+    // SAFETY: the partial_state_ptr is guaranteed by the safety of the function
+    // The combined_state_ptrs points to the arena that has same lifetime with the combined_table
+    // Both of them have length: `partial_table.len()`
+    agg_func_list
+        .combine_states(partial_state_ptrs, combined_state_ptrs)
+        .boxed()
+        .context(FinalizeSinkSnafu {
+            op: "HashAggregate",
+        })
 }
 
 /// Trait for partitioning the [`HashValue`] into partition index
@@ -347,7 +1024,7 @@ pub trait Partitioning: Send + Sync + 'static {
     fn new(partition_count: ParallelismDegree) -> Self;
 
     /// Get number of partitions
-    fn partition_count(&self) -> usize;
+    fn partition_count(&self) -> ParallelismDegree;
 
     /// Partition the [`HashValue`] into partition index. Note that the returned
     /// partition index should smaller than partition count
@@ -357,20 +1034,20 @@ pub trait Partitioning: Send + Sync + 'static {
 /// Partitioning based on modulo operation
 #[derive(Debug, Clone)]
 pub struct ModuloPartitioning {
-    partition_count: usize,
+    partition_count: ParallelismDegree,
     modulo: StrengthReducedU64,
 }
 
 impl Partitioning for ModuloPartitioning {
     fn new(partition_count: ParallelismDegree) -> Self {
         Self {
-            partition_count: partition_count.get() as _,
+            partition_count,
             modulo: StrengthReducedU64::new(partition_count.get() as _),
         }
     }
 
     #[inline]
-    fn partition_count(&self) -> usize {
+    fn partition_count(&self) -> ParallelismDegree {
         self.partition_count
     }
 
@@ -382,19 +1059,19 @@ impl Partitioning for ModuloPartitioning {
 
 /// Partition the hash table into multiple hash tables
 fn partition<S: Serde, P: Partitioning>(
-    hash_table: SwissTable<Element<S::SerdeKey>>,
+    swiss_table: SwissTable<Element<S::SerdeKey>>,
     partitioned: &mut Vec<SwissTable<Element<S::SerdeKey>>>,
     partitioning: &P,
 ) {
     debug_assert!(partitioned.is_empty());
 
-    partitioned.resize_with(partitioning.partition_count(), || {
+    partitioned.resize_with(partitioning.partition_count().get() as _, || {
         SwissTable::with_capacity(STANDARD_VECTOR_SIZE)
     });
 
-    hash_table.into_iter().for_each(|element| {
+    swiss_table.into_iter().for_each(|element| {
         let partition_index = partitioning.partition(element.serde_key_and_hash.hash_value);
-        debug_assert!(partition_index < partitioning.partition_count());
+        debug_assert!(partition_index < partitioning.partition_count().get() as _);
 
         // SAFETY: We already allocate the hash table in the tables and the partition index
         // is guaranteed smaller than the partition count
@@ -403,4 +1080,179 @@ fn partition<S: Serde, P: Partitioning>(
             element.serde_key_and_hash.hash_value
         });
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::hash_table::SerdeKeyAndHash;
+
+    use super::serde::FixedSizedSerdeKey;
+
+    use super::*;
+    use crate::exec::physical_expr::function::aggregate::count::CountStart;
+    use crate::exec::physical_expr::function::aggregate::min_max::Min;
+    use data_block::array::Int64Array;
+
+    fn mock_agg_funcs_list() -> AggregationFunctionList {
+        let agg_funcs: Vec<Arc<dyn AggregationFunction>> = vec![
+            Arc::new(CountStart::new()),
+            Arc::new(
+                Min::<Int64Array>::try_new(Arc::new(FieldRef::new(
+                    2,
+                    LogicalType::BigInt,
+                    "Wtf".to_string(),
+                )))
+                .unwrap(),
+            ),
+        ];
+
+        AggregationFunctionList::new(agg_funcs)
+    }
+
+    fn mock_swiss_tables(
+        agg_func_list: &AggregationFunctionList,
+        duplicate_count: usize,
+    ) -> Vec<ThreadLocalTables<FixedSizedSerdeKey<u64>>> {
+        let mut arenas_array = [Arena::new(), Arena::new()];
+        let mut mocked = vec![Vec::new(), Vec::new()];
+        (0..duplicate_count).for_each(|_| {
+            let khs = (0..6)
+                .map(|i| SerdeKeyAndHash {
+                    serde_key: FixedSizedSerdeKey::new(i, 0),
+                    hash_value: i,
+                })
+                .collect::<Vec<_>>();
+
+            let ptrs_array = (0..2)
+                .map(|i| {
+                    (0..4)
+                        .map(|_| agg_func_list.alloc_states(&arenas_array[i]))
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>();
+
+            let indexes = [[0, 1, 4, 5], [1, 2, 3, 4]];
+
+            let elements = indexes
+                .iter()
+                .enumerate()
+                .map(|(i, indexes)| {
+                    indexes
+                        .iter()
+                        .enumerate()
+                        .map(|(j, &index)| Element {
+                            serde_key_and_hash: khs[index].clone(),
+                            agg_states_ptr: ptrs_array[i][j],
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>();
+            let payloads0 = &[&ArrayImpl::Int64(Int64Array::from_values_iter([
+                -1, 4, 6, 9,
+            ]))];
+
+            let payloads1 = &[&ArrayImpl::Int64(Int64Array::from_values_iter([
+                7, -9, -3, -2,
+            ]))];
+
+            unsafe {
+                agg_func_list
+                    .update_states(payloads0, &ptrs_array[0])
+                    .unwrap()
+            };
+            unsafe {
+                agg_func_list
+                    .update_states(payloads1, &ptrs_array[1])
+                    .unwrap()
+            };
+            elements
+                .into_iter()
+                .enumerate()
+                .for_each(|(index, elements)| {
+                    let mut table = SwissTable::with_capacity(16);
+                    elements.into_iter().for_each(|element| {
+                        table.insert(element.serde_key_and_hash.hash_value, element, |element| {
+                            element.serde_key_and_hash.hash_value
+                        });
+                    });
+                    mocked[index].push(table)
+                });
+        });
+
+        mocked
+            .into_iter()
+            .enumerate()
+            .map(|(index, tables)| ThreadLocalTables {
+                tables,
+                arena: std::mem::take(&mut arenas_array[index]),
+            })
+            .collect()
+    }
+
+    fn assert_combined_table(
+        combined: ThreadLocalTables<FixedSizedSerdeKey<u64>>,
+        agg_func_list: &AggregationFunctionList,
+    ) {
+        assert_eq!(combined.tables[0].len(), 6);
+
+        let mut output =
+            DataBlock::with_logical_types(vec![LogicalType::UnsignedBigInt, LogicalType::BigInt]);
+
+        let combined_state_ptrs = unsafe {
+            combined.tables[0]
+                .iter()
+                .map(|bucket| bucket.as_ref().agg_states_ptr)
+                .collect::<Vec<_>>()
+        };
+
+        unsafe {
+            agg_func_list
+                .take_states(&combined_state_ptrs, &mut output)
+                .unwrap();
+        }
+
+        let expect = expect_test::expect![[r#"
+            ┌────────────────┬────────┐
+            │ UnsignedBigInt │ BigInt │
+            ├────────────────┼────────┤
+            │ 1              │ -1     │
+            ├────────────────┼────────┤
+            │ 2              │ 4      │
+            ├────────────────┼────────┤
+            │ 1              │ -9     │
+            ├────────────────┼────────┤
+            │ 1              │ -3     │
+            ├────────────────┼────────┤
+            │ 2              │ -2     │
+            ├────────────────┼────────┤
+            │ 1              │ 9      │
+            └────────────────┴────────┘"#]];
+        expect.assert_eq(&output.to_string());
+    }
+
+    #[test]
+    fn test_combine_not_partitioned_tables() {
+        let agg_func_list = mock_agg_funcs_list();
+        let mut swiss_tables = mock_swiss_tables(&agg_func_list, 1);
+        combine_not_partitioned_tables(&mut swiss_tables, &agg_func_list).unwrap();
+
+        let combined = swiss_tables.pop().unwrap();
+        assert_combined_table(combined, &agg_func_list);
+    }
+
+    #[test]
+    fn test_combine_partitioned_tables() {
+        let agg_func_list = mock_agg_funcs_list();
+        let mut swiss_tables = mock_swiss_tables(&agg_func_list, 3);
+        combine_partitioned_tables(
+            &mut swiss_tables,
+            &agg_func_list,
+            ParallelismDegree::new(3).unwrap(),
+        )
+        .unwrap();
+
+        swiss_tables
+            .into_iter()
+            .for_each(|combined| assert_combined_table(combined, &agg_func_list));
+    }
 }

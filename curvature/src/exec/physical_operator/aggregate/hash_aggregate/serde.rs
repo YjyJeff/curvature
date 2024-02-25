@@ -12,10 +12,13 @@ use super::hash_table::SerdeKeyAndHash;
 use data_block::array::ArrayImpl;
 use data_block::bitmap::BitStore;
 use data_block::element::interval::DayTime;
-use data_block::types::{Array, Element};
+use data_block::types::{Array, Element, PhysicalSize};
 
 /// Trait for the memory equality comparable serde struct that stores the `GroupByKeys`
-pub trait SerdeKey: Eq + Hash + Default + Debug + Send + Sync + 'static {}
+pub trait SerdeKey: Eq + Hash + Default + Debug + Send + Sync + 'static {
+    /// Physical size of the serde key
+    const PHYSICAL_SIZE: PhysicalSize;
+}
 
 /// Trait for serialize the `GroupByKeys` into `SerdeKey` and compute hash
 pub trait Serde: Debug + 'static {
@@ -30,7 +33,8 @@ pub trait Serde: Debug + 'static {
     /// - Arrays should fit into Self::SerdeKey, otherwise, panic in debug mode and
     /// undefined behavior happens in release mode
     ///
-    /// - keys should have same length with the array in the arrays
+    /// - keys should have same length with the array in the arrays and all of the keys
+    /// should be default value!
     unsafe fn serialize(
         arrays: &[&ArrayImpl],
         keys: &mut [SerdeKeyAndHash<Self::SerdeKey>],
@@ -60,7 +64,7 @@ impl FloatExt for f64 {}
 ///
 /// # Notes
 ///
-/// - The keys stored in the serde key is not aligned! Deserializer should take care of
+/// - The keys stored in the serde key is **not aligned**! Deserializer should take care of
 /// it! We design it this way because: We hope the key is as small as possible such that
 /// we can serialize more cases into the it!
 ///
@@ -75,11 +79,19 @@ pub struct FixedSizedSerdeKey<K: Eq + Hash + Default + Clone + Debug + 'static> 
     validity: BitStore,
 }
 
-impl SerdeKey for FixedSizedSerdeKey<u16> {}
-impl SerdeKey for FixedSizedSerdeKey<u32> {}
-impl SerdeKey for FixedSizedSerdeKey<u64> {}
-impl SerdeKey for FixedSizedSerdeKey<u128> {}
-impl SerdeKey for FixedSizedSerdeKey<[u8; 32]> {}
+macro_rules! impl_fixed_sized_serde_key {
+    ($ty:ty) => {
+        impl SerdeKey for FixedSizedSerdeKey<$ty> {
+            const PHYSICAL_SIZE: PhysicalSize = PhysicalSize::Fixed(size_of::<$ty>());
+        }
+    };
+}
+
+impl_fixed_sized_serde_key!(u16);
+impl_fixed_sized_serde_key!(u32);
+impl_fixed_sized_serde_key!(u64);
+impl_fixed_sized_serde_key!(u128);
+impl_fixed_sized_serde_key!([u8; 32]);
 
 /// Serializer
 #[derive(Debug)]
@@ -217,6 +229,12 @@ mod tests {
     use crate::common::utils::hash::fixed_build_hasher_default;
 
     use super::*;
+
+    impl<K: Eq + Hash + Default + Clone + Debug + 'static> FixedSizedSerdeKey<K> {
+        pub fn new(key: K, validity: BitStore) -> Self {
+            Self { key, validity }
+        }
+    }
 
     #[test]
     fn test_serialize_into_fixed_sized_key() {

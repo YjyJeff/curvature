@@ -34,9 +34,9 @@ pub enum Error {
 #[derive(Debug)]
 pub struct FieldRef {
     /// Index of the field
-    field_index: usize,
+    pub(crate) field_index: usize,
     /// Output type of the field
-    output_type: LogicalType,
+    pub(crate) output_type: LogicalType,
     /// Name of the field, only used for debug and display
     field: String,
     /// It should always be empty! It can not have children

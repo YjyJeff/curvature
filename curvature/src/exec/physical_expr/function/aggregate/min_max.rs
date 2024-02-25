@@ -8,11 +8,14 @@ use std::sync::Arc;
 
 use data_block::array::{Array, ArrayError, ArrayImpl, ScalarArray};
 use data_block::types::{Element, ElementRef, LogicalType};
+use snafu::ensure;
 
 use super::{
-    unary_combine_states, unary_finalize_states, unary_update_states, AggregationFunction,
-    AggregationStatesPtr, Function, Result, Stringify, UnaryAggregationState,
+    unary_combine_states, unary_take_states, unary_update_states, AggregationFunction,
+    AggregationStatesPtr, Function, NotFieldRefArgsSnafu, Result, Stringify, UnaryAggregationState,
 };
+use crate::exec::physical_expr::field_ref::FieldRef;
+use crate::exec::physical_expr::function::aggregate::ArgTypeMismatchSnafu;
 use crate::exec::physical_expr::PhysicalExpr;
 
 /// Trait for constrain the payload array of the min/max function
@@ -53,6 +56,16 @@ pub struct MinMax<const IS_MIN: bool, PayloadArray> {
     _phantom: PhantomData<PayloadArray>,
 }
 
+impl<const IS_MIN: bool, PayloadArray> MinMax<IS_MIN, PayloadArray> {
+    fn name_() -> &'static str {
+        if IS_MIN {
+            "Min"
+        } else {
+            "Max"
+        }
+    }
+}
+
 /// Min aggregation function
 pub type Min<PayloadArray> = MinMax<true, PayloadArray>;
 /// Max aggregation function
@@ -72,11 +85,7 @@ impl<const IS_MIN: bool, PayloadArray> Debug for MinMax<IS_MIN, PayloadArray> {
 
 impl<const IS_MIN: bool, PayloadArray> Stringify for MinMax<IS_MIN, PayloadArray> {
     fn name(&self) -> &'static str {
-        if IS_MIN {
-            "Min"
-        } else {
-            "Max"
-        }
+        Self::name_()
     }
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -139,26 +148,37 @@ where
         partial_state_ptrs: &[AggregationStatesPtr],
         combined_state_ptrs: &[AggregationStatesPtr],
         state_offset: usize,
-    ) {
+    ) -> Result<()> {
         unary_combine_states::<PayloadArray, MinMaxState<IS_MIN, PayloadArray::Element>>(
             partial_state_ptrs,
             combined_state_ptrs,
             state_offset,
         );
+
+        Ok(())
     }
 
-    unsafe fn finalize(
+    unsafe fn take_states(
         &self,
         state_ptrs: &[AggregationStatesPtr],
         state_offset: usize,
         output: &mut ArrayImpl,
     ) -> Result<()> {
-        unary_finalize_states::<
-            PayloadArray,
-            PayloadArray,
-            MinMaxState<IS_MIN, PayloadArray::Element>,
-        >(state_ptrs, state_offset, output);
+        unary_take_states::<PayloadArray, PayloadArray, MinMaxState<IS_MIN, PayloadArray::Element>>(
+            state_ptrs,
+            state_offset,
+            output,
+        );
         Ok(())
+    }
+
+    /// Drop the memory contained by the state. For example, string has memory allocation
+    unsafe fn drop_states(&self, state_ptrs: &[AggregationStatesPtr], state_offset: usize) {
+        state_ptrs.iter().for_each(|ptr| {
+            let state =
+                ptr.offset_as_mut::<MinMaxState<IS_MIN, PayloadArray::Element>>(state_offset);
+            state.state.take();
+        });
     }
 }
 
@@ -198,6 +218,7 @@ where
     /// FIXME: accelerate with likely
     #[inline]
     unsafe fn combine(&mut self, partial: &mut Self) {
+        // Take is important, such that the partial state will be dropped
         if let Some(partial) = partial.state.take() {
             match &mut self.state {
                 Some(combined) => {
@@ -217,6 +238,37 @@ where
     #[inline]
     unsafe fn finalize(&mut self) -> Self::Output {
         self.state.take()
+    }
+}
+
+impl<const IS_MIN: bool, PayloadArray> MinMax<IS_MIN, PayloadArray>
+where
+    PayloadArray: MinMaxPayloadArray,
+    for<'a> <PayloadArray::Element as Element>::ElementRef<'a>: PartialOrd,
+{
+    /// Create a new MinMax function
+    pub fn try_new(arg: Arc<dyn PhysicalExpr>) -> Result<Self> {
+        ensure!(
+            arg.as_any().downcast_ref::<FieldRef>().is_some(),
+            NotFieldRefArgsSnafu {
+                func: Self::name_(),
+                args: vec![arg]
+            }
+        );
+
+        ensure!(
+            arg.output_type().physical_type() == PayloadArray::PHYSCIAL_TYPE,
+            ArgTypeMismatchSnafu {
+                func: Self::name_(),
+                expect_physical_type: PayloadArray::PHYSCIAL_TYPE,
+                arg_type: arg.output_type().to_owned()
+            }
+        );
+
+        Ok(Self {
+            args: vec![arg],
+            _phantom: PhantomData,
+        })
     }
 }
 

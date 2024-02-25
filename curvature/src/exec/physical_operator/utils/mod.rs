@@ -68,7 +68,12 @@ macro_rules! impl_source_for_non_source {
             &self,
             _global_state: &dyn GlobalSourceState,
         ) -> OperatorResult<ParallelismDegree> {
-            SourceParallelismDegreeSnafu { op: self.name() }.fail()
+            let error: SendableError = format!(
+                "`{}` is not a source operator. It should never happens because pipeline should be verified before execution",
+                self.name()
+            )
+            .into();
+            Err(error).context(SourceParallelismDegreeSnafu { op: self.name() })
         }
 
         fn read_data(
@@ -93,11 +98,21 @@ macro_rules! impl_source_for_non_source {
             &self,
             _global_state: &dyn GlobalSourceState,
         ) -> OperatorResult<Box<dyn LocalSourceState>> {
-            LocalSourceStateSnafu { op: self.name() }.fail()
+            let error: SendableError = format!(
+                "`{}` is not a source operator. It should never happens because pipeline should be verified before execution",
+                self.name()
+            )
+            .into();
+            Err(error).context(LocalSourceStateSnafu { op: self.name() })
         }
 
         fn progress(&self, _global_state: &dyn GlobalSourceState) -> OperatorResult<f64> {
-            ProgressSnafu { op: self.name() }.fail()
+            let error: SendableError = format!(
+                "`{}` is not a source operator. It should never happens because pipeline should be verified before execution",
+                self.name()
+            )
+            .into();
+            Err(error).context(ProgressSnafu { op: self.name() })
         }
     };
 }

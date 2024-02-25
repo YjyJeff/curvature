@@ -6,8 +6,10 @@
 //! [`IntrinsicType`] is the subset of the [`PrimitiveType`], types implement the
 //! [`IntrinsicType`] can use SIDM to perform acceleration
 
-use std::fmt::Display;
+use std::mem::size_of;
 use std::num::NonZeroU8;
+use std::ops::AddAssign;
+use std::{fmt::Display, ops::Add};
 
 pub use crate::aligned_vec::AllocType;
 pub use crate::array::primitive::PrimitiveType;
@@ -17,6 +19,7 @@ pub use crate::compute::IntrinsicType;
 pub use crate::compute::IntrinsicSimdType;
 
 pub use crate::array::Array;
+use crate::element::interval::DayTime;
 pub use crate::element::{Element, ElementRef};
 
 /// Physical type has a one-to-one mapping to each struct that implements [`Element`]
@@ -64,6 +67,61 @@ pub enum PhysicalType {
 impl Display for PhysicalType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "PhysicalType::{:?}", self)
+    }
+}
+
+impl PhysicalType {
+    /// Get size of the physical type
+    pub fn size(&self) -> PhysicalSize {
+        match self {
+            // Fake! One bit instead of one byte
+            Self::Boolean => PhysicalSize::Fixed(size_of::<bool>()),
+            Self::String | Self::Binary | Self::List => PhysicalSize::Variable,
+            Self::Int8 => PhysicalSize::Fixed(size_of::<i8>()),
+            Self::UInt8 => PhysicalSize::Fixed(size_of::<u8>()),
+            Self::Int16 => PhysicalSize::Fixed(size_of::<i16>()),
+            Self::UInt16 => PhysicalSize::Fixed(size_of::<u16>()),
+            Self::Int32 => PhysicalSize::Fixed(size_of::<i32>()),
+            Self::UInt32 => PhysicalSize::Fixed(size_of::<u32>()),
+            Self::Int64 => PhysicalSize::Fixed(size_of::<i64>()),
+            Self::UInt64 => PhysicalSize::Fixed(size_of::<u64>()),
+            Self::Int128 => PhysicalSize::Fixed(size_of::<i128>()),
+            Self::Float32 => PhysicalSize::Fixed(size_of::<f32>()),
+            Self::Float64 => PhysicalSize::Fixed(size_of::<f64>()),
+            Self::DayTime => PhysicalSize::Fixed(size_of::<DayTime>()),
+        }
+    }
+}
+
+/// Size of the [`PhysicalType`]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
+pub enum PhysicalSize {
+    /// The physical type is fixed size
+    Fixed(usize),
+    /// The physical type is variable size
+    Variable,
+}
+
+impl Add for PhysicalSize {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
+            (Self::Fixed(lhs), Self::Fixed(rhs)) => Self::Fixed(lhs + rhs),
+            _ => Self::Variable,
+        }
+    }
+}
+
+impl AddAssign for PhysicalSize {
+    fn add_assign(&mut self, rhs: Self) {
+        match self {
+            Self::Variable => (),
+            Self::Fixed(lhs) => match rhs {
+                Self::Variable => *self = Self::Variable,
+                Self::Fixed(rhs) => *lhs += rhs,
+            },
+        }
     }
 }
 
@@ -181,6 +239,10 @@ pub enum LogicalType {
     Date,
     /// Universally unique identifier
     Uuid,
+    /// An IPv4 address
+    IPv4,
+    /// An Ipv6 address
+    IPv6,
 
     // Complex types
     /// List of LogicalType. The child type can be scalar type or complex type
@@ -240,6 +302,8 @@ impl LogicalType {
             Self::IntervalYearMonth => PhysicalType::Int32,
             Self::Date => PhysicalType::Int32,
             Self::Uuid => PhysicalType::Int128,
+            Self::IPv4 => PhysicalType::UInt32,
+            Self::IPv6 => PhysicalType::Int128,
 
             // Complex types
             Self::List { .. } => PhysicalType::List,

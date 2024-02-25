@@ -9,24 +9,5 @@ use bumpalo::Bump;
 /// `AggregationStates`
 pub type Arena = Bump;
 
-mod private {
-    use super::Arena;
-
-    /// Arena that is thread safe, the thread safety is achieved by we can not access the arena
-    /// anymore! We simply keep the arena to make sure the memory allocated in the arena are
-    /// valid
-    #[derive(Debug)]
-    pub struct ThreadSafeArena(Arena);
-
-    impl ThreadSafeArena {
-        /// Create a new thread safe arena
-        pub fn new(arena: Arena) -> ThreadSafeArena {
-            Self(arena)
-        }
-    }
-
-    unsafe impl Sync for ThreadSafeArena {}
-}
-
-pub use self::private::ThreadSafeArena;
 pub mod hash_aggregate;
+pub mod simple_aggregate;

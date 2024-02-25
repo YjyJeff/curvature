@@ -341,7 +341,7 @@ mod tests {
     use super::*;
     use crate::exec::physical_expr::field_ref::FieldRef;
     use crate::exec::physical_expr::function::aggregate::count::CountStart;
-    use crate::exec::physical_operator::aggregate::hash_aggregate::HashAggregate;
+    use crate::exec::physical_operator::aggregate::simple_aggregate::SimpleAggregate;
     use crate::exec::physical_operator::numbers::Numbers;
     use crate::exec::physical_operator::projection::Projection;
     use crate::exec::physical_operator::union::Union;
@@ -370,14 +370,7 @@ mod tests {
     }
 
     fn aggregate(input: Arc<dyn PhysicalOperator>) -> Arc<dyn PhysicalOperator> {
-        // FIXME: The serde is incorrect
-        Arc::new(
-            HashAggregate::<crate::exec::physical_operator::aggregate::hash_aggregate::serde::FixedSizedSerdeKeySerializer<u64>>::try_new(
-                input,
-                vec![Arc::new( CountStart::new())],
-            )
-            .unwrap(),
-        )
+        Arc::new(SimpleAggregate::try_new(input, vec![Arc::new(CountStart::new())]).unwrap())
     }
 
     fn build_pipelines(
@@ -419,26 +412,26 @@ mod tests {
 
     #[test]
     fn test_aggregate() {
-        //  HashAggregate
+        //  SimpleAggregate
         //    Numbers
         let root = aggregate(numbers());
         let (mut root_pipelines, mut pipelines) = build_pipelines(&root);
         let pipeline = pipelines.pop().unwrap();
         assert!(pipelines.is_empty());
-        let expect = expect_test::expect!["Source(Numbers) --> Sink(HashAggregate)"];
+        let expect = expect_test::expect!["Source(Numbers) --> Sink(SimpleAggregate)"];
         expect.assert_eq(&pipeline.to_string());
 
         let root_pipeline = root_pipelines.pop().unwrap();
         assert!(root_pipelines.is_empty());
         assert_eq!(root_pipeline.children, vec![0]);
-        let expect = expect_test::expect!["Source(HashAggregate)"];
+        let expect = expect_test::expect!["Source(SimpleAggregate)"];
         expect.assert_eq(&root_pipeline.to_string());
     }
 
     #[test]
     fn test_aggregate_union() {
         //  Projection
-        //    HashAggregate
+        //    SimpleAggregate
         //      Projection
         //        Union
         //          Numbers
@@ -449,13 +442,14 @@ mod tests {
 
         assert!(root_pipelines.is_empty());
         assert_eq!(root_pipeline.children, vec![0, 1]);
-        let expect = expect_test::expect!["Source(HashAggregate) --> Projection"];
+        let expect = expect_test::expect!["Source(SimpleAggregate) --> Projection"];
         expect.assert_eq(&root_pipeline.to_string());
 
         let p0 = pipelines.pop().unwrap();
         let p1 = pipelines.pop().unwrap();
         assert!(pipelines.is_empty());
-        let expect = expect_test::expect!["Source(Numbers) --> Projection --> Sink(HashAggregate)"];
+        let expect =
+            expect_test::expect!["Source(Numbers) --> Projection --> Sink(SimpleAggregate)"];
         expect.assert_eq(&p0.to_string());
         expect.assert_eq(&p1.to_string());
 
@@ -473,7 +467,7 @@ mod tests {
     #[test]
     fn test_aggregate_chain_of_union() {
         //  Projection
-        //    HashAggregate
+        //    SimpleAggregate
         //      Union
         //        Projection
         //          Union
@@ -490,7 +484,7 @@ mod tests {
 
         assert!(root_pipelines.is_empty());
         assert_eq!(root_pipeline.children, vec![0, 1, 2]);
-        let expect = expect_test::expect!["Source(HashAggregate) --> Projection"];
+        let expect = expect_test::expect!["Source(SimpleAggregate) --> Projection"];
         expect.assert_eq(&root_pipeline.to_string());
 
         assert_eq!(pipelines.len(), 3);
@@ -498,9 +492,9 @@ mod tests {
         let p1 = &pipelines[1];
         let p2 = &pipelines[2];
 
-        let expect0 = expect_test::expect![["Source(Numbers) --> Sink(HashAggregate)"]];
+        let expect0 = expect_test::expect![["Source(Numbers) --> Sink(SimpleAggregate)"]];
         let expect1 =
-            expect_test::expect!["Source(Numbers) --> Projection --> Sink(HashAggregate)"];
+            expect_test::expect!["Source(Numbers) --> Projection --> Sink(SimpleAggregate)"];
 
         expect0.assert_eq(&p0.to_string());
         expect1.assert_eq(&p1.to_string());
@@ -525,12 +519,12 @@ mod tests {
     fn test_union_aggregate() {
         //  Union
         //    Projection
-        //      HashAggregate
+        //      SimpleAggregate
         //        Projection
         //          Union
         //            Numbers
         //            Numbers
-        //    HashAggregate
+        //    SimpleAggregate
         //      Numbers
         let root = union(
             projection(aggregate(projection(union(numbers(), numbers())))),
@@ -544,8 +538,8 @@ mod tests {
         let root_p1 = &root_pipelines[1];
         assert_eq!(root_p1.children, vec![0, 1]);
 
-        let expect0 = expect_test::expect!["Source(HashAggregate)"];
-        let expect1 = expect_test::expect!["Source(HashAggregate) --> Projection"];
+        let expect0 = expect_test::expect!["Source(SimpleAggregate)"];
+        let expect1 = expect_test::expect!["Source(SimpleAggregate) --> Projection"];
         expect0.assert_eq(&root_p0.to_string());
         expect1.assert_eq(&root_p1.to_string());
 
@@ -556,7 +550,7 @@ mod tests {
         let p2 = &pipelines[2];
 
         let expect0 =
-            expect_test::expect!["Source(Numbers) --> Projection --> Sink(HashAggregate)"];
+            expect_test::expect!["Source(Numbers) --> Projection --> Sink(SimpleAggregate)"];
         expect0.assert_eq(&p0.to_string());
         expect0.assert_eq(&p1.to_string());
 
@@ -570,7 +564,7 @@ mod tests {
             &p1.operators[0].global_state
         ));
 
-        let expect2 = expect_test::expect!["Source(Numbers) --> Sink(HashAggregate)"];
+        let expect2 = expect_test::expect!["Source(Numbers) --> Sink(SimpleAggregate)"];
         expect2.assert_eq(&p2.to_string())
     }
 }

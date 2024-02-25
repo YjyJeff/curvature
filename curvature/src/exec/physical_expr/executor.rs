@@ -34,11 +34,17 @@ impl ExprExecutor {
         input: &DataBlock,
         output: &mut DataBlock,
     ) -> ExprResult<()> {
-        exprs
-            .iter()
-            .zip(self.ctx.iter_mut())
-            .zip(output.mutable_arrays())
-            .try_for_each(|((expr, ctx), output)| execute(expr.as_ref(), ctx, input, output))
+        let guard = output.mutate_arrays();
+        let mutate_func = |output: &mut [ArrayImpl]| {
+            exprs
+                .iter()
+                .zip(self.ctx.iter_mut())
+                .zip(output)
+                .try_for_each(|((expr, ctx), output)| execute(expr.as_ref(), ctx, input, output))
+        };
+
+        // SAFETY: expressions process arrays with same length will produce arrays with same length
+        unsafe { guard.mutate(mutate_func) }
     }
 }
 
@@ -94,12 +100,20 @@ fn execute(
     leaf_input: &DataBlock,
     output: &mut ArrayImpl,
 ) -> ExprResult<()> {
-    // Execute children
-    expr.children()
-        .iter()
-        .zip(ctx.children.iter_mut())
-        .zip(ctx.intermediate_block.mutable_arrays())
-        .try_for_each(|((expr, ctx), output)| execute(&**expr, ctx, leaf_input, output))?;
+    let guard = ctx.intermediate_block.mutate_arrays();
+    let mutate_func = |output: &mut [ArrayImpl]| {
+        // Execute children
+        expr.children()
+            .iter()
+            .zip(ctx.children.iter_mut())
+            .zip(output)
+            .try_for_each(|((expr, ctx), output)| execute(&**expr, ctx, leaf_input, output))
+    };
+
+    // SAFETY: expressions process arrays with same length will produce arrays with same length
+    unsafe {
+        guard.mutate(mutate_func)?;
+    }
 
     // execute expr
     #[cfg(feature = "profile")]

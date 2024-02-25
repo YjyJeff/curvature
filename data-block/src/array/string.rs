@@ -300,6 +300,8 @@ impl<V: AsRef<str> + Debug> FromIterator<Option<V>> for StringArray {
 }
 
 impl ScalarArray for StringArray {
+    const PHYSCIAL_TYPE: PhysicalType = PhysicalType::String;
+
     #[inline]
     unsafe fn replace_with_trusted_len_values_iterator(
         &mut self,

@@ -10,17 +10,35 @@ use std::ptr::NonNull;
 use std::sync::Arc;
 
 use data_block::array::{Array, ArrayError, ArrayImpl, ScalarArray};
-use data_block::types::{Element, LogicalType};
+use data_block::block::DataBlock;
+use data_block::types::{Element, LogicalType, PhysicalType};
 use snafu::Snafu;
 
 use super::Function;
 use crate::common::utils::memory::next_multiple_of_align;
 use crate::error::SendableError;
+use crate::exec::physical_expr::PhysicalExpr;
 use crate::exec::physical_operator::aggregate::Arena;
 
 #[allow(missing_docs)]
 #[derive(Debug, Snafu)]
 pub enum AggregationError {
+    #[snafu(display("All of the arguments passed to the `{func}` aggregation function should be `FieldRef`, found arguments `{:?}`", args))]
+    NotFieldRefArgs {
+        func: &'static str,
+        args: Vec<Arc<dyn PhysicalExpr>>,
+    },
+    #[snafu(display(
+        "`{func}` aggregation function expect `{}`, however the arg has logical type `{:?}` with `{}`",
+        expect_physical_type,
+        arg_type,
+        arg_type.physical_type()
+    ))]
+    ArgTypeMismatch {
+        func: &'static str,
+        expect_physical_type: PhysicalType,
+        arg_type: LogicalType,
+    },
     #[snafu(display("Failed to update the aggregation states of the `{func}`"))]
     UpdateStates {
         func: &'static str,
@@ -126,7 +144,7 @@ pub struct AggregationFunctionList {
 
 impl AggregationFunctionList {
     /// Create a new [`AggregationFunctionList`]
-    pub fn new(funcs: Vec<Arc<dyn AggregationFunction>>) -> Self {
+    pub(crate) fn new(funcs: Vec<Arc<dyn AggregationFunction>>) -> Self {
         debug_assert!(!funcs.is_empty());
 
         let states_layout = AggregationStatesLayout::new(&funcs);
@@ -149,14 +167,9 @@ impl AggregationFunctionList {
         }
     }
 
-    /// Get output logical types of the aggregation function
-    pub fn output_types(&self) -> Vec<LogicalType> {
-        self.funcs.iter().map(|func| func.return_type()).collect()
-    }
-
     /// Allocate the initialized `AggregationStates` in the arena, return the pointer to it
     #[inline]
-    pub fn alloc_states(&self, arena: &Arena) -> AggregationStatesPtr {
+    pub(crate) fn alloc_states(&self, arena: &Arena) -> AggregationStatesPtr {
         let ptr = arena.alloc_layout(self.states_layout.layout);
         // Init the states
         // SAFETY: the init_states and ptr do not overlap
@@ -170,7 +183,7 @@ impl AggregationFunctionList {
         AggregationStatesPtr(ptr)
     }
 
-    /// Update the states in the
+    /// Update the states in the arena
     ///
     /// # Safety
     ///
@@ -188,9 +201,70 @@ impl AggregationFunctionList {
             .try_for_each(|(func, &state_offset)| {
                 let old = payload_index;
                 payload_index += func.arguments().len();
-                let func_paylods = &payloads[old..payload_index];
-                func.update_states(func_paylods, state_ptrs, state_offset)
+                #[cfg(debug_assertions)]
+                let func_payloads = payloads
+                    .get(old..payload_index)
+                    .expect("Payloads should match match the signature of aggregation functions");
+                #[cfg(not(debug_assertions))]
+                let func_payloads = payloads.get_unchecked(old..payload_index);
+
+                func.update_states(func_payloads, state_ptrs, state_offset)
             })
+    }
+
+    /// Combine the partial states into combined states
+    /// # Safety
+    ///
+    /// - Both `ptrs` should be valid pointer
+    /// - Args should have same length
+    pub(crate) unsafe fn combine_states(
+        &self,
+        partial_state_ptrs: &[AggregationStatesPtr],
+        combined_state_ptrs: &[AggregationStatesPtr],
+    ) -> Result<()> {
+        self.funcs
+            .iter()
+            .zip(&self.states_layout.states_offsets)
+            .try_for_each(|(func, &state_offset)| {
+                func.combine_states(partial_state_ptrs, combined_state_ptrs, state_offset)
+            })
+    }
+
+    /// Take the states in the arena,
+    ///
+    /// # Safety
+    ///
+    /// - `output` match aggregation functions signature
+    /// - `ptr` should be valid pointers
+    pub(crate) unsafe fn take_states(
+        &self,
+        state_ptrs: &[AggregationStatesPtr],
+        output: &mut DataBlock,
+    ) -> Result<()> {
+        debug_assert_eq!(self.funcs.len(), output.num_arrays());
+
+        let mutate_guard = output.mutate_arrays();
+        let mutate_func = |output: &mut [ArrayImpl]| {
+            self.funcs
+                .iter()
+                .zip(&self.states_layout.states_offsets)
+                .zip(output)
+                .try_for_each(|((func, &state_offset), output)| {
+                    // SAFETY: the state_offset is guaranteed by the constructor, the output guaranteed by the caller
+                    func.take_states(state_ptrs, state_offset, output)
+                })
+        };
+
+        // SAFETY: All of the arrays in the output will have same length with `state_ptrs.len()`
+        unsafe { mutate_guard.mutate(mutate_func) }
+    }
+
+    /// Drop the states allocated in the state_ptrs
+    pub(crate) unsafe fn drop_states(&self, state_ptrs: &[AggregationStatesPtr]) {
+        self.funcs
+            .iter()
+            .zip(&self.states_layout.states_offsets)
+            .for_each(|(func, &state_offset)| func.drop_states(state_ptrs, state_offset));
     }
 }
 
@@ -210,6 +284,15 @@ pub trait Stringify {
 }
 
 /// Trait for all of the aggregation functions
+///
+/// # Note
+///
+/// All of the arguments passed to `AggregationFunction` should be [`FieldRef`]!
+/// Through this way, we guarantee different aggregation functions do not need to do
+/// redundant expression computation. We enforce the optimizer/planner to identify the
+/// redundant expression.
+///
+/// [`FieldRef`]: crate::exec::physical_expr::field_ref::FieldRef
 pub trait AggregationFunction: Function + Stringify {
     /// Layout of the aggregation state, used to compute the dynamic `AggregationStates`
     fn state_layout(&self) -> Layout;
@@ -267,9 +350,9 @@ pub trait AggregationFunction: Function + Stringify {
         partial_state_ptrs: &[AggregationStatesPtr],
         combined_state_ptrs: &[AggregationStatesPtr],
         state_offset: usize,
-    );
+    ) -> Result<()>;
 
-    /// Finalize the aggregation, write the result of the state into the output array
+    /// Take the aggregation states, write the result of the state into the output array
     ///
     /// # TBD
     ///
@@ -282,12 +365,19 @@ pub trait AggregationFunction: Function + Stringify {
     /// - `output` should match function's signature
     /// - Implementation should free the memory occupied by the state that does not in the
     /// arena
-    unsafe fn finalize(
+    unsafe fn take_states(
         &self,
         state_ptrs: &[AggregationStatesPtr],
         state_offset: usize,
         output: &mut ArrayImpl,
     ) -> Result<()>;
+
+    /// Drop the states allocated in the `state_ptrs`
+    ///
+    /// # Safety
+    ///
+    /// - `ptrs` should be valid
+    unsafe fn drop_states(&self, state_ptrs: &[AggregationStatesPtr], state_offset: usize);
 }
 
 impl Debug for dyn AggregationFunction {
@@ -316,7 +406,7 @@ pub trait UnaryAggregationState<PayloadArray: Array> {
     ///
     /// # Safety
     ///
-    /// Implementation should free the memory occupied by the state that does not in arena
+    /// Implementation should free the memory occupied by the `partial_state` that does not in arena
     unsafe fn combine(&mut self, partial: &mut Self);
 
     /// Consume the aggregation state, return the output of the aggregation state
@@ -410,7 +500,7 @@ unsafe fn unary_combine_states<PayloadArray, S>(
 }
 
 #[inline]
-unsafe fn unary_finalize_states<PayloadArray, OutputArray, S>(
+unsafe fn unary_take_states<PayloadArray, OutputArray, S>(
     state_ptrs: &[AggregationStatesPtr],
     state_offset: usize,
     output: &mut ArrayImpl,

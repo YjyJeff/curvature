@@ -14,13 +14,16 @@ use std::sync::Arc;
 use data_block::array::{ArrayError, ArrayImpl, PrimitiveArray, PrimitiveType, ScalarArray};
 use data_block::element::interval::DayTime;
 use data_block::types::LogicalType;
+use snafu::ensure;
 
+use crate::exec::physical_expr::field_ref::FieldRef;
+use crate::exec::physical_expr::function::aggregate::ArgTypeMismatchSnafu;
 use crate::exec::physical_expr::function::Function;
 use crate::exec::physical_expr::PhysicalExpr;
 
 use super::{
-    unary_combine_states, unary_finalize_states, unary_update_states, AggregationFunction,
-    AggregationStatesPtr, Result, Stringify, UnaryAggregationState,
+    unary_combine_states, unary_take_states, unary_update_states, AggregationFunction,
+    AggregationStatesPtr, NotFieldRefArgsSnafu, Result, Stringify, UnaryAggregationState,
 };
 
 /// Trait for constrain the payload array of the sum function, only the arrays implement
@@ -41,13 +44,17 @@ pub trait PayloadCast: PrimitiveType {
     fn cast(self) -> Self::SumType;
 }
 
-/// Trait for all of the types that can be result of sum
-pub trait SumType: PrimitiveType + AddAssign {}
+/// Trait for all of the types that can be result of sum.
+///
+/// # Safety
+///
+/// The type implement [`SumType`] does not have any heap allocation
+pub unsafe trait SumType: PrimitiveType + AddAssign {}
 
 macro_rules! impl_sum_payload_array {
     ($sum_ty:ty, {$($payload_ty:ty),+}) => {
 
-        impl SumType for $sum_ty {}
+        unsafe impl SumType for $sum_ty {}
 
         $(
             impl PayloadCast for $payload_ty {
@@ -165,26 +172,31 @@ where
         partial_state_ptrs: &[AggregationStatesPtr],
         combined_state_ptrs: &[AggregationStatesPtr],
         state_offset: usize,
-    ) {
+    ) -> Result<()> {
         unary_combine_states::<
             PayloadArray,
             SumState<<PayloadArray::Element as PayloadCast>::SumType>,
-        >(partial_state_ptrs, combined_state_ptrs, state_offset)
+        >(partial_state_ptrs, combined_state_ptrs, state_offset);
+
+        Ok(())
     }
 
-    unsafe fn finalize(
+    unsafe fn take_states(
         &self,
         state_ptrs: &[AggregationStatesPtr],
         state_offset: usize,
         output: &mut ArrayImpl,
     ) -> Result<()> {
-        unary_finalize_states::<
+        unary_take_states::<
             PayloadArray,
             PayloadArray::SumArray,
             SumState<<PayloadArray::Element as PayloadCast>::SumType>,
         >(state_ptrs, state_offset, output);
         Ok(())
     }
+
+    /// Do nothing, no memory to drop
+    unsafe fn drop_states(&self, _state_ptrs: &[AggregationStatesPtr], _state_offset: usize) {}
 }
 
 impl<PayloadArray> UnaryAggregationState<PayloadArray>
@@ -227,6 +239,35 @@ where
     #[inline]
     unsafe fn finalize(&mut self) -> Self::Output {
         self.sum
+    }
+}
+
+impl<PayloadArray: SumPayloadArray> Sum<PayloadArray>
+where
+    PayloadArray::Element: PayloadCast,
+{
+    /// Create a new Sum function
+    pub fn try_new(arg: Arc<dyn PhysicalExpr>) -> Result<Self> {
+        ensure!(
+            arg.as_any().downcast_ref::<FieldRef>().is_some(),
+            NotFieldRefArgsSnafu {
+                func: "Sum",
+                args: vec![arg]
+            }
+        );
+        ensure!(
+            arg.output_type().physical_type() == PayloadArray::PHYSCIAL_TYPE,
+            ArgTypeMismatchSnafu {
+                func: "Sum",
+                expect_physical_type: PayloadArray::PHYSCIAL_TYPE,
+                arg_type: arg.output_type().to_owned(),
+            }
+        );
+
+        Ok(Self {
+            args: vec![arg],
+            _phantom: PhantomData,
+        })
     }
 }
 
@@ -308,7 +349,7 @@ mod tests {
                 _phantom: PhantomData,
             };
 
-            sum.finalize(ptrs, 0, &mut output).unwrap();
+            sum.take_states(ptrs, 0, &mut output).unwrap();
 
             let expected = expect_test::expect![[r#"
                 Float64(

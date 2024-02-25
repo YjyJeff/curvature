@@ -46,11 +46,11 @@ pub enum OperatorError {
     GlobalOperatorState { op: &'static str },
     #[snafu(display("Calling `local_operator_state` on a non regular operator: `{}`", op))]
     LocalOperatorState { op: &'static str },
-    #[snafu(display(
-        "Calling `source_parallelism_degree` on a non source operator: `{}`",
-        op
-    ))]
-    SourceParallelismDegree { op: &'static str },
+    #[snafu(display("Failed to call `source_parallelism_degree` on the operator: `{}`", op))]
+    SourceParallelismDegree {
+        op: &'static str,
+        source: SendableError,
+    },
     #[snafu(display("Failed to read data from the source operator: `{}`", op))]
     ReadData {
         op: &'static str,
@@ -58,11 +58,17 @@ pub enum OperatorError {
     },
     #[snafu(display("Calling `global_source_state` on a non source operator: `{}`", op))]
     GlobalSourceState { op: &'static str },
-    #[snafu(display("Calling `local_source_state` on a non source operator: `{}`", op))]
-    LocalSourceState { op: &'static str },
-    #[snafu(display("Calling `progress` on a non source operator: `{}`", op))]
-    Progress { op: &'static str },
-    #[snafu(display("Calling `is_parallel_sink` on a non source operator: `{}`", op))]
+    #[snafu(display("Failed to call `local_source_state` on the operator: `{}`", op))]
+    LocalSourceState {
+        op: &'static str,
+        source: SendableError,
+    },
+    #[snafu(display("Failed to call `progress` on the operator: `{}`", op))]
+    Progress {
+        op: &'static str,
+        source: SendableError,
+    },
+    #[snafu(display("Calling `is_parallel_sink` on a non sink operator: `{}`", op))]
     IsParallelSink { op: &'static str },
     #[snafu(display("Failed to write data to the sink operator: `{}`", op))]
     WriteData {
@@ -104,6 +110,24 @@ pub enum OperatorError {
     "
     ))]
     InvalidGlobalSourceState {
+        op: &'static str,
+        state: &'static str,
+    },
+    #[snafu(display(
+        "Sink operator: `{op}` accepts invalid LocalSinkState: `{state}`.
+         PipelineExecutor should guarantee it never happens, it has fatal bug 😭
+    "
+    ))]
+    InvalidLocalSinkState {
+        op: &'static str,
+        state: &'static str,
+    },
+    #[snafu(display(
+        "Sink operator: `{op}` accepts invalid GlobalSinkState: `{state}`.
+         PipelineExecutor should guarantee it never happens, it has fatal bug 😭
+    "
+    ))]
+    InvalidGlobalSinkState {
         op: &'static str,
         state: &'static str,
     },

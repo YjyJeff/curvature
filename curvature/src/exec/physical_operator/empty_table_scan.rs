@@ -124,7 +124,7 @@ impl PhysicalOperator for EmptyTableScan {
         &self,
         _global_state: &dyn GlobalSourceState,
     ) -> OperatorResult<ParallelismDegree> {
-        Ok(unsafe { ParallelismDegree::new_unchecked(1) })
+        Ok(ParallelismDegree::MIN)
     }
 
     fn read_data(

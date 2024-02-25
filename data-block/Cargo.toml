@@ -18,7 +18,7 @@ tabled = { version = "0.15.0", features = ["std"] }
 
 [dev-dependencies]
 num-traits = { workspace = true }
-criterion = "0.3"
+criterion = "0.5"
 expect-test = "1.4.1"
 
 [features]

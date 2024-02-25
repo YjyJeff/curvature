@@ -10,7 +10,7 @@ use data_block::block::DataBlock;
 use data_block::types::LogicalType;
 pub use executor::ExprExecutor;
 use snafu::Snafu;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use std::sync::Arc;
 
 #[allow(missing_docs)]
@@ -62,5 +62,11 @@ pub trait PhysicalExpr: Stringify + Send + Sync {
 impl Debug for dyn PhysicalExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.debug(f)
+    }
+}
+
+impl Display for dyn PhysicalExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.display(f, true)
     }
 }

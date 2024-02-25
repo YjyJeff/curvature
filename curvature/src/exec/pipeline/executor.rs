@@ -201,18 +201,15 @@ impl<'a> PipelineExecutor<'a, Sink> {
                 // Execute regular
                 let exec_status = self.execute_regular_operators()?;
                 match exec_status {
-                    OperatorExecStatus::Finished => {
-                        break 'outer;
-                    }
-                    OperatorExecStatus::OutputEmptyAndNeedMoreInput => {
-                        // Need more input from the source
-                        break 'inner;
-                    }
                     OperatorExecStatus::NeedMoreInput => {
                         let exec_status = self.execute_sink()?;
                         if matches!(exec_status, SinkExecStatus::Finished) {
                             break 'outer;
                         }
+                        // Need more input from the source
+                        break 'inner;
+                    }
+                    OperatorExecStatus::OutputEmptyAndNeedMoreInput => {
                         // Need more input from the source
                         break 'inner;
                     }
@@ -223,6 +220,9 @@ impl<'a> PipelineExecutor<'a, Sink> {
                         }
                         // Continue the inner loop, we need to execute the in_process_operators
                         // instead of read from source
+                    }
+                    OperatorExecStatus::Finished => {
+                        break 'outer;
                     }
                 }
             }

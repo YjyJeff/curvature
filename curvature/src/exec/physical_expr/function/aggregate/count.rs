@@ -2,11 +2,13 @@
 
 use data_block::array::{ArrayImpl, ScalarArray, UInt64Array};
 use data_block::types::{Array, LogicalType};
+use snafu::ensure;
 
+use crate::exec::physical_expr::field_ref::FieldRef;
 use crate::exec::physical_expr::{function::Function, PhysicalExpr};
 use std::{alloc::Layout, sync::Arc};
 
-use super::{AggregationFunction, AggregationStatesPtr, Result, Stringify};
+use super::{AggregationFunction, AggregationStatesPtr, NotFieldRefArgsSnafu, Result, Stringify};
 
 /// Count(*) function
 pub type CountStart = Count<true>;
@@ -111,7 +113,7 @@ impl<const STAR: bool> AggregationFunction for Count<STAR> {
         partial_state_ptrs: &[AggregationStatesPtr],
         combined_state_ptrs: &[AggregationStatesPtr],
         state_offset: usize,
-    ) {
+    ) -> Result<()> {
         partial_state_ptrs
             .iter()
             .zip(combined_state_ptrs)
@@ -119,14 +121,21 @@ impl<const STAR: bool> AggregationFunction for Count<STAR> {
                 let combined = combined.offset_as_mut::<CountState>(state_offset);
                 combined.0 += partial.offset_as_mut::<CountState>(state_offset).0;
             });
+
+        Ok(())
     }
 
-    unsafe fn finalize(
+    unsafe fn take_states(
         &self,
         state_ptrs: &[AggregationStatesPtr],
         state_offset: usize,
         output: &mut data_block::array::ArrayImpl,
     ) -> Result<()> {
+        #[cfg(debug_assertions)]
+        let output: &mut UInt64Array = output
+            .try_into()
+            .expect("Output array of the count should be UInt64Array");
+        #[cfg(not(debug_assertions))]
         let output: &mut UInt64Array = output.try_into().unwrap_unchecked();
 
         // TBD: It looks like we do not need to clear it, because it is always empty after
@@ -142,6 +151,9 @@ impl<const STAR: bool> AggregationFunction for Count<STAR> {
 
         Ok(())
     }
+
+    /// Do nothing, no memory to drop
+    unsafe fn drop_states(&self, _state_ptrs: &[AggregationStatesPtr], _state_offset: usize) {}
 }
 
 impl CountStart {
@@ -162,7 +174,15 @@ impl Default for CountStart {
 impl Count<false> {
     /// Create a new `Count(expr)` function
     #[inline]
-    pub fn new(arg: Arc<dyn PhysicalExpr>) -> Self {
-        Self { args: vec![arg] }
+    pub fn try_new(arg: Arc<dyn PhysicalExpr>) -> Result<Self> {
+        ensure!(
+            arg.as_any().downcast_ref::<FieldRef>().is_some(),
+            NotFieldRefArgsSnafu {
+                func: "Count",
+                args: vec![arg]
+            }
+        );
+
+        Ok(Self { args: vec![arg] })
     }
 }

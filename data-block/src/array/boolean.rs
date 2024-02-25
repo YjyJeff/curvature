@@ -115,6 +115,8 @@ impl MutateArrayExt for BooleanArray {
 }
 
 impl ScalarArray for BooleanArray {
+    const PHYSCIAL_TYPE: PhysicalType = PhysicalType::Boolean;
+
     unsafe fn replace_with_trusted_len_values_iterator(
         &mut self,
         len: usize,

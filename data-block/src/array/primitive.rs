@@ -13,7 +13,7 @@ use crate::element::interval::DayTime;
 use crate::element::Element;
 use crate::macros::for_all_primitive_types;
 use crate::private::Sealed;
-use crate::types::LogicalType;
+use crate::types::{LogicalType, PhysicalType};
 
 /// Trait for types that can be placed on the [`PrimitiveArray`]
 pub trait PrimitiveType: AllocType + for<'a> Element<ElementRef<'a> = Self> + Copy {
@@ -205,6 +205,8 @@ impl<T> ScalarArray for PrimitiveArray<T>
 where
     T: for<'a> PrimitiveType<ElementRef<'a> = T>,
 {
+    const PHYSCIAL_TYPE: PhysicalType = T::PHYSICAL_TYPE;
+
     #[inline]
     unsafe fn replace_with_trusted_len_values_iterator(
         &mut self,

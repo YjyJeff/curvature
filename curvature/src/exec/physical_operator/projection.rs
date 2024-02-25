@@ -122,7 +122,7 @@ impl PhysicalOperator for Projection {
         else {
             return Err(OperatorError::Execute {
                 op: self.name(),
-                source: "Projection operator accepts invalid `local_state`, it should be `ProjectionLocalState`".into(),
+                source: format!("Projection operator accepts invalid `local_state`, it should be `ProjectionLocalState`, found `{}`", local_state.name()).into(),
             });
         };
 

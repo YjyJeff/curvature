@@ -157,6 +157,9 @@ pub trait MutateArrayExt: Array {
 
 /// Trait for arrays that element is scalar type
 pub trait ScalarArray: Array {
+    /// Physical type of the scalar array
+    const PHYSCIAL_TYPE: PhysicalType;
+
     /// Replace the array with the trusted_len values iterator that has `len` items
     ///
     /// # Safety

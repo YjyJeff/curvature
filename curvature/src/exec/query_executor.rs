@@ -190,6 +190,7 @@ where
     Ok(())
 }
 
+/// FIXME: Take care of the intermediate operator and sink operator
 #[inline]
 fn parallelism_degree<S>(
     pipeline: &Pipeline<S>,

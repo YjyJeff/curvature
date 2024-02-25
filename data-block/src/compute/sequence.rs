@@ -4,7 +4,7 @@ use crate::array::UInt64Array;
 use crate::{dynamic_func, mutate_array_func};
 
 mutate_array_func!(
-    /// Replace the array with sequence (start..end)
+    /// Replace the array with sequence (start..end). Caller should guarantee `end >= start`
     #[inline]
     pub unsafe fn sequence(array: &mut UInt64Array, start: u64, end: u64) {
         array.validity.exactly_once_mut().clear();

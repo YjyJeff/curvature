@@ -11,6 +11,8 @@
 )]
 
 //! # Curvature
+//!
+//! `Curvature` is a high performance query engine designed for OLAP.
 
 pub mod common;
 pub mod error;
@@ -19,7 +21,8 @@ mod macros;
 pub mod visit;
 use self::macros::mutate_data_block_safety;
 
-const STANDARD_VECTOR_SIZE: usize = 1024;
+/// The default vector size used by the curvature
+pub const STANDARD_VECTOR_SIZE: usize = 1024;
 
 mod private {
     /// Sealed trait protect against downstream implementations

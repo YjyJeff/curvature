@@ -6,6 +6,7 @@
 
 use std::cmp::min;
 use std::num::NonZeroU64;
+use std::ops::{Deref, DerefMut};
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
@@ -131,17 +132,17 @@ impl LocalSourceState for NumbersLocalSourceState {
         self.current += STANDARD_VECTOR_SIZE as u64;
         let end = min(self.current, self.morsel_end);
 
-        let output = output
-            .get_mutable_array(0)
+        let mut output = output
+            .mutate_single_array()
             .ok_or_else(|| OperatorError::ReadData {
-                op: self.name(),
+                op: "Numbers",
                 source: Box::new(NumbersError::EmptyOutputDataBlock),
             })?;
-        let ArrayImpl::UInt64(array) = output else {
+        let ArrayImpl::UInt64(array) = output.deref_mut() else {
             return Err(OperatorError::ReadData {
-                op: self.name(),
+                op: "Numbers",
                 source: Box::new(NumbersError::InvalidOutputArray {
-                    output_array: physical_array_name(output),
+                    output_array: physical_array_name(output.deref()),
                 }),
             });
         };
