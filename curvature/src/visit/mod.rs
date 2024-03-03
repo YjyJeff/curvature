@@ -9,7 +9,7 @@ pub trait Visit {
     /// Node to visit
     type Node: ?Sized;
     /// Accept visitor to visit self
-    fn accept<V: Visitor<Self>>(&self, v: &mut V) -> ControlFlow<V::Break>;
+    fn accept<V: Visitor<Self>>(&self, visitor: &mut V) -> ControlFlow<V::Break>;
 }
 
 /// Trait for types that used for visiting types that implemented [`Visit`]

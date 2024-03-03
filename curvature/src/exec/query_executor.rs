@@ -157,6 +157,8 @@ impl QueryExecutor {
 
 #[inline]
 fn execute_pipeline(pipeline: &Pipeline<Sink>) -> Result<()> {
+    let clock = quanta::Clock::new();
+    let start = clock.raw();
     PipelineExecutor::try_new(pipeline)
         .with_context(|_| CreatePipelineExecutorSnafu {
             pipeline: format!("{}", pipeline),
@@ -164,7 +166,14 @@ fn execute_pipeline(pipeline: &Pipeline<Sink>) -> Result<()> {
         .execute()
         .with_context(|_| ExecutePipelineSnafu {
             pipeline: format!("{}", pipeline),
-        })
+        })?;
+
+    tracing::debug!(
+        "Execute pipeline `{}` elapsed: {} sec",
+        pipeline,
+        clock.delta(start, clock.raw()).as_millis() as f64 / 1000.0
+    );
+    Ok(())
 }
 
 #[inline]
@@ -172,6 +181,9 @@ fn execute_root_pipeline<F>(root_pipeline: &Pipeline<()>, handler: F) -> Result<
 where
     F: Fn(&DataBlock),
 {
+    let clock = quanta::Clock::new();
+    let start = clock.raw();
+
     let mut pipeline_executor =
         PipelineExecutor::try_new(root_pipeline).with_context(|_| CreatePipelineExecutorSnafu {
             pipeline: format!("{}", root_pipeline),
@@ -186,6 +198,12 @@ where
     {
         handler(block)
     }
+
+    tracing::debug!(
+        "Execute root pipeline `{}` elapsed: {} sec",
+        root_pipeline,
+        clock.delta(start, clock.raw()).as_millis() as f64 / 1000.0
+    );
 
     Ok(())
 }

@@ -6,7 +6,7 @@
 
 use std::cmp::min;
 use std::num::NonZeroU64;
-use std::ops::{Deref, DerefMut};
+use std::ops::DerefMut;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
@@ -14,36 +14,21 @@ use std::sync::Arc;
 use super::{
     impl_regular_for_non_regular, impl_sink_for_non_sink,
     use_types_for_impl_regular_for_non_regular, use_types_for_impl_sink_for_non_sink,
-    GlobalSourceState, LocalSourceState, OperatorError, OperatorResult, ParallelismDegree,
-    PhysicalOperator, SourceExecStatus, SourceOperatorExt, StateStringify, Stringify,
-    MAX_PARALLELISM_DEGREE,
+    GlobalSourceState, LocalSourceState, OperatorResult, ParallelismDegree, PhysicalOperator,
+    SourceExecStatus, SourceOperatorExt, StateStringify, Stringify, MAX_PARALLELISM_DEGREE,
 };
 
 use_types_for_impl_regular_for_non_regular!();
 use_types_for_impl_sink_for_non_sink!();
 
+use crate::common::client_context::ClientContext;
+use crate::error::SendableError;
 use crate::STANDARD_VECTOR_SIZE;
-use crate::{common::client_context::ClientContext, error::SendableError};
-use data_block::array::utils::physical_array_name;
 use data_block::array::ArrayImpl;
 use data_block::block::DataBlock;
 use data_block::compute::sequence::sequence;
 use data_block::types::LogicalType;
-use snafu::{ResultExt, Snafu};
-
-#[derive(Debug, Snafu)]
-enum NumbersError {
-    #[snafu(display(
-        "`Numbers` output 1 field, but the output DataBlock is empty.
-          PipelineExecutor should guarantee it never happens, it has fatal bug 😭"
-    ))]
-    EmptyOutputDataBlock,
-    #[snafu(display(
-        "Output array should be `UInt64Array`, but we found: {output_array}.
-         PipelineExecutor should guarantee it never happens, it has fatal bug 😭"
-    ))]
-    InvalidOutputArray { output_array: String },
-}
+use snafu::ResultExt;
 
 #[derive(Debug)]
 /// A table with single field `number` that has logical type `UnsignedBigInt`
@@ -119,40 +104,6 @@ impl LocalSourceState for NumbersLocalSourceState {
     fn as_mut_any(&mut self) -> &mut dyn std::any::Any {
         self
     }
-
-    #[inline]
-    fn read_data(&mut self, output: &mut DataBlock) -> OperatorResult<SourceExecStatus> {
-        // Check stop or not
-        if self.current >= self.morsel_end {
-            return Ok(SourceExecStatus::Finished);
-        }
-
-        // Have more output
-        let start = self.current;
-        self.current += STANDARD_VECTOR_SIZE as u64;
-        let end = min(self.current, self.morsel_end);
-
-        let mut output = output
-            .mutate_single_array()
-            .ok_or_else(|| OperatorError::ReadData {
-                op: "Numbers",
-                source: Box::new(NumbersError::EmptyOutputDataBlock),
-            })?;
-        let ArrayImpl::UInt64(array) = output.deref_mut() else {
-            return Err(OperatorError::ReadData {
-                op: "Numbers",
-                source: Box::new(NumbersError::InvalidOutputArray {
-                    output_array: physical_array_name(output.deref()),
-                }),
-            });
-        };
-
-        crate::mutate_data_block_safety!();
-        unsafe {
-            sequence(array, start, end);
-        }
-        Ok(SourceExecStatus::HaveMoreOutput)
-    }
 }
 
 impl Stringify for Numbers {
@@ -165,7 +116,11 @@ impl Stringify for Numbers {
     }
 
     fn display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Numbers: ({}..{})", self.start, self.end,)
+        write!(
+            f,
+            "Numbers: ({}..{}), output_types=[UnsignedBitInt]",
+            self.start, self.end,
+        )
     }
 }
 
@@ -279,12 +234,44 @@ impl SourceOperatorExt for Numbers {
         }
         has_next
     }
+
+    #[inline]
+    fn read_local_data(
+        &self,
+        output: &mut DataBlock,
+        local_state: &mut Self::LocalSourceState,
+    ) -> OperatorResult<SourceExecStatus> {
+        // Check stop or not
+        if local_state.current >= local_state.morsel_end {
+            return Ok(SourceExecStatus::Finished);
+        }
+
+        // Have more output
+        let start = local_state.current;
+        local_state.current += STANDARD_VECTOR_SIZE as u64;
+        let end = min(local_state.current, local_state.morsel_end);
+
+        let mut output = output.mutate_single_array();
+        let ArrayImpl::UInt64(array) = output.deref_mut() else {
+            panic!(
+                "Output Array of the `Numbers` should be `UInt64Array`, found: `{}Array`",
+                output.ident()
+            )
+        };
+
+        crate::mutate_data_block_safety!();
+        unsafe {
+            sequence(array, start, end);
+        }
+        Ok(SourceExecStatus::HaveMoreOutput)
+    }
 }
 
 #[cfg(test)]
 mod tests {
 
     use super::*;
+    use crate::exec::physical_operator::OperatorError;
     use data_block::types::Array;
     use snafu::Report;
 
@@ -296,11 +283,13 @@ mod tests {
                 morsel_end: STANDARD_VECTOR_SIZE as u64,
             };
 
+            let numbers = Numbers::new(0, NonZeroU64::new(STANDARD_VECTOR_SIZE as u64).unwrap());
+
             let mut output = DataBlock::with_logical_types(vec![LogicalType::UnsignedBigInt]);
-            let status = local_state.read_data(&mut output)?;
+            let status = numbers.read_local_data(&mut output, &mut local_state)?;
             assert_eq!(status, SourceExecStatus::HaveMoreOutput);
 
-            let status = local_state.read_data(&mut output)?;
+            let status = numbers.read_local_data(&mut output, &mut local_state)?;
             assert_eq!(status, SourceExecStatus::Finished);
 
             Ok(())

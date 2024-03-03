@@ -18,6 +18,8 @@ fn get_query_id(&self) -> Uuid;
 ```
 
 # Errors
+- [To panic or Not to panic](https://doc.rust-lang.org/book/ch09-03-to-panic-or-not-to-panic.html)
+
 - **Just get used to logging exceptions when, and only when, they are handled. If your function is propagating the error upstream (e.g. using the ? operator), it should not log the error. It can, if it makes sense, add more context to it.**
 
 - [Report](https://blog.rust-lang.org/inside-rust/2021/07/01/What-the-error-handling-project-group-is-working-towards.html#2-error-reporter)
@@ -282,8 +284,7 @@ According to the [website](https://users.rust-lang.org/t/which-is-better-for-dis
 
 
 # Panic
-- ~~Bug should panic~~
-- Bug should also return error! Panic in async is useless....
+- Bug should panic
 - If you have to use unwrap/expect, you should guarantee the code never enter the exception code. And do not use unwrap, use expect instead(except test). Message in expect should follow this [style](https://doc.rust-lang.org/std/error/index.html#common-message-styles).
 
 # Unsafe

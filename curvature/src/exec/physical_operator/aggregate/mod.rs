@@ -9,5 +9,6 @@ use bumpalo::Bump;
 /// `AggregationStates`
 pub type Arena = Bump;
 
+/// FIXME: verify the memory safety in theory
 pub mod hash_aggregate;
 pub mod simple_aggregate;

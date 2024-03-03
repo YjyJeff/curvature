@@ -117,7 +117,7 @@ impl<PayloadArray> Stringify for Sum<PayloadArray> {
 
     fn display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Sum(")?;
-        self.args[0].display(f, true)?;
+        self.args[0].compact_display(f)?;
         write!(f, ")")
     }
 }

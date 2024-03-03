@@ -42,10 +42,10 @@ impl<const STAR: bool> Stringify for Count<STAR> {
 
     fn display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if STAR {
-            write!(f, "CountStar")
+            write!(f, "CountStar()")
         } else {
             write!(f, "Count(")?;
-            self.args[0].display(f, true)?;
+            self.args[0].compact_display(f)?;
             write!(f, ")")
         }
     }

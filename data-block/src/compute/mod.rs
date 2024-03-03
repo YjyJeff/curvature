@@ -34,7 +34,6 @@ macro_rules! for_all_intrinsic {
         }
     };
 }
-use for_all_intrinsic;
 
 #[cfg(not(feature = "portable_simd"))]
 macro_rules! impl_intrinsic {

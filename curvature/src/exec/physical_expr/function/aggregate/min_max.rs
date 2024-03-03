@@ -1,7 +1,6 @@
 //! Min/Max aggregation function
 
 use std::alloc::Layout;
-use std::cmp::PartialOrd;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -93,8 +92,8 @@ impl<const IS_MIN: bool, PayloadArray> Stringify for MinMax<IS_MIN, PayloadArray
     }
 
     fn display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.name())?;
-        self.args[0].display(f, true)?;
+        write!(f, "{}(", self.name())?;
+        self.args[0].compact_display(f)?;
         write!(f, ")")
     }
 }

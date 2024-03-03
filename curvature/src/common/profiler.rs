@@ -2,29 +2,26 @@
 
 use std::time::Duration;
 
-use quanta::Clock;
+use quanta::Instant;
 
 /// Efficient profiler for profiling
 #[derive(Debug)]
 pub struct Profiler {
-    clock: Clock,
-    start: u64,
-    current: u64,
+    now: Instant,
     /// Number of tuples that has been processed
     tuples_count: u64,
+    duration: Duration,
 }
 
 impl Profiler {
     /// Create a new profiler
     #[inline]
     pub fn new() -> Self {
-        let clock = Clock::new();
-        let start = clock.raw();
+        let now = Instant::now();
         Self {
-            clock,
-            start,
-            current: start,
+            now,
             tuples_count: 0,
+            duration: Duration::default(),
         }
     }
 
@@ -40,7 +37,7 @@ impl Profiler {
     /// Get the elapsed duration
     #[inline]
     pub fn elapsed(&self) -> Duration {
-        self.clock.delta(self.start, self.current)
+        self.duration
     }
 }
 
@@ -63,6 +60,8 @@ impl<'a> Drop for ProfilerGuard<'a> {
     #[inline]
     fn drop(&mut self) {
         self.profiler.tuples_count += self.process_tuple_count;
-        self.profiler.current = self.profiler.clock.raw();
+        let now = Instant::now();
+        self.profiler.duration += now.duration_since(self.profiler.now);
+        self.profiler.now = now;
     }
 }

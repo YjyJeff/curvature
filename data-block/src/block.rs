@@ -108,13 +108,13 @@ impl DataBlock {
     /// Get a mutable reference to the array. Caller should guarantee the data block
     /// only has single array
     #[inline]
-    pub fn mutate_single_array(&mut self) -> Option<MutateArrayGuard<'_>> {
+    pub fn mutate_single_array(&mut self) -> MutateArrayGuard<'_> {
         debug_assert_eq!(self.num_arrays(), 1);
 
-        self.arrays.first_mut().map(|array| MutateArrayGuard {
+        MutateArrayGuard {
             length: &mut self.length,
-            array,
-        })
+            array: &mut self.arrays[0],
+        }
     }
 
     /// Get arrays
@@ -123,12 +123,32 @@ impl DataBlock {
         &self.arrays
     }
 
+    /// Get the logical types of the data block
+    #[inline]
+    pub fn logical_types(&self) -> impl Iterator<Item = &LogicalType> {
+        self.arrays.iter().map(|array| array.logical_type())
+    }
+
     /// Get mutable arrays
     #[inline]
     pub fn mutate_arrays(&mut self) -> MutateArraysGuard<'_> {
         MutateArraysGuard {
             length: &mut self.length,
             arrays: &mut self.arrays,
+        }
+    }
+
+    /// Get the guard to mutate the data block
+    ///
+    /// # Safety
+    ///
+    /// Caller should guarantee after the mutation, all of the arrays have same length
+    /// and the length field is calibrated
+    #[inline]
+    pub unsafe fn mutate(&mut self) -> MutateDataBlockGuard<'_> {
+        MutateDataBlockGuard {
+            arrays: &mut self.arrays,
+            length: &mut self.length,
         }
     }
 
@@ -211,7 +231,7 @@ impl<'a> MutateArraysGuard<'a> {
     /// # Safety
     ///
     /// The function passed to mutate the arrays must guarantee all of the arrays after
-    /// mutation should have same length!
+    /// mutation should have same length
     #[inline]
     pub unsafe fn mutate<F, E>(self, mutate_func: F) -> std::result::Result<(), E>
     where
@@ -224,6 +244,49 @@ impl<'a> MutateArraysGuard<'a> {
         Ok(())
     }
 }
+
+/// Struct for mutate the data block, it will expose the inner arrays. This struct is
+/// totally unsafe, more danger than [`MutateArraysGuard`]. User should calibrate the
+/// length manually. Only use it when you want the maximum freedom
+#[derive(Debug)]
+pub struct MutateDataBlockGuard<'a> {
+    /// Inner arrays
+    pub arrays: &'a mut [ArrayImpl],
+    /// Used to calibrate the length
+    pub length: &'a mut usize,
+}
+
+/// DataBlock that can be sent between threads
+#[derive(Debug)]
+#[repr(transparent)]
+pub struct SendableDataBlock(DataBlock);
+
+impl AsRef<DataBlock> for SendableDataBlock {
+    #[inline]
+    fn as_ref(&self) -> &DataBlock {
+        &self.0
+    }
+}
+
+impl SendableDataBlock {
+    /// Create a new [`SendableDataBlock`]
+    ///
+    /// # Safety
+    ///
+    /// All of the arrays in the `block` do not referenced by other arrays
+    #[inline]
+    pub unsafe fn new(block: DataBlock) -> Self {
+        Self(block)
+    }
+
+    /// Get [`DataBlock`]
+    #[inline]
+    pub fn into_inner(self) -> DataBlock {
+        self.0
+    }
+}
+
+unsafe impl Send for SendableDataBlock {}
 
 #[cfg(test)]
 mod tests {

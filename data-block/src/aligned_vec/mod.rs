@@ -19,7 +19,7 @@ const CACHE_LINE_SIZE: usize = 64;
 
 /// Trait for types that can be allocated on the [`AlignedVec`]. This trait is
 /// sealed to avoid other types implement it
-pub trait AllocType: Sealed + Clone + Sized + Debug + Display + 'static {}
+pub trait AllocType: Sealed + Clone + Sized + Debug + Display + 'static + Send + Sync {}
 
 macro_rules! impl_alloc_types {
     ($($ty:ty),*) => {

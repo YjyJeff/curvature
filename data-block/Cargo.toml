@@ -14,12 +14,12 @@ regex = { workspace = true }
 paste = { workspace = true }
 libc = { workspace = true }
 snafu = { workspace = true }
-tabled = { version = "0.15.0", features = ["std"] }
+tabled = { workspace = true, features = ["std"] }
 
 [dev-dependencies]
 num-traits = { workspace = true }
 criterion = "0.5"
-expect-test = "1.4.1"
+expect-test = "1.4"
 
 [features]
 # Use portable simd to perform comparison. LLVM is smart, you can always use the simd

@@ -10,7 +10,10 @@
 //! planner/optimizer! It is the planner/optimizer's responsibility to extract the common
 //! expressions, sounds make sense 😄
 //!
-//! - `GroupByKeys`: expressions after the `group by` keywords.
+//! - `GroupByKeys`: expressions after the `group by` keywords
+//!
+//! [`AggregationFunction`]: crate::exec::physical_expr::function::aggregate::AggregationFunction
+//! [`FieldRef`]: crate::exec::physical_expr::field_ref::FieldRef
 
 mod hash_table;
 pub mod serde;
@@ -29,6 +32,7 @@ use std::ops::DerefMut;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::atomic::{AtomicBool, AtomicUsize};
 use std::sync::Arc;
+use std::time::Duration;
 
 use self::hash_table::{probing_swiss_table, Element, HashTable};
 use self::serde::{Serde, SerdeKey};
@@ -39,7 +43,9 @@ use crate::exec::physical_expr::field_ref::FieldRef;
 use crate::exec::physical_expr::function::aggregate::{
     AggregationFunction, AggregationFunctionList, AggregationStatesPtr,
 };
+use crate::exec::physical_expr::utils::compact_display_expressions;
 use crate::exec::physical_expr::PhysicalExpr;
+use crate::exec::physical_operator::metric::ScopedTimerGuard;
 use crate::exec::physical_operator::source_ext::SourceOperatorExt;
 use crate::exec::physical_operator::{
     impl_regular_for_non_regular, use_types_for_impl_regular_for_non_regular, FinalizeSinkSnafu,
@@ -123,6 +129,7 @@ pub struct HashAggregate<S: Serde> {
     global_state: Arc<GlobalState<S::SerdeKey>>,
 }
 
+/// FIXME: Add metric
 #[derive(Debug)]
 struct GlobalState<K> {
     /// Swiss tables collected from different threads. In different phases, this struct
@@ -220,7 +227,7 @@ impl<S: Serde> HashAggregate<S> {
                     Ok(acc + field_ref.output_type.physical_type().size())
                 } else {
                     NotFieldRefGroupByKeysSnafu {
-                        group_by_key: format!("{}", expr),
+                        group_by_key: format!("{:?}", expr),
                     }
                     .fail()
                 }
@@ -261,7 +268,7 @@ impl<S: Serde> HashAggregate<S> {
                     Ok(())
                 } else {
                     NotFieldRefPayloadsSnafu {
-                        payload: format!("{}", arg),
+                        payload: format!("{:?}", arg),
                     }
                     .fail()
                 }
@@ -325,6 +332,29 @@ impl<S: Serde> HashAggregate<S> {
     }
 }
 
+impl<S: Serde> Drop for HashAggregate<S> {
+    /// Drop the elements that have not been consumed
+    fn drop(&mut self) {
+        let mut state_ptrs = Vec::new();
+        let mut tables = self
+            .global_state
+            .collected_swiss_tables
+            .try_lock()
+            .expect("Drop the `HashAggregate`, no one can hold the lock");
+        while let Some(mut thread_local_tables) = tables.pop() {
+            // May drop the table in the sink phase, we need to pop all tables
+            while let Some(table) = thread_local_tables.tables.pop() {
+                state_ptrs.clear();
+                for element in table {
+                    state_ptrs.push(element.agg_states_ptr);
+                }
+                // SAFETY: the elements are allocated in the `thread_local_tables.arena`
+                unsafe { self.agg_func_list.drop_states(&state_ptrs) }
+            }
+        }
+    }
+}
+
 /// We have to use macro here. It is pretty annoying, see [`issue`] for details.
 /// Fucking borrow checker !!!!!
 ///
@@ -371,42 +401,40 @@ impl<K: Send + Sync + 'static + Debug> GlobalSourceState for HashAggregateGlobal
 }
 
 /// Local source state for [`HashAggregate`]
-#[derive(Debug)]
-pub struct HashAggregateLocalSourceState<K> {
-    table_into_iter: TableIntoIter<K>,
+///
+/// FIXME: Can we move partial of the swiss table into the local state?
+pub struct HashAggregateLocalSourceState<S: Serde> {
+    table_into_iter: RawIntoIter<Element<S::SerdeKey>>,
     read_count: Arc<AtomicUsize>,
     /// Arena the table allocated in
     _arena: Arena,
+    agg_func_list: Arc<AggregationFunctionList>,
 
+    serde_keys: Vec<S::SerdeKey>,
     state_ptrs: Vec<AggregationStatesPtr>,
 }
 
-struct TableIntoIter<K> {
-    inner: RawIntoIter<Element<K>>,
-    agg_func_list: Arc<AggregationFunctionList>,
-}
-
-impl<K> Debug for TableIntoIter<K> {
+impl<S: Serde> Debug for HashAggregateLocalSourceState<S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "TableIntoIter {{}}")
+        write!(f, "HashAggregateLocalSourceState")
     }
 }
 
 /// Drop the elements that have not been consumed. It happens in many cases, for example
 /// `limit` may only take the k elements from the table or query is cancelled, etc.
-impl<K> Drop for TableIntoIter<K> {
+impl<S: Serde> Drop for HashAggregateLocalSourceState<S> {
     fn drop(&mut self) {
-        let mut state_ptrs = Vec::with_capacity(self.inner.len());
-        for element in &mut self.inner {
-            state_ptrs.push(element.agg_states_ptr)
+        self.state_ptrs.clear();
+        for element in &mut self.table_into_iter {
+            self.state_ptrs.push(element.agg_states_ptr)
         }
 
         // SAFETY: the elements are allocated in the `self._arena`
-        unsafe { self.agg_func_list.drop_states(&state_ptrs) }
+        unsafe { self.agg_func_list.drop_states(&self.state_ptrs) }
     }
 }
 
-impl<K: Debug> StateStringify for HashAggregateLocalSourceState<K> {
+impl<S: Serde> StateStringify for HashAggregateLocalSourceState<S> {
     fn name(&self) -> &'static str {
         "HashAggregateLocalSourceState"
     }
@@ -416,36 +444,9 @@ impl<K: Debug> StateStringify for HashAggregateLocalSourceState<K> {
     }
 }
 
-impl<K: Debug + 'static> LocalSourceState for HashAggregateLocalSourceState<K> {
+impl<S: Serde + 'static> LocalSourceState for HashAggregateLocalSourceState<S> {
     fn as_mut_any(&mut self) -> &mut dyn std::any::Any {
         self
-    }
-
-    /// FIXME: deserialize the key
-    fn read_data(&mut self, output: &mut DataBlock) -> OperatorResult<SourceExecStatus> {
-        let iter_count = std::cmp::min(STANDARD_VECTOR_SIZE, self.table_into_iter.inner.len());
-        if iter_count == 0 {
-            return Ok(SourceExecStatus::Finished);
-        }
-
-        self.state_ptrs.clear();
-
-        (0..iter_count).for_each(|_| {
-            let element = unsafe { self.table_into_iter.inner.next().unwrap_unchecked() };
-            self.state_ptrs.push(element.agg_states_ptr);
-        });
-
-        unsafe {
-            self.table_into_iter
-                .agg_func_list
-                .take_states(&self.state_ptrs, output)
-                .boxed()
-                .context(ReadDataSnafu {
-                    op: "HashAggregate",
-                })?;
-        };
-
-        Ok(SourceExecStatus::HaveMoreOutput)
     }
 }
 
@@ -491,13 +492,16 @@ pub struct HashAggregateLocalSinkState<S: Serde> {
     hash_table: HashTable<S>,
     /// Note: The 'static lifetime is fake.....
     /// The group_by_keys is used in the `write_data` method, it reference the input and will be cleared
-    /// immediately after the `write_data` is finshed. The LocalState requires a 'static
+    /// immediately after the `write_data` is finished. The LocalState requires a 'static
     /// lifetime, in this use case, it will only holds a reference in the execution of `write_data` but it
     /// needs to outlive the `write_data` function. Therefore, I use 'static here to cheat the
     /// compiler.
     group_by_keys: Vec<&'static ArrayImpl>,
     /// Note: The 'static lifetime is fake.....
     payloads: Vec<&'static ArrayImpl>,
+
+    /// Metric used to record the time spent in write data
+    write_data_time: Duration,
 }
 
 impl<S: Serde> StateStringify for HashAggregateLocalSinkState<S> {
@@ -548,13 +552,19 @@ impl<S: Serde> Stringify for HashAggregate<S> {
         "HashAggregate"
     }
 
+    /// FIXME: debug
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self)
     }
 
-    /// FIXME: display
     fn display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "HashAggregate")
+        write!(f, "HashAggregate: group_by_keys=")?;
+        compact_display_expressions(f, &self._group_by_keys)?;
+        write!(
+            f,
+            " aggregation_functions={}, output_types={:?}",
+            self.agg_func_list, self.output_types
+        )
     }
 }
 
@@ -635,17 +645,16 @@ impl<S: Serde> PhysicalOperator for HashAggregate<S> {
                 source: Box::new(HashAggregateError::ExhaustedTables),
             })?;
 
-        Ok(Box::new(HashAggregateLocalSourceState {
-            table_into_iter: TableIntoIter {
-                inner: combined_table
-                    .tables
-                    .pop()
-                    .expect("The combined table is guaranteed to be non-empty")
-                    .into_iter(),
-                agg_func_list: Arc::clone(&self.agg_func_list),
-            },
+        Ok(Box::new(HashAggregateLocalSourceState::<S> {
+            table_into_iter: combined_table
+                .tables
+                .pop()
+                .expect("The combined table is guaranteed to be non-empty")
+                .into_iter(),
+            agg_func_list: Arc::clone(&self.agg_func_list),
             read_count: Arc::clone(&global_state.read_count),
             _arena: combined_table.arena,
+            serde_keys: Vec::new(),
             state_ptrs: Vec::new(),
         }))
     }
@@ -683,6 +692,8 @@ impl<S: Serde> PhysicalOperator for HashAggregate<S> {
             .all(|(input, output)| input == output));
 
         let local_state = downcast_local_sink_state!(local_state);
+
+        let _guard = ScopedTimerGuard::new(&mut local_state.write_data_time);
 
         self.group_by_keys_indexes.iter().for_each(|&index| unsafe {
             #[cfg(debug_assertions)]
@@ -741,6 +752,18 @@ impl<S: Serde> PhysicalOperator for HashAggregate<S> {
         let global_state = Self::downcast_global_sink_state(global_state)?;
         let local_state = downcast_local_sink_state!(local_state);
 
+        tracing::debug!(
+            "HashAggregator: aggregate {} rows local data into {} entries in  {} ms. Serialize time: {} ms. Hash time: {}ms, Probing time: {} ms. Update states time: {} ms",
+            local_state.hash_table.metrics.num_rows,
+            local_state.hash_table.len(),
+            local_state.write_data_time.as_millis(),
+            local_state.hash_table.metrics.serialize_time.as_millis(),
+            local_state.hash_table.metrics.hash_time.as_millis(),
+            local_state.hash_table.metrics.probing_time.as_millis(),
+            local_state.hash_table.metrics.update_states_time.as_millis(),
+        );
+
+        let now = quanta::Instant::now();
         match &global_state.partitioning {
             Some(partitioning) if local_state.hash_table.len() > PARTITION_THRESHOLD => {
                 // We need to partition the hash table
@@ -753,6 +776,11 @@ impl<S: Serde> PhysicalOperator for HashAggregate<S> {
             }
             _ => local_state.combine_into(global_state),
         }
+        tracing::debug!(
+            "HashAggregator: combine local sink state into global sink state takes {} ms",
+            now.elapsed().as_millis()
+        );
+
         Ok(())
     }
 
@@ -846,13 +874,14 @@ impl<S: Serde> PhysicalOperator for HashAggregate<S> {
             hash_table: HashTable::new(),
             group_by_keys: Vec::new(),
             payloads: Vec::new(),
+            write_data_time: Duration::default(),
         }))
     }
 }
 
 impl<S: Serde> SourceOperatorExt for HashAggregate<S> {
     type GlobalSourceState = HashAggregateGlobalSourceState<S::SerdeKey>;
-    type LocalSourceState = HashAggregateLocalSourceState<S::SerdeKey>;
+    type LocalSourceState = HashAggregateLocalSourceState<S>;
 
     #[inline]
     fn next_morsel(
@@ -861,10 +890,72 @@ impl<S: Serde> SourceOperatorExt for HashAggregate<S> {
         local_state: &mut Self::LocalSourceState,
     ) -> bool {
         if let Some(mut combined_table) = global_state.state.collected_swiss_tables.lock().pop() {
+            local_state._arena = combined_table.arena;
+            local_state.table_into_iter = combined_table
+                .tables
+                .pop()
+                .expect("The combined table is guaranteed to be non-empty")
+                .into_iter();
             true
         } else {
             false
         }
+    }
+
+    #[inline]
+    fn read_local_data(
+        &self,
+        output: &mut DataBlock,
+        local_state: &mut Self::LocalSourceState,
+    ) -> OperatorResult<SourceExecStatus> {
+        let Some(element) = local_state.table_into_iter.next() else {
+            return Ok(SourceExecStatus::Finished);
+        };
+        local_state.state_ptrs.push(element.agg_states_ptr);
+        local_state
+            .serde_keys
+            .push(element.serde_key_and_hash.serde_key);
+
+        for _ in 1..STANDARD_VECTOR_SIZE {
+            if let Some(element) = local_state.table_into_iter.next() {
+                local_state.state_ptrs.push(element.agg_states_ptr);
+                local_state
+                    .serde_keys
+                    .push(element.serde_key_and_hash.serde_key);
+            } else {
+                break;
+            }
+        }
+
+        // TBD: will synchronize frequently become bottleneck?
+        local_state
+            .read_count
+            .fetch_add(local_state.state_ptrs.len(), Relaxed);
+
+        // SAFETY: I know what I'am doing now
+        unsafe {
+            let mutate_guard = output.mutate();
+            let (group_by_arrays, agg_output_arrays) = mutate_guard
+                .arrays
+                .split_at_mut(self.group_by_keys_indexes.len());
+
+            S::deserialize(group_by_arrays, &local_state.serde_keys);
+
+            self.agg_func_list
+                .take_states(&local_state.state_ptrs, agg_output_arrays)
+                .boxed()
+                .context(ReadDataSnafu {
+                    op: "HashAggregate",
+                })?;
+
+            // Calibrate the length manually
+            *mutate_guard.length = local_state.state_ptrs.len();
+        }
+
+        local_state.state_ptrs.clear();
+        local_state.serde_keys.clear();
+
+        Ok(SourceExecStatus::HaveMoreOutput)
     }
 }
 
@@ -997,7 +1088,8 @@ unsafe fn combine_swiss_table<'a, K: SerdeKey>(
             probing_swiss_table(
                 combined_table,
                 combined_arena,
-                &mut element.serde_key_and_hash,
+                &mut element.serde_key_and_hash.serde_key,
+                element.serde_key_and_hash.hash_value,
                 combined_ptr,
                 agg_func_list,
             )
@@ -1084,14 +1176,17 @@ fn partition<S: Serde, P: Partitioning>(
 
 #[cfg(test)]
 mod tests {
+    use self::serde::FixedSizedSerdeKeySerializer;
+
     use super::hash_table::SerdeKeyAndHash;
 
     use super::serde::FixedSizedSerdeKey;
 
     use super::*;
-    use crate::exec::physical_expr::function::aggregate::count::CountStart;
     use crate::exec::physical_expr::function::aggregate::min_max::Min;
-    use data_block::array::Int64Array;
+    use crate::exec::physical_expr::function::aggregate::{count::CountStart, sum::Sum};
+    use crate::exec::physical_operator::empty_table_scan::EmptyTableScan;
+    use data_block::array::{Float32Array, Int32Array, Int64Array};
 
     fn mock_agg_funcs_list() -> AggregationFunctionList {
         let agg_funcs: Vec<Arc<dyn AggregationFunction>> = vec![
@@ -1205,10 +1300,12 @@ mod tests {
                 .collect::<Vec<_>>()
         };
 
+        let guard = output.mutate_arrays();
+
         unsafe {
-            agg_func_list
-                .take_states(&combined_state_ptrs, &mut output)
-                .unwrap();
+            let mutate_func =
+                |arrays: &mut [ArrayImpl]| agg_func_list.take_states(&combined_state_ptrs, arrays);
+            guard.mutate(mutate_func).unwrap();
         }
 
         let expect = expect_test::expect![[r#"
@@ -1254,5 +1351,148 @@ mod tests {
         swiss_tables
             .into_iter()
             .for_each(|combined| assert_combined_table(combined, &agg_func_list));
+    }
+
+    #[test]
+    fn test_hash_aggregate() {
+        // -1, -0.0, -1
+        // -1,  0.0,  2
+        //  3,    N, -9
+        //  N, -7.7,  7
+        //  7,  3.0, -2
+        //  N,    N,  N
+        //  3,    N, -7
+        //  N,    N, -7
+        fn mock_data_block() -> DataBlock {
+            DataBlock::try_new(vec![
+                ArrayImpl::Int32(Int32Array::from_iter([
+                    Some(-1),
+                    Some(-1),
+                    Some(3),
+                    None,
+                    Some(7),
+                    None,
+                    Some(3),
+                    None,
+                ])),
+                ArrayImpl::Float32(Float32Array::from_iter([
+                    Some(-0.0),
+                    Some(0.0),
+                    None,
+                    Some(-7.7),
+                    Some(3.0),
+                    None,
+                    None,
+                    None,
+                ])),
+                ArrayImpl::Int64(Int64Array::from_iter([
+                    Some(-1),
+                    Some(2),
+                    Some(-9),
+                    Some(7),
+                    Some(-2),
+                    None,
+                    Some(-7),
+                    Some(-7),
+                ])),
+            ])
+            .unwrap()
+        }
+
+        let client_ctx = crate::common::client_context::tests::mock_client_context();
+
+        let input = Arc::new(EmptyTableScan::new(vec![
+            LogicalType::Integer,
+            LogicalType::Float,
+            LogicalType::BigInt,
+        ]));
+        let group_by_keys: Vec<Arc<dyn PhysicalExpr>> = vec![
+            Arc::new(FieldRef::new(0, LogicalType::Integer, "f0".to_string())),
+            Arc::new(FieldRef::new(1, LogicalType::Float, "f1".to_string())),
+        ];
+        let agg_funcs: Vec<Arc<dyn AggregationFunction>> = vec![
+            Arc::new(CountStart::new()),
+            Arc::new(
+                Sum::<Int64Array>::try_new(Arc::new(FieldRef::new(
+                    2,
+                    LogicalType::BigInt,
+                    "f2".to_string(),
+                )))
+                .unwrap(),
+            ),
+        ];
+
+        let agg = HashAggregate::<FixedSizedSerdeKeySerializer<u64>>::try_new(
+            input,
+            group_by_keys,
+            agg_funcs,
+        )
+        .unwrap();
+
+        // Sink phase
+        {
+            let global_sink_state = agg.global_sink_state(&client_ctx).unwrap();
+            let func = || {
+                let block = mock_data_block();
+                let mut local_sink_state = agg.local_sink_state(&*global_sink_state).unwrap();
+                agg.write_data(&block, &*global_sink_state, &mut *local_sink_state)
+                    .unwrap();
+
+                agg.finish_local_sink(&*global_sink_state, &mut *local_sink_state)
+                    .unwrap();
+            };
+
+            std::thread::scope(|s| {
+                s.spawn(func);
+                s.spawn(func);
+            });
+
+            unsafe {
+                agg.finalize_sink(&*global_sink_state).unwrap();
+            }
+        }
+
+        // Source phase
+        {
+            let mut output = DataBlock::with_logical_types(agg.output_types().to_owned());
+
+            let global_source_state = agg.global_source_state(&client_ctx).unwrap();
+            let mut local_source_state = agg.local_source_state(&*global_source_state).unwrap();
+            let status = agg
+                .read_data(&mut output, &*global_source_state, &mut *local_source_state)
+                .unwrap();
+            assert!(matches!(status, SourceExecStatus::HaveMoreOutput));
+
+            let mut formated_rows = std::collections::HashSet::new();
+            (0..output.len()).for_each(|index| {
+                let row = output
+                    .arrays()
+                    .iter()
+                    .map(|array| unsafe {
+                        array
+                            .get_unchecked(index)
+                            .map_or_else(|| "Null,".to_string(), |element| format!("{},", element))
+                    })
+                    .collect::<String>();
+                formated_rows.insert(row);
+            });
+
+            let gt = [
+                "7,3.0,2,-4,".to_string(),
+                "Null,Null,4,-14,".to_string(),
+                "Null,-7.7,2,14,".to_string(),
+                "-1,0.0,4,2,".to_string(),
+                "3,Null,4,-32,".to_string(),
+            ]
+            .into_iter()
+            .collect::<std::collections::HashSet<String>>();
+
+            assert_eq!(formated_rows, gt);
+
+            let status = agg
+                .read_data(&mut output, &*global_source_state, &mut *local_source_state)
+                .unwrap();
+            assert!(matches!(status, SourceExecStatus::Finished));
+        }
     }
 }

@@ -391,6 +391,46 @@ arith_scalar!(mul_scalar, *, ArrayMulElement);
 arith_scalar!(div_scalar, /, ArrayDivElement);
 arith_scalar!(rem_scalar, %, ArrayRemElement);
 
+/// Trait for arith function
+pub trait ArithFuncTrait<T>: Send + Sync + 'static
+where
+    PrimitiveArray<T>: Array,
+    T: PrimitiveType,
+{
+    /// Name of the arith func
+    const NAME: &'static str;
+    /// Symbol of the arith func
+    const SYMBOL: &'static str;
+    /// The arith Function between array and a scalar
+    const SCALAR_FUNC: unsafe fn(&PrimitiveArray<T>, T, &mut PrimitiveArray<T>);
+}
+
+macro_rules! impl_default_arith_func_trait {
+    ($op:tt, $symbol:tt, $scalar_func:ident, $trait_bound:ident) => {
+        paste::paste! {
+            #[doc = concat!("Default ", stringify!($op), " between array and scalar")]
+            #[derive(Debug)]
+            pub struct [<Default $op Scalar>];
+
+            impl<T> ArithFuncTrait<T> for [<Default $op Scalar>]
+            where
+                PrimitiveArray<T>: Array,
+                T: PrimitiveType + $trait_bound,
+            {
+                const NAME: &'static str = stringify!($op);
+                const SYMBOL: &'static str  = stringify!($symbol);
+                const SCALAR_FUNC: unsafe fn(&PrimitiveArray<T>, T, &mut PrimitiveArray<T>) = $scalar_func;
+            }
+        }
+    };
+}
+
+impl_default_arith_func_trait!(Add, +, add_scalar, ArrayAddElement);
+impl_default_arith_func_trait!(Sub, -, sub_scalar, ArraySubElement);
+impl_default_arith_func_trait!(Mul, *, mul_scalar, ArrayMulElement);
+impl_default_arith_func_trait!(Div, /, div_scalar, ArrayDivElement);
+impl_default_arith_func_trait!(Rem, %, rem_scalar, ArrayRemElement);
+
 #[cfg(test)]
 mod tests {
     use super::*;

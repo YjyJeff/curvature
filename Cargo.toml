@@ -19,12 +19,18 @@ regex = "1.10"
 either = "1.10"
 quanta = "0.12"
 uuid = "1.7"
-rayon = "1.8"
+rayon = "1.9"
 tracing = "0.1"
 strength_reduce = "0.2"
 num-traits = "0.2"
 parking_lot = "0.12"
-
+bumpalo = "3.15"
+# TBD: Should we specify the ahash to "=version"? Otherwise, different binaries compiled
+# in different time will create different hash value. The distributed engine will have bug
+ahash = "0.8"
+hashbrown = { version = "0.14" }
+tabled = "0.15"
+tracing-subscriber = "0.3.18"
 
 [profile.release]
 lto = true

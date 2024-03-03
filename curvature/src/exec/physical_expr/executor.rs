@@ -34,13 +34,16 @@ impl ExprExecutor {
         input: &DataBlock,
         output: &mut DataBlock,
     ) -> ExprResult<()> {
+        debug_assert_eq!(self.ctx.len(), exprs.len());
+        debug_assert_eq!(self.ctx.len(), output.num_arrays());
+
         let guard = output.mutate_arrays();
         let mutate_func = |output: &mut [ArrayImpl]| {
             exprs
                 .iter()
                 .zip(self.ctx.iter_mut())
                 .zip(output)
-                .try_for_each(|((expr, ctx), output)| execute(expr.as_ref(), ctx, input, output))
+                .try_for_each(|((expr, exec_ctx), output)| expr.execute(input, exec_ctx, output))
         };
 
         // SAFETY: expressions process arrays with same length will produce arrays with same length
@@ -60,14 +63,14 @@ impl ExprExecutor {
 /// FIXME: Check we should profile or not dynamically
 #[cfg_attr(not(feature = "profile"), allow(dead_code))]
 #[derive(Debug)]
-struct ExprExecCtx {
+pub struct ExprExecCtx {
     /// The data block that **children** of this expression will
     /// write to. It is also used as input of this expression
-    intermediate_block: DataBlock,
+    pub intermediate_block: DataBlock,
     /// Children contexts
-    children: Vec<ExprExecCtx>,
+    pub children: Vec<ExprExecCtx>,
     /// Profiler for profiling the cpu time used in the expression
-    profiler: Profiler,
+    pub profiler: Profiler,
 }
 
 impl ExprExecCtx {
@@ -91,39 +94,5 @@ impl ExprExecCtx {
             children,
             profiler: Profiler::new(),
         }
-    }
-}
-
-fn execute(
-    expr: &dyn PhysicalExpr,
-    ctx: &mut ExprExecCtx,
-    leaf_input: &DataBlock,
-    output: &mut ArrayImpl,
-) -> ExprResult<()> {
-    let guard = ctx.intermediate_block.mutate_arrays();
-    let mutate_func = |output: &mut [ArrayImpl]| {
-        // Execute children
-        expr.children()
-            .iter()
-            .zip(ctx.children.iter_mut())
-            .zip(output)
-            .try_for_each(|((expr, ctx), output)| execute(&**expr, ctx, leaf_input, output))
-    };
-
-    // SAFETY: expressions process arrays with same length will produce arrays with same length
-    unsafe {
-        guard.mutate(mutate_func)?;
-    }
-
-    // execute expr
-    #[cfg(feature = "profile")]
-    let _guard = ctx.profiler.start_profile(leaf_input.length() as _);
-
-    if ctx.children.is_empty() {
-        // Leaf expression, take leaf input as input
-        expr.execute(leaf_input, output)
-    } else {
-        // Non leaf expression, take ctx.block as input
-        expr.execute(&ctx.intermediate_block, output)
     }
 }

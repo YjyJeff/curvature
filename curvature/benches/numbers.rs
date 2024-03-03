@@ -70,7 +70,7 @@ fn bench_read_numbers(c: &mut Criterion) {
                     let end = (i as u64 + 1) * count_per_thread;
                     while start < end {
                         let end = std::cmp::min(start + STANDARD_VECTOR_SIZE as u64, end);
-                        let mut guard = output.mutate_single_array().unwrap();
+                        let mut guard = output.mutate_single_array();
                         if let ArrayImpl::UInt64(array) = guard.deref_mut() {
                             unsafe { sequence(array, start, end) }
                             sum.fetch_add(array.values_iter().sum::<u64>(), Ordering::Relaxed);

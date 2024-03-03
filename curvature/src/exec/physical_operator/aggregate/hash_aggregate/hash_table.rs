@@ -2,14 +2,15 @@
 
 use super::serde::{Serde, SerdeKey};
 use crate::common::types::HashValue;
-use crate::common::utils::hash::{fixed_build_hasher_default, BuildHasherDefault};
 use crate::exec::physical_expr::function::aggregate::{
     AggregationFunctionList, AggregationStatesPtr, Result as AggregationResult,
 };
 
 use crate::exec::physical_operator::aggregate::Arena;
+use crate::exec::physical_operator::metric::ScopedTimerGuard;
 use data_block::array::ArrayImpl;
 use hashbrown::raw::RawTable as SwissTable;
+use std::time::Duration;
 
 /// HashTable for storing the group by keys and aggregation states. It is not
 /// self-contained and require the [`AggregationFunctionList`] to interpret the
@@ -27,13 +28,31 @@ pub struct HashTable<S: Serde> {
     /// TBD: Is it chicken-ribs? Some states are pointer to heap, which means that
     /// the state pointer is in arena however the state is not in arena 😂!
     arena: Arena,
-    /// Build hasher for building hashes
-    build_hasher: BuildHasherDefault,
 
     /// Auxiliary memory allocation reused across data blocks.
-    key_and_hash: Vec<SerdeKeyAndHash<S::SerdeKey>>,
+    keys: Vec<S::SerdeKey>,
+    /// Auxiliary memory allocation reused across data blocks.
+    hashes: Vec<HashValue>,
     /// Auxiliary memory allocation reused across data blocks.
     state_ptrs: Vec<AggregationStatesPtr>,
+
+    /// Metrics
+    pub metrics: HashTableMetrics,
+}
+
+/// Metrics of the hash table
+#[derive(Debug, Default)]
+pub struct HashTableMetrics {
+    /// The number of rows written to the hash table
+    pub num_rows: u64,
+    /// Time spent in serialization
+    pub serialize_time: Duration,
+    /// Time spent in hash the serde key
+    pub hash_time: Duration,
+    /// Time spent in probing the hash table
+    pub probing_time: Duration,
+    /// Time spent in update the aggregation states
+    pub update_states_time: Duration,
 }
 
 impl<S: Serde> std::fmt::Debug for HashTable<S> {
@@ -57,13 +76,13 @@ pub struct Element<K> {
 }
 
 /// Serde key and its hash value
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct SerdeKeyAndHash<K> {
-    /// The serialized `GroupByKeys`, it maybe u64/u32/u128/Vec<u8>
-    pub(super) serde_key: K,
     /// Hash value of this element. It is used to avoid rehashing the keys
     /// when we need to resize the hash table
     pub(super) hash_value: HashValue,
+    /// The serialized `GroupByKeys`, it maybe u64/u32/u128/Vec<u8>
+    pub(super) serde_key: K,
 }
 
 unsafe impl<K: Send> Send for Element<K> {}
@@ -76,9 +95,10 @@ impl<S: Serde> HashTable<S> {
         Self {
             swiss_table: SwissTable::new(),
             arena: Arena::new(),
-            build_hasher: fixed_build_hasher_default(),
-            key_and_hash: Vec::new(),
+            keys: Vec::new(),
+            hashes: Vec::new(),
             state_ptrs: Vec::new(),
+            metrics: HashTableMetrics::default(),
         }
     }
 
@@ -102,42 +122,56 @@ impl<S: Serde> HashTable<S> {
         len: usize,
         agg_func_list: &AggregationFunctionList,
     ) -> AggregationResult<()> {
-        // Clear is important, such that we make sure all of the key and hash are default
-        // and None element is represented by default
-        self.key_and_hash.clear();
-        self.key_and_hash.resize_with(len, || SerdeKeyAndHash {
-            serde_key: S::SerdeKey::default(),
-            hash_value: HashValue::default(),
-        });
+        self.metrics.num_rows += len as u64;
 
-        // We do not need to clear the `state_ptrs` because we will write to all of them
-        // immediately
+        self.keys.resize(len, S::SerdeKey::default());
+        self.hashes.resize(len, HashValue::default());
         self.state_ptrs
             .resize(len, AggregationStatesPtr::dangling());
 
         // 1. Serialize the group by keys into the serde key in elements
         // SAFETY: `group_by_keys` fit into `S::SerdeKey` is guaranteed by the safety of the function
         // elements have same length with the keys is guaranteed by above resize
-        S::serialize(group_by_keys, &mut self.key_and_hash, &self.build_hasher);
+        {
+            let _guard = ScopedTimerGuard::new(&mut self.metrics.serialize_time);
+            S::serialize(group_by_keys, &mut self.keys);
+        }
 
-        // 2. Probe the hash table, update the ptr in the elements
-        self.key_and_hash
-            .iter_mut()
-            .zip(self.state_ptrs.iter_mut())
-            .for_each(|(key_and_hash, state_ptr)| {
-                probing_swiss_table(
-                    &mut self.swiss_table,
-                    &self.arena,
-                    key_and_hash,
-                    state_ptr,
-                    agg_func_list,
-                )
-            });
+        // 2. Hash the serde key
+        {
+            let _guard = ScopedTimerGuard::new(&mut self.metrics.hash_time);
+            self.keys
+                .iter()
+                .zip(&mut self.hashes)
+                .for_each(|(key, hash)| {
+                    *hash = crate::common::utils::hash::BUILD_HASHER_DEFAULT.hash_one(key);
+                });
+        }
 
-        // 3. Update the states based on the payloads
+        // 3. Probe the hash table, update the ptr in the elements
+        {
+            let _guard = ScopedTimerGuard::new(&mut self.metrics.probing_time);
+            self.keys
+                .iter_mut()
+                .zip(self.hashes.iter())
+                .zip(self.state_ptrs.iter_mut())
+                .for_each(|((key, &hash_value), state_ptr)| {
+                    probing_swiss_table(
+                        &mut self.swiss_table,
+                        &self.arena,
+                        key,
+                        hash_value,
+                        state_ptr,
+                        agg_func_list,
+                    )
+                });
+        }
+
+        // 4. Update the states based on the payloads
         // SAFETY: ptrs are valid is guaranteed by the probing step.
         // Payloads match the agg_func_list's signature is guaranteed by the safety of
         // this function
+        let _guard = ScopedTimerGuard::new(&mut self.metrics.update_states_time);
         agg_func_list.update_states(payloads, &self.state_ptrs)
     }
 
@@ -163,15 +197,13 @@ impl<S: Serde> Default for HashTable<S> {
 pub(super) fn probing_swiss_table<K: SerdeKey>(
     swiss_table: &mut SwissTable<Element<K>>,
     arena: &Arena,
-    key_and_hash: &mut SerdeKeyAndHash<K>,
+    key: &mut K,
+    hash_value: u64,
     state_ptr: &mut AggregationStatesPtr,
     agg_func_list: &AggregationFunctionList,
 ) {
-    match swiss_table.get(key_and_hash.hash_value, |probe_element| {
-        probe_element
-            .serde_key_and_hash
-            .serde_key
-            .eq(&key_and_hash.serde_key)
+    match swiss_table.get(hash_value, |probe_element| {
+        probe_element.serde_key_and_hash.serde_key.eq(key)
     }) {
         None => {
             // The group by keys do not in the hash table, we need to create a new
@@ -179,11 +211,11 @@ pub(super) fn probing_swiss_table<K: SerdeKey>(
             let agg_states_ptr = agg_func_list.alloc_states(arena);
             // Insert it into the raw table
             swiss_table.insert(
-                key_and_hash.hash_value,
+                hash_value,
                 Element {
                     serde_key_and_hash: SerdeKeyAndHash {
-                        serde_key: std::mem::take(&mut key_and_hash.serde_key),
-                        hash_value: key_and_hash.hash_value,
+                        serde_key: std::mem::take(key),
+                        hash_value,
                     },
                     agg_states_ptr,
                 },
@@ -271,8 +303,13 @@ mod tests {
                 LogicalType::UnsignedBigInt,
                 LogicalType::BigInt,
             ]);
+            let guard = output.mutate_arrays();
+            unsafe {
+                let mutate_func =
+                    |arrays: &mut [ArrayImpl]| agg_func_list.take_states(&table.state_ptrs, arrays);
+                guard.mutate(mutate_func).unwrap();
+            }
 
-            unsafe { agg_func_list.take_states(&table.state_ptrs, &mut output)? }
             let expect = expect_test::expect![[r#"
                 ┌────────────────┬────────┐
                 │ UnsignedBigInt │ BigInt │

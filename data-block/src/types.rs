@@ -105,6 +105,7 @@ pub enum PhysicalSize {
 impl Add for PhysicalSize {
     type Output = Self;
 
+    #[inline]
     fn add(self, rhs: Self) -> Self::Output {
         match (self, rhs) {
             (Self::Fixed(lhs), Self::Fixed(rhs)) => Self::Fixed(lhs + rhs),
@@ -114,6 +115,7 @@ impl Add for PhysicalSize {
 }
 
 impl AddAssign for PhysicalSize {
+    #[inline]
     fn add_assign(&mut self, rhs: Self) {
         match self {
             Self::Variable => (),
@@ -131,6 +133,11 @@ impl AddAssign for PhysicalSize {
 ///
 /// It add some semantic above the physical type. Operations between [`Array`]s
 /// should have different behavior based on the associated [`LogicalType`]s
+///
+/// # Note
+///
+/// Do not use **_** when matching the [`LogicalType`], such that when a new variant is
+/// added, compiler will tell you all of the code that need to handle the new variant
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum LogicalType {
     /// Boolean value represent `true` or `false`
@@ -248,9 +255,6 @@ pub enum LogicalType {
     /// List of LogicalType. The child type can be scalar type or complex type
     List {
         /// Type of the element in list
-        ///
-        /// We use Arc here to avoid repeated memory allocation. During the plan
-        /// phase, Logical type is cloned frequently.
         element_type: Box<LogicalType>,
         /// Is the element in list nullable?
         is_nullable: bool,

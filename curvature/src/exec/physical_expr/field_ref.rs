@@ -6,7 +6,8 @@ use data_block::types::LogicalType;
 use snafu::Snafu;
 use std::sync::Arc;
 
-use super::{Error as ExprError, ExprResult, PhysicalExpr, Stringify};
+use super::executor::ExprExecCtx;
+use super::{ExprResult, PhysicalExpr, Stringify};
 
 #[allow(missing_docs)]
 #[derive(Debug, Snafu)]
@@ -21,16 +22,9 @@ pub enum Error {
         field_index: usize,
         num_fields: usize,
     },
-    #[snafu(display(
-        "Invalid output array, pipeline executor should guarantee 
-         it never happens, it has fatal bug 😭"
-    ))]
-    InvalidOutputArray {
-        source: data_block::array::ArrayError,
-    },
 }
 
-/// Represents index ino the `DataBlock` that pass through the executor
+/// Represents a reference of the field in the `DataBlock` that passed through the executor
 #[derive(Debug)]
 pub struct FieldRef {
     /// Index of the field
@@ -65,16 +59,16 @@ impl Stringify for FieldRef {
         write!(f, "{:?}", self)
     }
 
-    fn display(&self, f: &mut std::fmt::Formatter<'_>, compact: bool) -> std::fmt::Result {
-        if compact {
-            write!(f, "{}(#{})", self.field, self.field_index)
-        } else {
-            write!(
-                f,
-                "{}(#{}) -> {:?}",
-                self.field, self.field_index, self.output_type
-            )
-        }
+    fn display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}(#{}) -> {:?}",
+            self.field, self.field_index, self.output_type
+        )
+    }
+
+    fn compact_display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}(#{})", self.field, self.field_index)
     }
 }
 
@@ -91,21 +85,25 @@ impl PhysicalExpr for FieldRef {
         &self.children
     }
 
-    fn execute(&self, input: &DataBlock, output: &mut ArrayImpl) -> ExprResult<()> {
-        let input = input
-            .get_array(self.field_index)
-            .ok_or_else(|| ExprError::Execute {
-                expr: self.name(),
-                source: Box::new(Error::IndexOutOfRange {
-                    field_index: self.field_index,
-                    num_fields: input.num_arrays(),
-                }),
-            })?;
+    fn execute(
+        &self,
+        leaf_input: &DataBlock,
+        _exec_ctx: &mut ExprExecCtx,
+        output: &mut ArrayImpl,
+    ) -> ExprResult<()> {
+        let input = leaf_input.get_array(self.field_index).unwrap_or_else(|| {
+            panic!(
+                "`FieldRef` with index {}, however the leaf_input only have `{}` arrays",
+                self.field_index,
+                leaf_input.num_arrays(),
+            )
+        });
 
-        output.reference(input).map_err(|e| ExprError::Execute {
-            expr: self.name(),
-            source: Box::new(Error::InvalidOutputArray { source: e }),
-        })
+        output
+            .reference(input)
+            .unwrap_or_else(|e| panic!("`FieldRef`'s output is invalid, {}", e));
+
+        Ok(())
     }
 }
 
@@ -132,7 +130,9 @@ mod tests {
 
         let output = &mut ArrayImpl::String(StringArray::new(LogicalType::VarChar).unwrap());
 
-        field_ref.execute(&input, output).unwrap();
+        field_ref
+            .execute(&input, &mut ExprExecCtx::new(&field_ref), output)
+            .unwrap();
 
         let expect = expect![[r#"
             String(

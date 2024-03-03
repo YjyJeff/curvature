@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use crate::common::client_context::ClientContext;
 use crate::error::SendableError;
+use crate::exec::physical_expr::utils::compact_display_expressions;
 use crate::exec::physical_expr::{ExprExecutor, PhysicalExpr};
 
 use super::{
@@ -72,17 +73,8 @@ impl Stringify for Projection {
     }
 
     fn display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Projection: exprs=[")?;
-        let mut iter = self.exprs.iter();
-        let Some(expr) = iter.next() else {
-            return write!(f, "]");
-        };
-        expr.display(f, true)?;
-        iter.try_for_each(|expr| {
-            write!(f, ", ")?;
-            expr.display(f, true)
-        })?;
-        write!(f, "]")
+        write!(f, "Projection: exprs=")?;
+        compact_display_expressions(f, &self.exprs)
     }
 }
 

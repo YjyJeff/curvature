@@ -4,6 +4,8 @@
 
 pub mod aggregate;
 pub mod empty_table_scan;
+pub mod memory_table_scan;
+pub mod metric;
 pub mod numbers;
 pub mod projection;
 mod source_ext;
@@ -145,7 +147,7 @@ pub trait Stringify {
     /// Debug message
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
 
-    /// Display message without the children info
+    /// Display the operator without the children info
     fn display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
 }
 
@@ -483,9 +485,6 @@ pub trait GlobalSourceState: Send + Sync + StateStringify + 'static {
 pub trait LocalSourceState: StateStringify + 'static {
     /// As any such that we can perform dynamic cast
     fn as_mut_any(&mut self) -> &mut dyn std::any::Any;
-
-    /// Read the data from local source state
-    fn read_data(&mut self, output: &mut DataBlock) -> Result<SourceExecStatus>;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

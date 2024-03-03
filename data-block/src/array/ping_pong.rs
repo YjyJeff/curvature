@@ -107,13 +107,18 @@ impl<T> RefCountPtr<T> for Arc<T> {
 /// execute this tree with DFS now. We can see that each node(data) will be written once
 /// and then may read multiple times.
 ///
+/// FIXME: The above assumption is incorrect! Some nodes may not be visited because of
+/// shortcut. For example, `AndConjunction` may not execute its children when it found
+/// all of the result is false. In this case, both ping and pong can be referenced!
+/// Fuck!!!😭
+///
 /// In the beginning state, each node(data) does not reference to other node(data). All
 /// of the node(data)'s ping and pong are unique owner of the data
 ///
 /// Assume after the k-th execution, the above proposition still holds. Let's proof after
 /// the (k+1)th execution, the above proposition still holds.
 ///
-/// For any node(`N``) in the tree, it will be write first via either `reference` or
+/// For any node(`N`) in the tree, it will be write first via either `reference` or
 /// `exactly_once_mut` methods.
 ///
 /// - If the node is write via `reference`, then all of the subsequent node can not

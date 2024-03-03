@@ -91,10 +91,6 @@ impl LocalSourceState for SimpleAggregateLocalSourceState {
     fn as_mut_any(&mut self) -> &mut dyn std::any::Any {
         self
     }
-
-    fn read_data(&mut self, _output: &mut DataBlock) -> OperatorResult<SourceExecStatus> {
-        todo!()
-    }
 }
 
 /// Global sink state of the [`SimpleAggregate`]

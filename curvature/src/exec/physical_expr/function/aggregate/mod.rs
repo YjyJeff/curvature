@@ -5,18 +5,18 @@ pub mod min_max;
 pub mod sum;
 
 use std::alloc::Layout;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use std::ptr::NonNull;
 use std::sync::Arc;
 
 use data_block::array::{Array, ArrayError, ArrayImpl, ScalarArray};
-use data_block::block::DataBlock;
 use data_block::types::{Element, LogicalType, PhysicalType};
 use snafu::Snafu;
 
 use super::Function;
 use crate::common::utils::memory::next_multiple_of_align;
 use crate::error::SendableError;
+use crate::exec::physical_expr::utils::display_agg_funcs;
 use crate::exec::physical_expr::PhysicalExpr;
 use crate::exec::physical_operator::aggregate::Arena;
 
@@ -239,24 +239,18 @@ impl AggregationFunctionList {
     pub(crate) unsafe fn take_states(
         &self,
         state_ptrs: &[AggregationStatesPtr],
-        output: &mut DataBlock,
+        output: &mut [ArrayImpl],
     ) -> Result<()> {
-        debug_assert_eq!(self.funcs.len(), output.num_arrays());
+        debug_assert_eq!(self.funcs.len(), output.len());
 
-        let mutate_guard = output.mutate_arrays();
-        let mutate_func = |output: &mut [ArrayImpl]| {
-            self.funcs
-                .iter()
-                .zip(&self.states_layout.states_offsets)
-                .zip(output)
-                .try_for_each(|((func, &state_offset), output)| {
-                    // SAFETY: the state_offset is guaranteed by the constructor, the output guaranteed by the caller
-                    func.take_states(state_ptrs, state_offset, output)
-                })
-        };
-
-        // SAFETY: All of the arrays in the output will have same length with `state_ptrs.len()`
-        unsafe { mutate_guard.mutate(mutate_func) }
+        self.funcs
+            .iter()
+            .zip(&self.states_layout.states_offsets)
+            .zip(output)
+            .try_for_each(|((func, &state_offset), output)| {
+                // SAFETY: the state_offset is guaranteed by the constructor, the output guaranteed by the caller
+                func.take_states(state_ptrs, state_offset, output)
+            })
     }
 
     /// Drop the states allocated in the state_ptrs
@@ -265,6 +259,12 @@ impl AggregationFunctionList {
             .iter()
             .zip(&self.states_layout.states_offsets)
             .for_each(|(func, &state_offset)| func.drop_states(state_ptrs, state_offset));
+    }
+}
+
+impl Display for AggregationFunctionList {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        display_agg_funcs(f, &self.funcs)
     }
 }
 

@@ -398,7 +398,7 @@ mod tests {
 
     fn enumerate_assign<T>(lhs: &mut AlignedVec<T>, len: usize, offset: T)
     where
-        T: AllocType + Add<Output = T>,
+        T: AllocType + Add<Output = T> + Copy,
         usize: AsPrimitive<T>,
     {
         lhs.clear_and_resize(len)
@@ -411,7 +411,7 @@ mod tests {
 
     fn remain_assign<T>(lhs: &mut AlignedVec<T>, len: usize, rem: T)
     where
-        T: AllocType + Rem<Output = T>,
+        T: AllocType + Rem<Output = T> + Copy,
         usize: AsPrimitive<T>,
     {
         lhs.clear_and_resize(len)

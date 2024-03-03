@@ -25,6 +25,7 @@ You do not need to pass the `RUSTFLAGS="-C target-feature=+features"` when build
 
 ## TODO
 - [ ] Support `List` of type.
+- [ ] Support lots of encoding like `Constant`/`Dictionary`
 
 # Tittle-tattle
 

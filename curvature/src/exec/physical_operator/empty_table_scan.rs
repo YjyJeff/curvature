@@ -26,17 +26,11 @@ pub struct EmptyTableScan {
 
 impl EmptyTableScan {
     /// Create a new [`EmptyTableScan`]
-    pub fn new() -> Self {
+    pub fn new(output_types: Vec<LogicalType>) -> Self {
         Self {
-            output_types: Vec::new(),
+            output_types,
             _children: Vec::new(),
         }
-    }
-}
-
-impl Default for EmptyTableScan {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -78,13 +72,6 @@ impl LocalSourceState for EmptyTableScanLocalState {
     fn as_mut_any(&mut self) -> &mut dyn std::any::Any {
         self
     }
-
-    fn read_data(
-        &mut self,
-        _output: &mut data_block::block::DataBlock,
-    ) -> OperatorResult<SourceExecStatus> {
-        Ok(SourceExecStatus::Finished)
-    }
 }
 
 impl Stringify for EmptyTableScan {
@@ -97,7 +84,7 @@ impl Stringify for EmptyTableScan {
     }
 
     fn display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "EmptyTableScan")
+        write!(f, "EmptyTableScan: output_types={:?}", self.output_types)
     }
 }
 
