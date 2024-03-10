@@ -1,6 +1,6 @@
 //! Metrics for physical operator
 
-use quanta::Instant;
+use crate::common::profiler::Instant;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering::Relaxed;
 use std::time::Duration;

@@ -6,6 +6,7 @@ use crate::aligned_vec::AllocType;
 use crate::private::Sealed;
 use crate::types::PhysicalType;
 use std::fmt::{Debug, Display};
+use std::marker::PhantomData;
 use std::slice::from_raw_parts;
 use std::str::from_utf8_unchecked;
 
@@ -50,8 +51,13 @@ union StringViewContent<'a> {
 #[derive(Clone, Copy)]
 struct PrefixAndPointer<'a> {
     _prefix: [u8; PREFIX_LEN],
-    pointer: &'a u8,
+    pointer: *const u8,
+    /// Semantic store &'a u8
+    _phantom: PhantomData<&'a u8>,
 }
+
+unsafe impl<'a> Send for PrefixAndPointer<'a> {}
+unsafe impl<'a> Sync for PrefixAndPointer<'a> {}
 
 impl<'a> StringView<'a> {
     /// Create a new inlined string
@@ -95,7 +101,8 @@ impl<'a> StringView<'a> {
                 content: StringViewContent {
                     indirect: PrefixAndPointer {
                         _prefix: prefix,
-                        pointer: &*ptr,
+                        pointer: ptr,
+                        _phantom: PhantomData,
                     },
                 },
             }
@@ -157,7 +164,7 @@ impl<'a> StringView<'a> {
     /// Caller should guarantee the pointer is valid until the StringView is dropped
     #[inline]
     pub(crate) unsafe fn calibrate(&mut self, pointer: *const u8) {
-        self.content.indirect.pointer = &*pointer;
+        self.content.indirect.pointer = pointer;
     }
 
     /// Convert self to str
@@ -436,6 +443,7 @@ impl<'a> ElementRef<'a> for StringView<'a> {
                         indirect: PrefixAndPointer {
                             _prefix: self.content.indirect._prefix,
                             pointer: &*data.as_ptr(),
+                            _phantom: PhantomData,
                         },
                     },
                 };

@@ -24,3 +24,10 @@ I have been using [datafusion](https://github.com/apache/arrow-datafusion) for a
 
 # Minimum Support Rust Version(MSRV)
 This crate is guaranteed to compile on the latest stable Rust. The minimum support rust version is `1.75`
+
+# Contributing
+- Code should follow the [style.md](./docs/style.md)
+- Zero `cargo check` warning
+- Zero `cargo clippy` warning
+- Zero `FAILED` in `cargo test`
+- Zero `FAILED` in `cargo +nightly miri test` especially when you have unsafe functions!

@@ -136,7 +136,12 @@ impl Bitmap {
     #[must_use]
     pub fn clear_and_resize(&mut self, new_len: usize) -> &mut [u64] {
         self.num_bits = new_len;
-        self.buffer.clear_and_resize(elts(new_len))
+        let tmp = self.buffer.clear_and_resize(elts(new_len));
+        // Hack😊: The computation may cause last BitStore partially initialized, we initialize it now!
+        if let Some(last) = tmp.last_mut() {
+            *last = 0;
+        }
+        tmp
     }
 
     /// Clear the bitmap, it only set the num_bits to 0 and do not free the
@@ -157,6 +162,17 @@ impl Bitmap {
             self.buffer.reserve(1);
             self.buffer.len += 1;
         }
+        // According to the [book](https://doc.rust-lang.org/nightly/reference/behavior-considered-undefined.html)
+        // read integer from uninitialized memory is undefined behavior.
+        // [What The Hardware Does" is not What Your Program Does: Uninitialized Memory](https://www.ralfj.de/blog/2019/07/14/uninit.html)
+        // [(Why) is using an uninitialized variable undefined behavior?](https://stackoverflow.com/questions/11962457/why-is-using-an-uninitialized-variable-undefined-behavior)
+
+        // We gonna to init the uninitialized memory
+        if (old_len % BIT_STORE_BITS) == 0 {
+            let bit_store = unsafe { self.buffer.get_unchecked_mut(old_len / BIT_STORE_BITS) };
+            *bit_store = 0;
+        }
+
         // SAFETY: we increase the number of bits and reserve the space
         unsafe { set_bit_unchecked(&mut self.buffer, old_len, val) }
     }

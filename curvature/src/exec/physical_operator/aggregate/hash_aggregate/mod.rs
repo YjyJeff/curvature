@@ -763,7 +763,7 @@ impl<S: Serde> PhysicalOperator for HashAggregate<S> {
             local_state.hash_table.metrics.update_states_time.as_millis(),
         );
 
-        let now = quanta::Instant::now();
+        let now = crate::common::profiler::Instant::now();
         match &global_state.partitioning {
             Some(partitioning) if local_state.hash_table.len() > PARTITION_THRESHOLD => {
                 // We need to partition the hash table
@@ -1327,6 +1327,38 @@ mod tests {
         expect.assert_eq(&output.to_string());
     }
 
+    pub fn assert_data_block(
+        data_block: &DataBlock,
+        gt_rows: impl IntoIterator<Item = &'static str>,
+    ) {
+        let mut formatted_rows = std::collections::HashSet::new();
+        (0..data_block.len()).for_each(|index| {
+            let row = data_block
+                .arrays()
+                .iter()
+                .map(|array| unsafe {
+                    array
+                        .get_unchecked(index)
+                        .map_or_else(|| "Null,".to_string(), |element| format!("{},", element))
+                })
+                .collect::<String>();
+            formatted_rows.insert(row);
+        });
+
+        gt_rows.into_iter().for_each(|row| {
+            if !formatted_rows.remove(row) {
+                panic!("Data block does not contain row: {}", row)
+            }
+        });
+
+        if !formatted_rows.is_empty() {
+            panic!(
+                "Data block has rows the ground truth does not have: {:?}",
+                formatted_rows
+            )
+        }
+    }
+
     #[test]
     fn test_combine_not_partitioned_tables() {
         let agg_func_list = mock_agg_funcs_list();
@@ -1463,31 +1495,16 @@ mod tests {
                 .unwrap();
             assert!(matches!(status, SourceExecStatus::HaveMoreOutput));
 
-            let mut formated_rows = std::collections::HashSet::new();
-            (0..output.len()).for_each(|index| {
-                let row = output
-                    .arrays()
-                    .iter()
-                    .map(|array| unsafe {
-                        array
-                            .get_unchecked(index)
-                            .map_or_else(|| "Null,".to_string(), |element| format!("{},", element))
-                    })
-                    .collect::<String>();
-                formated_rows.insert(row);
-            });
-
-            let gt = [
-                "7,3.0,2,-4,".to_string(),
-                "Null,Null,4,-14,".to_string(),
-                "Null,-7.7,2,14,".to_string(),
-                "-1,0.0,4,2,".to_string(),
-                "3,Null,4,-32,".to_string(),
-            ]
-            .into_iter()
-            .collect::<std::collections::HashSet<String>>();
-
-            assert_eq!(formated_rows, gt);
+            assert_data_block(
+                &output,
+                [
+                    "7,3.0,2,-4,",
+                    "Null,Null,4,-14,",
+                    "Null,-7.7,2,14,",
+                    "-1,0.0,4,2,",
+                    "3,Null,4,-32,",
+                ],
+            );
 
             let status = agg
                 .read_data(&mut output, &*global_source_state, &mut *local_source_state)

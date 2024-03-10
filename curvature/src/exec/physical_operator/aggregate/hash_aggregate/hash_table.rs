@@ -241,10 +241,9 @@ mod tests {
     use crate::exec::physical_expr::field_ref::FieldRef;
     use crate::exec::physical_expr::function::aggregate::count::CountStart;
     use crate::exec::physical_expr::function::aggregate::sum::Sum;
-    use crate::exec::physical_expr::function::aggregate::{
-        AggregationError, AggregationFunction, AggregationFunctionList,
-    };
+    use crate::exec::physical_expr::function::aggregate::{AggregationError, AggregationFunction};
     use crate::exec::physical_operator::aggregate::hash_aggregate::serde::FixedSizedSerdeKeySerializer;
+    use crate::exec::physical_operator::aggregate::hash_aggregate::tests::assert_data_block;
 
     #[test]
     fn test_add_block() -> Report<AggregationError> {
@@ -310,17 +309,8 @@ mod tests {
                 guard.mutate(mutate_func).unwrap();
             }
 
-            let expect = expect_test::expect![[r#"
-                ┌────────────────┬────────┐
-                │ UnsignedBigInt │ BigInt │
-                ├────────────────┼────────┤
-                │ 4              │ -14    │
-                ├────────────────┼────────┤
-                │ 2              │ Null   │
-                ├────────────────┼────────┤
-                │ 4              │ 12     │
-                └────────────────┴────────┘"#]];
-            expect.assert_eq(&output.to_string());
+            assert_data_block(&output, ["4,-14,", "2,Null,", "4,12,"]);
+
             Ok(())
         })
     }

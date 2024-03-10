@@ -53,6 +53,28 @@ macro_rules! for_all_primitive_types {
 
 pub(crate) use for_all_primitive_types;
 
+/// Call macro for all intrinsic types
+///
+/// (scalar type, simd type, lanes, bitmask type)
+macro_rules! for_all_intrinsic {
+    ($macro:ident) => {
+        $macro! {
+            {i8, i8x64, 64, u64},
+            {u8, u8x64, 64, u64},
+            {i16, i16x32, 32, u32},
+            {u16, u16x32, 32, u32},
+            {i32, i32x16, 16, u16},
+            {u32, u32x16, 16, u16},
+            {i64, i64x8, 8, u8},
+            {u64, u64x8, 8, u8},
+            {f32, f32x16, 16, u16},
+            {f64, f64x8, 8, u8}
+        }
+    };
+}
+
+pub(crate) use for_all_intrinsic;
+
 /// Macro for building the func that optimize for different target features. Note that caller
 /// should guarantee the function could be accelerated by target features, for example
 /// auto-vectorization could use different SIMD instructions to increase the performance.

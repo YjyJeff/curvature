@@ -79,7 +79,7 @@ impl<T: PrimitiveType> PrimitiveArray<T> {
     /// physical type of the logical type should be `T::PHYSICAL_TYPE`
     #[inline]
     pub unsafe fn with_capacity_unchecked(logical_type: LogicalType, capacity: usize) -> Self {
-        PrimitiveArray {
+        Self {
             logical_type,
             data: PingPongPtr::new(AlignedVec::with_capacity(capacity)),
             validity: PingPongPtr::default(),
@@ -215,13 +215,14 @@ where
     ) {
         self.validity.exactly_once_mut().clear();
 
-        let uninitiated = self.data.exactly_once_mut().clear_and_resize(len);
+        let uninitiated = self.data.exactly_once_mut();
         uninitiated
+            .clear_and_resize(len)
             .iter_mut()
             .zip(trusted_len_iterator)
             .for_each(|(uninitiated, item)| {
                 *uninitiated = item;
-            })
+            });
     }
 
     #[inline]
@@ -230,16 +231,18 @@ where
         len: usize,
         trusted_len_iterator: impl Iterator<Item = Option<T>>,
     ) {
-        let uninitiated = self.data.exactly_once_mut().clear_and_resize(len);
+        let uninitiated_vec = self.data.exactly_once_mut();
+        let uninitiated_slice = uninitiated_vec.clear_and_resize(len);
         let uninitiated_validity = self.validity.exactly_once_mut();
 
         uninitiated_validity.reset(
             len,
             trusted_len_iterator.enumerate().map(|(i, val)| {
                 if let Some(val) = val {
-                    *uninitiated.get_unchecked_mut(i) = val;
+                    *uninitiated_slice.get_unchecked_mut(i) = val;
                     true
                 } else {
+                    *uninitiated_slice.get_unchecked_mut(i) = T::default();
                     false
                 }
             }),
@@ -260,6 +263,9 @@ impl<T: PrimitiveType> FromIterator<Option<T>> for PrimitiveArray<T> {
                     *data.ptr.as_ptr().add(data.len) = val;
                     validity.push(true);
                 } else {
+                    // Init the memory with default, such that all of the bytes in self.data is initialized!
+                    // Otherwise, read the slice from self.data may cause undefined behavior
+                    *data.ptr.as_ptr().add(data.len) = T::default();
                     validity.push(false);
                 }
                 data.len += 1;

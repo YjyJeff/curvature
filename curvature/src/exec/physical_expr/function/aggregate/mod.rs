@@ -4,7 +4,7 @@ pub mod count;
 pub mod min_max;
 pub mod sum;
 
-use std::alloc::Layout;
+use std::alloc::{alloc, dealloc, handle_alloc_error, Layout};
 use std::fmt::{Debug, Display};
 use std::ptr::NonNull;
 use std::sync::Arc;
@@ -139,8 +139,14 @@ pub struct AggregationFunctionList {
     states_layout: AggregationStatesLayout,
     /// Init state of the `AggregationStates`, used to init the allocated memory
     /// in the arena
-    init_states: Vec<u8>,
+    ///
+    /// Note that we can not use Vec<u8> here, because Vec<u8>'s alignment is 1.
+    /// We have to allocate and free the memory by ourself 😂
+    init_states: NonNull<u8>,
 }
+
+unsafe impl Send for AggregationFunctionList {}
+unsafe impl Sync for AggregationFunctionList {}
 
 impl AggregationFunctionList {
     /// Create a new [`AggregationFunctionList`]
@@ -150,9 +156,12 @@ impl AggregationFunctionList {
         let states_layout = AggregationStatesLayout::new(&funcs);
 
         // Create the init state
-        let mut init_states = vec![0; states_layout.layout.size()];
+        let init_states = unsafe {
+            NonNull::new(alloc(states_layout.layout))
+                .unwrap_or_else(|| handle_alloc_error(states_layout.layout))
+        };
         // SAFETY: pointer to the allocated Vec<u8> is guaranteed to be NonNull
-        let ptr = AggregationStatesPtr(unsafe { NonNull::new_unchecked(init_states.as_mut_ptr()) });
+        let ptr = AggregationStatesPtr(init_states);
         funcs
             .iter()
             .zip(states_layout.states_offsets.iter())
@@ -177,7 +186,7 @@ impl AggregationFunctionList {
             std::ptr::copy_nonoverlapping(
                 self.init_states.as_ptr(),
                 ptr.as_ptr(),
-                self.init_states.len(),
+                self.states_layout.layout.size(),
             );
         }
         AggregationStatesPtr(ptr)
@@ -259,6 +268,13 @@ impl AggregationFunctionList {
             .iter()
             .zip(&self.states_layout.states_offsets)
             .for_each(|(func, &state_offset)| func.drop_states(state_ptrs, state_offset));
+    }
+}
+
+impl Drop for AggregationFunctionList {
+    fn drop(&mut self) {
+        // Deallocate the init state. The init states is guaranteed to be non-null
+        unsafe { dealloc(self.init_states.as_ptr(), self.states_layout.layout) }
     }
 }
 

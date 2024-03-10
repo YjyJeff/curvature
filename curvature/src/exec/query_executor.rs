@@ -157,8 +157,7 @@ impl QueryExecutor {
 
 #[inline]
 fn execute_pipeline(pipeline: &Pipeline<Sink>) -> Result<()> {
-    let clock = quanta::Clock::new();
-    let start = clock.raw();
+    let now = crate::common::profiler::Instant::now();
     PipelineExecutor::try_new(pipeline)
         .with_context(|_| CreatePipelineExecutorSnafu {
             pipeline: format!("{}", pipeline),
@@ -169,9 +168,9 @@ fn execute_pipeline(pipeline: &Pipeline<Sink>) -> Result<()> {
         })?;
 
     tracing::debug!(
-        "Execute pipeline `{}` elapsed: {} sec",
+        "Execute pipeline `{}` elapsed: {} ms",
         pipeline,
-        clock.delta(start, clock.raw()).as_millis() as f64 / 1000.0
+        now.elapsed().as_millis()
     );
     Ok(())
 }
@@ -181,8 +180,7 @@ fn execute_root_pipeline<F>(root_pipeline: &Pipeline<()>, handler: F) -> Result<
 where
     F: Fn(&DataBlock),
 {
-    let clock = quanta::Clock::new();
-    let start = clock.raw();
+    let now = crate::common::profiler::Instant::now();
 
     let mut pipeline_executor =
         PipelineExecutor::try_new(root_pipeline).with_context(|_| CreatePipelineExecutorSnafu {
@@ -200,9 +198,9 @@ where
     }
 
     tracing::debug!(
-        "Execute root pipeline `{}` elapsed: {} sec",
+        "Execute root pipeline `{}` elapsed: {} ms",
         root_pipeline,
-        clock.delta(start, clock.raw()).as_millis() as f64 / 1000.0
+        now.elapsed().as_millis()
     );
 
     Ok(())
@@ -237,7 +235,6 @@ mod tests {
     use crate::exec::physical_expr::field_ref::FieldRef;
     use crate::exec::physical_operator::numbers::Numbers;
     use crate::exec::physical_operator::projection::Projection;
-    use crate::exec::physical_operator::PhysicalOperator;
     use data_block::array::ArrayImpl;
     use data_block::types::{Array, LogicalType};
     use snafu::Report;

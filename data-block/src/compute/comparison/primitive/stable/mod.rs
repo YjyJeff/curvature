@@ -19,7 +19,18 @@ use crate::compute::comparison::primitive::{
 };
 use crate::mutate_array_func;
 
-#[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
+// FIXME: Following implementation heavily depends on the reading intrinsic types from
+// uninitialized  memory optimization. However, it is undefined behavior in the Rust.
+// See following links for details. In our cases, the cpu is the main reason to avoid
+// reading uninitialized memory. So remove this optimization!
+//
+// https://doc.rust-lang.org/nightly/reference/behavior-considered-undefined.html
+// https://www.ralfj.de/blog/2019/07/14/uninit.html
+// https://stackoverflow.com/questions/11962457/why-is-using-an-uninitialized-variable-undefined-behavior
+// https://langdev.stackexchange.com/questions/2870/why-would-accessing-uninitialized-memory-necessarily-be-undefined-behavior
+
+/// Miri does not support neon, see [issue](https://github.com/rust-lang/miri/issues/3243)
+#[cfg(all(any(target_arch = "arm", target_arch = "aarch64"), not(miri)))]
 mod arm;
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 mod x86;
@@ -112,7 +123,7 @@ macro_rules! cmp_scalar {
                     }
                 }
 
-                #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
+                #[cfg(all(any(target_arch = "arm", target_arch = "aarch64"), not(miri)))]
                 {
                     if std::arch::is_aarch64_feature_detected!("neon"){
                         return T::$cmp_neon(&lhs.data, rhs, uninitialized);

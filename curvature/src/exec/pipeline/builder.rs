@@ -344,7 +344,6 @@ mod tests {
     use crate::exec::physical_operator::aggregate::simple_aggregate::SimpleAggregate;
     use crate::exec::physical_operator::numbers::Numbers;
     use crate::exec::physical_operator::projection::Projection;
-    use crate::exec::physical_operator::union::Union;
     use data_block::types::LogicalType;
 
     fn union(

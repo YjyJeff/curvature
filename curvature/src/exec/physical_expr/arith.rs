@@ -152,8 +152,6 @@ where
 
 #[cfg(test)]
 mod tests {
-    use data_block::compute::arith::DefaultAddScalar;
-
     use crate::exec::physical_expr::field_ref::FieldRef;
 
     use super::*;

@@ -44,7 +44,13 @@ pub struct Numbers {
 
 impl Numbers {
     /// Each local source state will fetch MORSEL_SIZE numbers from global
+    #[cfg(not(miri))]
     pub const MORSEL_SIZE: u64 = 128 * STANDARD_VECTOR_SIZE as u64;
+
+    /// Each local source state will fetch MORSEL_SIZE numbers from global.
+    /// Running miri is pretty slow......
+    #[cfg(miri)]
+    pub const MORSEL_SIZE: u64 = STANDARD_VECTOR_SIZE as u64;
 
     /// Create a new [`Numbers`]. The count has type [`NonZeroU64`] guarantees
     /// the count is zero. If the count is zero, do not create [`Numbers`],

@@ -4,7 +4,7 @@ use super::Array;
 use crate::bitmap::{Bitmap, BitmapIter};
 use crate::element::Element;
 use std::fmt::Debug;
-use std::iter::Zip;
+use std::iter::{FusedIterator, Zip};
 
 /// Default implementation for the iterator of the values in the array
 #[derive(Debug)]
@@ -67,6 +67,7 @@ impl<'a, A: Array> Iterator for ArrayValuesIter<'a, A> {
 }
 
 impl<'a, A: Array> ExactSizeIterator for ArrayValuesIter<'a, A> {}
+impl<'a, A: Array> FusedIterator for ArrayValuesIter<'a, A> {}
 
 /// Iterator of the [`Array`]. Especially useful for [`Debug`]
 pub enum ArrayIter<'a, A: Array> {

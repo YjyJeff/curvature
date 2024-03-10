@@ -2,7 +2,11 @@
 
 use std::time::Duration;
 
-use quanta::Instant;
+#[cfg(miri)]
+pub use std::time::Instant;
+
+#[cfg(not(miri))]
+pub use quanta::Instant;
 
 /// Efficient profiler for profiling
 #[derive(Debug)]

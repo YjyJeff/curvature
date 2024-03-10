@@ -4,12 +4,12 @@
 //!
 //! - [`AllocType`] is the superset of the [`PrimitiveType`], actually they are the same.
 //! [`IntrinsicType`] is the subset of the [`PrimitiveType`], types implement the
-//! [`IntrinsicType`] can use SIDM to perform acceleration
+//! [`IntrinsicType`] can use SIDM to perform acceleration.
 
+use std::fmt::Display;
 use std::mem::size_of;
 use std::num::NonZeroU8;
-use std::ops::AddAssign;
-use std::{fmt::Display, ops::Add};
+use std::ops::{Add, AddAssign};
 
 pub use crate::aligned_vec::AllocType;
 pub use crate::array::primitive::PrimitiveType;

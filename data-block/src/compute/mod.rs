@@ -17,24 +17,6 @@ pub trait IntrinsicType: PrimitiveType {
     type SimdType: IntrinsicSimdType<IntrinsicType = Self>;
 }
 
-/// (scalar type, simd type, lanes, bitmask type)
-macro_rules! for_all_intrinsic {
-    ($macro:ident) => {
-        $macro! {
-            {i8, i8x64, 64, u64},
-            {u8, u8x64, 64, u64},
-            {i16, i16x32, 32, u32},
-            {u16, u16x32, 32, u32},
-            {i32, i32x16, 16, u16},
-            {u32, u32x16, 16, u16},
-            {i64, i64x8, 8, u8},
-            {u64, u64x8, 8, u8},
-            {f32, f32x16, 16, u16},
-            {f64, f64x8, 8, u8}
-        }
-    };
-}
-
 #[cfg(not(feature = "portable_simd"))]
 macro_rules! impl_intrinsic {
     ($({$ty:ty, $_simd_ty:ty, $_lanes:expr, $_bitmask:ty}),+) => {
@@ -45,7 +27,7 @@ macro_rules! impl_intrinsic {
 }
 
 #[cfg(not(feature = "portable_simd"))]
-for_all_intrinsic!(impl_intrinsic);
+crate::macros::for_all_intrinsic!(impl_intrinsic);
 
 unsafe fn combine_validities(
     lhs: &PingPongPtr<Bitmap>,
@@ -118,7 +100,7 @@ mod portable_simd {
         };
     }
 
-    for_all_intrinsic!(impl_intrinsic);
+    crate::macros::for_all_intrinsic!(impl_intrinsic);
 
     impl<T: IntrinsicType> AlignedVec<T> {
         /// Transmute the vec to a slice of the SIMD type

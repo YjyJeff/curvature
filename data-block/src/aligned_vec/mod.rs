@@ -15,11 +15,14 @@ use crate::private::Sealed;
 use crate::utils::roundup_to_multiple_of;
 
 /// Size of the cache line in bytes
-const CACHE_LINE_SIZE: usize = 64;
+pub const CACHE_LINE_SIZE: usize = 64;
 
 /// Trait for types that can be allocated on the [`AlignedVec`]. This trait is
 /// sealed to avoid other types implement it
-pub trait AllocType: Sealed + Clone + Sized + Debug + Display + 'static + Send + Sync {}
+pub trait AllocType:
+    Sealed + Clone + Sized + Debug + Default + Display + 'static + Send + Sync
+{
+}
 
 macro_rules! impl_alloc_types {
     ($($ty:ty),*) => {
@@ -62,13 +65,10 @@ impl<T: AllocType> AlignedVec<T> {
     #[inline]
     #[must_use]
     pub fn new() -> Self {
-        // SAFETY: [`ALIGNMENT`] is guaranteed to be power of two
-        unsafe {
-            Self {
-                ptr: NonNull::new_unchecked(ALIGNMENT as _),
-                len: 0,
-                capacity_in_bytes: 0,
-            }
+        Self {
+            ptr: NonNull::dangling(),
+            len: 0,
+            capacity_in_bytes: 0,
         }
     }
 

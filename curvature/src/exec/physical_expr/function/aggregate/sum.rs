@@ -326,18 +326,18 @@ mod tests {
 
     #[test]
     fn test_sum_finalize() {
-        let sum_state_0 = SumState { sum: Some(10.0) };
-        let sum_state_1 = SumState::<f64> { sum: None };
-        let sum_state_2 = SumState::<f64> { sum: Some(-100.99) };
+        let mut sum_state_0 = SumState { sum: Some(10.0) };
+        let mut sum_state_1 = SumState::<f64> { sum: None };
+        let mut sum_state_2 = SumState::<f64> { sum: Some(-100.99) };
         unsafe {
             let ptr_0 = AggregationStatesPtr(NonNull::new_unchecked(
-                (&sum_state_0) as *const _ as *mut u8,
+                (&mut sum_state_0) as *mut _ as *mut u8,
             ));
             let ptr_1 = AggregationStatesPtr(NonNull::new_unchecked(
-                (&sum_state_1) as *const _ as *mut u8,
+                (&mut sum_state_1) as *mut _ as *mut u8,
             ));
             let ptr_2 = AggregationStatesPtr(NonNull::new_unchecked(
-                (&sum_state_2) as *const _ as *mut u8,
+                (&mut sum_state_2) as *mut _ as *mut u8,
             ));
 
             let ptrs = &[ptr_0, ptr_1, ptr_2];

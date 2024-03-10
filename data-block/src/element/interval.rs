@@ -71,3 +71,10 @@ impl SubAssign for DayTime {
         }
     }
 }
+
+impl Default for DayTime {
+    #[inline]
+    fn default() -> Self {
+        Self { day: 0, mills: 0 }
+    }
+}
