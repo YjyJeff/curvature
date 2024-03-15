@@ -2,14 +2,13 @@
 
 use data_block::block::DataBlock;
 use data_block::types::LogicalType;
-use snafu::ResultExt;
 use std::sync::Arc;
 
 use crate::common::client_context::ClientContext;
-use crate::error::SendableError;
 use crate::exec::physical_expr::utils::compact_display_expressions;
 use crate::exec::physical_expr::{ExprExecutor, PhysicalExpr};
 
+use super::utils::downcast_mut_local_state;
 use super::{
     impl_sink_for_non_sink, impl_source_for_non_source, use_types_for_impl_sink_for_non_sink,
     use_types_for_impl_source_for_non_source, DummyGlobalOperatorState, GlobalOperatorState,
@@ -97,10 +96,6 @@ impl PhysicalOperator for Projection {
         true
     }
 
-    fn is_parallel_operator(&self) -> OperatorResult<bool> {
-        Ok(true)
-    }
-
     fn execute(
         &self,
         input: &DataBlock,
@@ -108,15 +103,8 @@ impl PhysicalOperator for Projection {
         _global_state: &dyn GlobalOperatorState,
         local_state: &mut dyn LocalOperatorState,
     ) -> OperatorResult<OperatorExecStatus> {
-        let Some(local_state) = local_state
-            .as_mut_any()
-            .downcast_mut::<ProjectionLocalState>()
-        else {
-            return Err(OperatorError::Execute {
-                op: self.name(),
-                source: format!("Projection operator accepts invalid `local_state`, it should be `ProjectionLocalState`, found `{}`", local_state.name()).into(),
-            });
-        };
+        let local_state =
+            downcast_mut_local_state!(self, local_state, ProjectionLocalState, OPERATOR);
 
         local_state
             .0
@@ -124,7 +112,6 @@ impl PhysicalOperator for Projection {
             .map_or_else(
                 |e| {
                     Err(OperatorError::Execute {
-                        op: self.name(),
                         source: Box::new(e),
                     })
                 },
@@ -132,17 +119,12 @@ impl PhysicalOperator for Projection {
             )
     }
 
-    fn global_operator_state(
-        &self,
-        _client_ctx: &ClientContext,
-    ) -> OperatorResult<Arc<dyn GlobalOperatorState>> {
-        Ok(Arc::new(DummyGlobalOperatorState))
+    fn global_operator_state(&self, _client_ctx: &ClientContext) -> Arc<dyn GlobalOperatorState> {
+        Arc::new(DummyGlobalOperatorState)
     }
 
-    fn local_operator_state(&self) -> OperatorResult<Box<dyn LocalOperatorState>> {
-        Ok(Box::new(ProjectionLocalState(ExprExecutor::new(
-            &self.exprs,
-        ))))
+    fn local_operator_state(&self) -> Box<dyn LocalOperatorState> {
+        Box::new(ProjectionLocalState(ExprExecutor::new(&self.exprs)))
     }
 
     impl_source_for_non_source!();

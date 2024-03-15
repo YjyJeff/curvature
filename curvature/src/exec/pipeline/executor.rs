@@ -15,12 +15,6 @@ type OperatorIndex = usize;
 #[allow(missing_docs)]
 #[derive(Debug, Snafu)]
 pub enum PipelineExecutorError {
-    #[snafu(display("Failed to create LocalSourceState"))]
-    CreateLocalSourceState { source: OperatorError },
-    #[snafu(display("Failed to create LocalOperatorState"))]
-    CreateLocalOperatorState { source: OperatorError },
-    #[snafu(display("Failed to create LocalSinkState"))]
-    CreateLocalSinkState { source: OperatorError },
     #[snafu(display("Failed to read_data from Source"))]
     ExecuteSource { source: OperatorError },
     #[snafu(display("Failed to execute the regular operator"))]
@@ -77,21 +71,13 @@ impl<'a, S: SinkTrait> PipelineExecutor<'a, S> {
             intermediate_blocks.push(DataBlock::with_logical_types(
                 operator.op.output_types().to_owned(),
             ));
-            local_operator_states.push(
-                operator
-                    .op
-                    .local_operator_state()
-                    .context(CreateLocalOperatorStateSnafu)?,
-            );
+            local_operator_states.push(operator.op.local_operator_state());
             Ok::<_, PipelineExecutorError>(())
         })?;
 
-        let local_source_state = source
-            .op
-            .local_source_state(&*source.global_state)
-            .context(CreateLocalSourceStateSnafu)?;
+        let local_source_state = source.op.local_source_state(&*source.global_state);
 
-        let local_sink_state = sink.local_sink_state().context(CreateLocalSinkStateSnafu)?;
+        let local_sink_state = sink.local_sink_state();
 
         Ok(Self {
             pipeline,

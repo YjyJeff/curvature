@@ -2,7 +2,7 @@ use super::{Operator, Pipeline, PipelineIndex, Sink, Source};
 use crate::common::client_context::ClientContext;
 use crate::exec::physical_operator::union::Union;
 use crate::exec::physical_operator::{OperatorError, PhysicalOperator};
-use snafu::{ensure, OptionExt, ResultExt, Snafu};
+use snafu::{ensure, OptionExt, Snafu};
 use std::cell::RefCell;
 use std::mem::take;
 use std::sync::Arc;
@@ -132,11 +132,7 @@ impl<'p> PipelineBuilder<'p> {
             // Children is empty, it must be table scan. Set the operator as source
             let source = Source {
                 op: Arc::clone(operator),
-                global_state: operator
-                    .global_source_state(self.client_ctx)
-                    .with_context(|_| CreateGlobalSourceStateSnafu {
-                        source_op: operator.name(),
-                    })?,
+                global_state: operator.global_source_state(self.client_ctx),
             };
             self.source = Some(source);
             ensure!(
@@ -155,8 +151,7 @@ impl<'p> PipelineBuilder<'p> {
             );
 
             // build pipeline recursively
-            // SAFETY: This branch guarantees the children is not empty
-            self.build_pipelines(unsafe { children.get_unchecked(0) })?;
+            self.build_pipelines(&children[0])?;
 
             // Till now, we have built pipeline for the child and of the information is stored
             // in self or self.union_builders. Let's handle operator now
@@ -167,11 +162,7 @@ impl<'p> PipelineBuilder<'p> {
                 // Regular operator, push to operators directly
                 let operator = Operator {
                     op: Arc::clone(operator),
-                    global_state: operator
-                        .global_operator_state(self.client_ctx)
-                        .with_context(|_| CreateGlobalOperatorStateSnafu {
-                            op: operator.name(),
-                        })?,
+                    global_state: operator.global_operator_state(self.client_ctx),
                 };
                 self.handle_regular_operator(operator);
             }
@@ -207,9 +198,7 @@ impl<'p> PipelineBuilder<'p> {
     fn handle_sink_operator(&mut self, op: &Arc<dyn PhysicalOperator>) -> Result<()> {
         let sink = Sink {
             op: Arc::clone(op),
-            global_state: op
-                .global_sink_state(self.client_ctx)
-                .with_context(|_| CreateGlobalSinkStateSnafu { sink_op: op.name() })?,
+            global_state: op.global_sink_state(self.client_ctx),
         };
         if self.union_builders.is_empty() {
             // Do not have union operator between the source and sink
@@ -233,11 +222,7 @@ impl<'p> PipelineBuilder<'p> {
         // Sink is the source of the later pipeline
         let source = Source {
             op: Arc::clone(op),
-            global_state: op.global_source_state(self.client_ctx).with_context(|_| {
-                CreateGlobalSourceStateSnafu {
-                    source_op: op.name(),
-                }
-            })?,
+            global_state: op.global_source_state(self.client_ctx),
         };
 
         self.source = Some(source);

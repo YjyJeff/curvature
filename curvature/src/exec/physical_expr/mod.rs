@@ -7,14 +7,13 @@ pub mod function;
 pub mod utils;
 
 use crate::error::SendableError;
-use crate::visit::{Visit, Visitor};
+use crate::tree_node::{handle_visit_recursion, TreeNode, TreeNodeRecursion, Visitor};
 use data_block::array::ArrayImpl;
 use data_block::block::DataBlock;
 use data_block::types::LogicalType;
 pub use executor::ExprExecutor;
 use snafu::Snafu;
 use std::fmt::{Debug, Display};
-use std::ops::ControlFlow;
 use std::sync::Arc;
 
 use self::executor::ExprExecCtx;
@@ -91,16 +90,16 @@ impl Display for dyn PhysicalExpr {
     }
 }
 
-impl Visit for dyn PhysicalExpr {
-    type Node = dyn PhysicalExpr;
-
-    fn accept<V: Visitor<Self>>(&self, visitor: &mut V) -> ControlFlow<V::Break> {
-        visitor.pre_visit(self)?;
-
+impl TreeNode for dyn PhysicalExpr {
+    fn visit_children<V, F>(&self, f: &mut F) -> std::result::Result<TreeNodeRecursion, V::Error>
+    where
+        V: Visitor<Self>,
+        F: FnMut(&Self) -> std::result::Result<TreeNodeRecursion, V::Error>,
+    {
         for child in self.children() {
-            child.accept(visitor)?;
+            handle_visit_recursion!(f(&**child)?)
         }
 
-        visitor.post_visit(self)
+        Ok(TreeNodeRecursion::Continue)
     }
 }

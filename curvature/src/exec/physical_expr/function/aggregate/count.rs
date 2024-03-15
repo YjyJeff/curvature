@@ -83,7 +83,7 @@ impl<const STAR: bool> AggregationFunction for Count<STAR> {
             });
             Ok(())
         } else {
-            let payload = payloads.get_unchecked(0);
+            let payload = payloads[0];
             let validity = payload.validity();
             if validity.is_empty() {
                 // All of the elements in the array is not null
@@ -131,12 +131,9 @@ impl<const STAR: bool> AggregationFunction for Count<STAR> {
         state_offset: usize,
         output: &mut data_block::array::ArrayImpl,
     ) -> Result<()> {
-        #[cfg(debug_assertions)]
         let output: &mut UInt64Array = output
             .try_into()
             .expect("Output array of the count should be UInt64Array");
-        #[cfg(not(debug_assertions))]
-        let output: &mut UInt64Array = output.try_into().unwrap_unchecked();
 
         // TBD: It looks like we do not need to clear it, because it is always empty after
         // it is created!

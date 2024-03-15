@@ -4,15 +4,15 @@
 
 pub mod aggregate;
 pub mod empty_table_scan;
+mod ext_traits;
 pub mod memory_table_scan;
 pub mod metric;
 pub mod numbers;
 pub mod projection;
-mod source_ext;
 pub mod union;
 pub mod utils;
 
-use self::source_ext::SourceOperatorExt;
+use self::ext_traits::SourceOperatorExt;
 use self::utils::{
     impl_regular_for_non_regular, impl_sink_for_non_sink, impl_source_for_non_source,
     use_types_for_impl_regular_for_non_regular, use_types_for_impl_sink_for_non_sink,
@@ -21,12 +21,11 @@ use self::utils::{
 use crate::common::client_context::ClientContext;
 use crate::common::types::ParallelismDegree;
 use crate::error::SendableError;
-use crate::visit::{Visit, Visitor};
+use crate::tree_node::{handle_visit_recursion, TreeNode, TreeNodeRecursion, Visitor};
 use data_block::block::DataBlock;
 use data_block::types::LogicalType;
 use snafu::Snafu;
 use std::fmt::{Debug, Display};
-use std::ops::ControlFlow;
 use std::sync::Arc;
 
 /// Maximum parallelism degree
@@ -37,102 +36,16 @@ const MAX_PARALLELISM_DEGREE: ParallelismDegree = unsafe { ParallelismDegree::ne
 #[derive(Debug, Snafu)]
 #[allow(missing_docs)]
 pub enum OperatorError {
-    #[snafu(display("Calling `is_parallel_operator` on a non regular operator: `{}`", op))]
-    IsParallelOperator { op: &'static str },
-    #[snafu(display("Failed to execute the regular operator: `{}`", op))]
-    Execute {
-        op: &'static str,
-        source: SendableError,
-    },
-    #[snafu(display("Calling `global_operator_state` on a non regular operator: `{}`", op))]
-    GlobalOperatorState { op: &'static str },
-    #[snafu(display("Calling `local_operator_state` on a non regular operator: `{}`", op))]
-    LocalOperatorState { op: &'static str },
-    #[snafu(display("Failed to call `source_parallelism_degree` on the operator: `{}`", op))]
-    SourceParallelismDegree {
-        op: &'static str,
-        source: SendableError,
-    },
-    #[snafu(display("Failed to read data from the source operator: `{}`", op))]
-    ReadData {
-        op: &'static str,
-        source: SendableError,
-    },
-    #[snafu(display("Calling `global_source_state` on a non source operator: `{}`", op))]
-    GlobalSourceState { op: &'static str },
-    #[snafu(display("Failed to call `local_source_state` on the operator: `{}`", op))]
-    LocalSourceState {
-        op: &'static str,
-        source: SendableError,
-    },
-    #[snafu(display("Failed to call `progress` on the operator: `{}`", op))]
-    Progress {
-        op: &'static str,
-        source: SendableError,
-    },
-    #[snafu(display("Calling `is_parallel_sink` on a non sink operator: `{}`", op))]
-    IsParallelSink { op: &'static str },
-    #[snafu(display("Failed to write data to the sink operator: `{}`", op))]
-    WriteData {
-        op: &'static str,
-        source: SendableError,
-    },
-    #[snafu(display("Failed to call `global_sink_state` on the operator: `{}`", op))]
-    GlobalSinkState {
-        op: &'static str,
-        source: SendableError,
-    },
-    #[snafu(display("Calling `local_sink_state` on a non sink operator: `{}`", op))]
-    LocalSinkState { op: &'static str },
-    #[snafu(display(
-        "Failed to call the `finish_local_sink` on the sink operator: `{}`",
-        op
-    ))]
-    FinishLocalSink {
-        op: &'static str,
-        source: SendableError,
-    },
-    #[snafu(display("Failed to call `finalize_sink` on the sink operator: `{}`", op))]
-    FinalizeSink {
-        op: &'static str,
-        source: SendableError,
-    },
-    #[snafu(display(
-        "Source operator: `{op}` accepts invalid LocalSourceState: `{state}`.
-         PipelineExecutor should guarantee it never happens, it has fatal bug 😭
-    "
-    ))]
-    InvalidLocalSourceState {
-        op: &'static str,
-        state: &'static str,
-    },
-    #[snafu(display(
-        "Source operator: `{op}` accepts invalid GlobalSourceState: `{state}`.
-         PipelineExecutor should guarantee it never happens, it has fatal bug 😭
-    "
-    ))]
-    InvalidGlobalSourceState {
-        op: &'static str,
-        state: &'static str,
-    },
-    #[snafu(display(
-        "Sink operator: `{op}` accepts invalid LocalSinkState: `{state}`.
-         PipelineExecutor should guarantee it never happens, it has fatal bug 😭
-    "
-    ))]
-    InvalidLocalSinkState {
-        op: &'static str,
-        state: &'static str,
-    },
-    #[snafu(display(
-        "Sink operator: `{op}` accepts invalid GlobalSinkState: `{state}`.
-         PipelineExecutor should guarantee it never happens, it has fatal bug 😭
-    "
-    ))]
-    InvalidGlobalSinkState {
-        op: &'static str,
-        state: &'static str,
-    },
+    #[snafu(display("Failed to execute the regular operator"))]
+    Execute { source: SendableError },
+    #[snafu(display("Failed to read data from the source operator"))]
+    ReadData { source: SendableError },
+    #[snafu(display("Failed to write data to the sink operator"))]
+    WriteData { source: SendableError },
+    #[snafu(display("Failed to call the `finish_local_sink` on the sink operator"))]
+    FinishLocalSink { source: SendableError },
+    #[snafu(display("Failed to call `finalize_sink` on the sink operator"))]
+    FinalizeSink { source: SendableError },
 }
 
 type Result<T> = std::result::Result<T, OperatorError>;
@@ -165,9 +78,6 @@ pub trait PhysicalOperator: Send + Sync + Stringify + 'static {
     fn output_types(&self) -> &[LogicalType];
 
     /// Get children of this operator.
-    ///
-    /// If the children is empty, it **must be** TableScan operator, therefore it is
-    /// a source. However, if the children is not empty, it **may be** source operator
     fn children(&self) -> &[Arc<dyn PhysicalOperator>];
 
     // Regular operator(not source and sink) methods
@@ -176,24 +86,23 @@ pub trait PhysicalOperator: Send + Sync + Stringify + 'static {
     /// the pipeline
     fn is_regular_operator(&self) -> bool;
 
-    /// Can we execute the regular operator in parallel?
-    ///
-    /// Note that if this method is called on a non regular operator, it should return the
-    /// [`OperatorError::IsParallelOperator`]
-    fn is_parallel_operator(&self) -> Result<bool>;
-
     /// Execute the operator with input and write the result to output
     ///
     /// # Notes
     ///
-    /// - Operator will try to cast the global/local state to concrete state
-    /// according to the concrete type of the operator. Therefore, it is the executor's
-    /// responsibility to pass the correct global/local state. The global/local state
-    /// should be created with `self.global_operator_state`/`self.local_operator_state`
-    /// method
-    ///
-    /// - All of the regular operator should return `Ok` even if the regular
+    /// All of the regular operator should return `Ok` even if the regular
     /// operator **do not** have regular operator
+    ///
+    /// # Panics
+    ///
+    /// [PipelineExecutor] should guarantee following invariants, otherwise implementation will panic:
+    ///
+    /// - output should match the operator's [`Self::output_types()`]
+    ///
+    /// - The global and local state should be created with [`Self::global_operator_state()`]/
+    /// [`Self::local_operator_state()`] methods.
+    ///
+    /// [PipelineExecutor]: crate::exec::pipeline::PipelineExecutor
     fn execute(
         &self,
         input: &DataBlock,
@@ -202,22 +111,17 @@ pub trait PhysicalOperator: Send + Sync + Stringify + 'static {
         local_state: &mut dyn LocalOperatorState,
     ) -> Result<OperatorExecStatus>;
 
-    /// Create a global state for the physical operator. Executor calls it and
-    /// passes it to the `self.execute` function
+    /// Create a global state for the physical operator. [`PipelineExecutor`] calls it and
+    /// passes it to the [`Self::execute()`] function
     ///
-    /// Note that if this method is called on a non regular operator, it should return the
-    /// [`OperatorError::GlobalOperatorState`]
-    fn global_operator_state(
-        &self,
-        client_ctx: &ClientContext,
-    ) -> Result<Arc<dyn GlobalOperatorState>>;
+    /// [`PipelineExecutor`]: crate::exec::pipeline::PipelineExecutor
+    fn global_operator_state(&self, client_ctx: &ClientContext) -> Arc<dyn GlobalOperatorState>;
 
-    /// Create a thread local state for the physical operator. Executor calls it and
-    /// passes it to the `self.execute` function
+    /// Create a thread local state for the physical operator. [PipelineExecutor] calls it and
+    /// passes it to the [`Self::execute()`] function
     ///
-    /// Note that if this method is called on a non regular operator, it should return the
-    /// [`OperatorError::LocalOperatorState`]
-    fn local_operator_state(&self) -> Result<Box<dyn LocalOperatorState>>;
+    /// [PipelineExecutor]: crate::exec::pipeline::PipelineExecutor
+    fn local_operator_state(&self) -> Box<dyn LocalOperatorState>;
 
     // Source operator methods
 
@@ -227,24 +131,20 @@ pub trait PhysicalOperator: Send + Sync + Stringify + 'static {
 
     /// Parallelism of the source, if the source can not be executed in parallel, it should
     /// return Ok(1)
-    ///
-    /// Note that if this method is called on a non source operator, it should return the
-    /// [`OperatorError::SourceParallelismDegree`]
-    fn source_parallelism_degree(
-        &self,
-        global_state: &dyn GlobalSourceState,
-    ) -> Result<ParallelismDegree>;
+    fn source_parallelism_degree(&self, global_state: &dyn GlobalSourceState) -> ParallelismDegree;
 
     /// Read a [`DataBlock`] from the source and write it to output
     ///
-    /// # Notes
+    /// # Panics
     ///
-    /// - Operator will try to cast the global/local state to concrete state
-    /// according to the concrete type of the operator. Therefore, it is the executor's
-    /// responsibility to pass the correct global/local state. The global/local state
-    /// should be created with `self.global_source_state`/`self.local_source_state`
-    /// method
+    /// [PipelineExecutor] should guarantee following invariants, otherwise implementation will panic:
     ///
+    /// - output should match the operator's [`Self::output_types()`]
+    ///
+    /// - The global and local state should be created with [`Self::global_source_state()`]/
+    /// [`Self::local_source_state()`] methods.
+    ///
+    /// [PipelineExecutor]: crate::exec::pipeline::PipelineExecutor
     ///
     /// FIXME: Async
     fn read_data(
@@ -254,37 +154,29 @@ pub trait PhysicalOperator: Send + Sync + Stringify + 'static {
         local_state: &mut dyn LocalSourceState,
     ) -> Result<SourceExecStatus>;
 
-    /// Create a global source state for the physical operator. Executor calls it and
-    /// passes it to the `self.read_data` function
+    /// Create a global source state for the physical operator. [`PipelineExecutor`] calls it and
+    /// passes it to the [`Self::read_data`] function
     ///
-    /// Note that if this method is called on a non source operator, it should return the
-    /// [`OperatorError::GlobalSourceState`]
-    fn global_source_state(&self, client_ctx: &ClientContext)
-        -> Result<Arc<dyn GlobalSourceState>>;
+    /// [`PipelineExecutor`]: crate::exec::pipeline::PipelineExecutor
+    fn global_source_state(&self, client_ctx: &ClientContext) -> Arc<dyn GlobalSourceState>;
 
     /// Create a thread local state, morsel assigned to the thread, for the physical operator.
-    /// Executor calls it and passes it to the `self.read_data` function
+    /// [`PipelineExecutor`] calls it and passes it to the [`Self::read_data()`] function
     ///
-    /// Note that if this method is called on a non source operator, it should return the
-    /// [`OperatorError::LocalSourceState`]
-    fn local_source_state(
-        &self,
-        global_state: &dyn GlobalSourceState,
-    ) -> Result<Box<dyn LocalSourceState>>;
+    /// [`PipelineExecutor`]: crate::exec::pipeline::PipelineExecutor
+    fn local_source_state(&self, global_state: &dyn GlobalSourceState)
+        -> Box<dyn LocalSourceState>;
 
     /// Get progress of the source: [0.0 - 1.0]
     ///
     /// # Notes
-    ///
-    /// - If this method is called on a non source operator, it should return the
-    /// [`OperatorError::Progress`]
     ///
     /// - If the source does not support progress, return negative number
     ///
     /// - The returned value represents the progress the morsel have been assigned
     /// to execute, which is almost equivalent to the progress the source has been
     /// processed because we assume executing the morsel is fast
-    fn progress(&self, global_state: &dyn GlobalSourceState) -> Result<f64>;
+    fn progress(&self, global_state: &dyn GlobalSourceState) -> f64;
 
     // Sink operator methods
 
@@ -292,21 +184,16 @@ pub trait PhysicalOperator: Send + Sync + Stringify + 'static {
     /// the pipeline
     fn is_sink(&self) -> bool;
 
-    /// Can we execute the source parallel in parallel?
-    ///
-    /// Note that if this method is called on a non sink operator, it should return the
-    /// [`OperatorError::IsParallelSink`]
-    fn is_parallel_sink(&self) -> Result<bool>;
-
     /// Write the input [`DataBlock`] to the sink
     ///
-    /// # Notes
+    /// # Panics
     ///
-    /// - Operator will try to cast the global/local state to concrete state
-    /// according to the concrete type of the operator. Therefore, it is the executor's
-    /// responsibility to pass the correct global/local state. The global/local state
-    /// should be created with `self.global_source_state`/`self.local_source_state`
-    /// method
+    /// [PipelineExecutor] should guarantee following invariants, otherwise implementation will panic:
+    ///
+    /// The global and local state should be created with [`Self::global_sink_state()`]/
+    /// [`Self::local_sink_state()`] methods.
+    ///
+    /// [PipelineExecutor]: crate::exec::pipeline::PipelineExecutor
     ///
     /// FIXME: Async
     fn write_data(
@@ -326,13 +213,10 @@ pub trait PhysicalOperator: Send + Sync + Stringify + 'static {
     /// regular/source operator in the parent pipeline, it can access the data produced
     /// by the sink
     ///
-    /// # Notes
+    /// # Panics
     ///
-    /// - Operator will try to cast the global/local state to concrete state
-    /// according to the concrete type of the operator. Therefore, it is the executor's
-    /// responsibility to pass the correct global/local state. The global/local state
-    /// should be created with `self.global_source_state`/`self.local_source_state`
-    /// method
+    /// The global and local state should be created with [`Self::global_sink_state()`]/
+    /// [`Self::local_sink_state()`] methods.
     ///
     /// FIXME: Async
     fn finish_local_sink(
@@ -353,24 +237,24 @@ pub trait PhysicalOperator: Send + Sync + Stringify + 'static {
     /// # Note
     ///
     /// Finalize function can spawn threads and execute the function body in parallel
+    ///
+    /// # Panics
+    ///
+    /// The global state should be created with [`Self::global_sink_state()`]
     unsafe fn finalize_sink(&self, global_state: &dyn GlobalSinkState) -> Result<()>;
 
-    /// Create a global sink state for the physical operator. Executor calls it and
-    /// passes it to the `self.write_data` function
+    /// Create a global sink state for the physical operator. [`PipelineExecutor`] calls it and
+    /// passes it to the [`Self::write_data`]/[`Self::finish_local_sink`]/[`Self::finalize_sink`]
+    /// functions
     ///
-    /// Note that if this method is called on a non sink operator, it should return the
-    /// [`OperatorError::GlobalSinkState`]
-    fn global_sink_state(&self, client_ctx: &ClientContext) -> Result<Arc<dyn GlobalSinkState>>;
+    /// [`PipelineExecutor`]: crate::exec::pipeline::PipelineExecutor
+    fn global_sink_state(&self, client_ctx: &ClientContext) -> Arc<dyn GlobalSinkState>;
 
-    /// Create a thread local state for the physical operator. Executor calls it and
-    /// passes it to the `self.write_data` function
+    /// Create a local sink state for the physical operator. [`PipelineExecutor`] calls it and
+    /// passes it to the [`Self::write_data`]/[`Self::finish_local_sink`] functions
     ///
-    /// Note that if this method is called on a non sink operator, it should return the
-    /// [`OperatorError::LocalSinkState`]
-    fn local_sink_state(
-        &self,
-        global_state: &dyn GlobalSinkState,
-    ) -> Result<Box<dyn LocalSinkState>>;
+    /// [`PipelineExecutor`]: crate::exec::pipeline::PipelineExecutor
+    fn local_sink_state(&self, global_state: &dyn GlobalSinkState) -> Box<dyn LocalSinkState>;
 }
 
 /// Global state associated with the [`PhysicalOperator`]. It will be shared across
@@ -544,17 +428,17 @@ impl Display for dyn PhysicalOperator {
     }
 }
 
-impl Visit for dyn PhysicalOperator {
-    type Node = dyn PhysicalOperator;
-
-    fn accept<V: Visitor<Self>>(&self, visitor: &mut V) -> ControlFlow<V::Break> {
-        visitor.pre_visit(self)?;
-
+impl TreeNode for dyn PhysicalOperator {
+    fn visit_children<V, F>(&self, f: &mut F) -> std::result::Result<TreeNodeRecursion, V::Error>
+    where
+        V: Visitor<Self>,
+        F: FnMut(&Self) -> std::result::Result<TreeNodeRecursion, V::Error>,
+    {
         for child in self.children() {
-            child.accept(visitor)?;
+            handle_visit_recursion!(f(&**child)?);
         }
 
-        visitor.post_visit(self)
+        Ok(TreeNodeRecursion::Continue)
     }
 }
 

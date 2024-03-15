@@ -1,10 +1,37 @@
 //! Utils for the physical operator
 
+/// We have to use macro here. It is pretty annoying, see [`issue`] for details.
+/// Fucking borrow checker !!!!!
+///
+/// [`issue`]: https://github.com/rust-lang/rust/issues/54663
+macro_rules! downcast_mut_local_state {
+    (SOURCE) => {
+        "LocalSourceState"
+    };
+    (OPERATOR) => {
+        "LocalOperatorState"
+    };
+    (SINK) => {
+        "LocalSinkState"
+    };
+    ($op:ident, $local_state:ident, $ty:ty, $STATE_TY:ident) => {
+        if let Some(local_state) = $local_state.as_mut_any().downcast_mut::<$ty>() {
+            local_state
+        } else {
+            panic!(
+                "`{}` operator accepts invalid {}: `{}`. PipelineExecutor should guarantee it never happens, it has fatal bug 😭",
+                $op.name(),
+                downcast_mut_local_state!($STATE_TY),
+                $local_state.name()
+            )
+        }
+    };
+}
+
 macro_rules! use_types_for_impl_regular_for_non_regular {
     () => {
         use crate::exec::physical_operator::{
-            ExecuteSnafu, GlobalOperatorState, GlobalOperatorStateSnafu, IsParallelOperatorSnafu,
-            LocalOperatorState, LocalOperatorStateSnafu, OperatorExecStatus,
+            GlobalOperatorState, LocalOperatorState, OperatorExecStatus,
         };
     };
 }
@@ -17,10 +44,6 @@ macro_rules! impl_regular_for_non_regular {
             false
         }
 
-        fn is_parallel_operator(&self) -> OperatorResult<bool> {
-            IsParallelOperatorSnafu { op: self.name() }.fail()
-        }
-
         fn execute(
             &self,
             _input: &DataBlock,
@@ -28,20 +51,27 @@ macro_rules! impl_regular_for_non_regular {
             _global_state: &dyn GlobalOperatorState,
             _local_state: &mut dyn LocalOperatorState,
         ) -> OperatorResult<OperatorExecStatus> {
-            let error: SendableError = format!(
-                "`{}` is not a regular operator. It should never happens because pipeline should be verified before execution",
+            panic!(
+                "`{}` is not a regular operator, can not call the `execute` method on it",
                 self.name()
             )
-            .into();
-            Err(error).context(ExecuteSnafu { op: self.name() })
         }
 
-        fn global_operator_state(&self, _client_ctx: &ClientContext) -> OperatorResult<Arc<dyn GlobalOperatorState>> {
-            GlobalOperatorStateSnafu { op: self.name() }.fail()
+        fn global_operator_state(
+            &self,
+            _client_ctx: &ClientContext,
+        ) -> Arc<dyn GlobalOperatorState> {
+            panic!(
+                "`{}` is not a regular operator, can not call the `global_operator_state` method on it",
+                self.name()
+            )
         }
 
-        fn local_operator_state(&self) -> OperatorResult<Box<dyn LocalOperatorState>> {
-            LocalOperatorStateSnafu { op: self.name() }.fail()
+        fn local_operator_state(&self) -> Box<dyn LocalOperatorState> {
+            panic!(
+                "`{}` is not a regular operator, can not call the `local_operator_state` method on it",
+                self.name()
+            )
         }
     };
 }
@@ -49,9 +79,7 @@ macro_rules! impl_regular_for_non_regular {
 macro_rules! use_types_for_impl_source_for_non_source {
     () => {
         use crate::exec::physical_operator::{
-            GlobalSourceState, GlobalSourceStateSnafu, LocalSourceState, LocalSourceStateSnafu,
-            ParallelismDegree, ProgressSnafu, ReadDataSnafu, SourceExecStatus,
-            SourceParallelismDegreeSnafu,
+            GlobalSourceState, LocalSourceState, ParallelismDegree, SourceExecStatus,
         };
     };
 }
@@ -67,13 +95,11 @@ macro_rules! impl_source_for_non_source {
         fn source_parallelism_degree(
             &self,
             _global_state: &dyn GlobalSourceState,
-        ) -> OperatorResult<ParallelismDegree> {
-            let error: SendableError = format!(
-                "`{}` is not a source operator. It should never happens because pipeline should be verified before execution",
+        ) -> ParallelismDegree {
+            panic!(
+                "`{}` is not a source operator, can not call the `source_parallelism_degree` method on it",
                 self.name()
             )
-            .into();
-            Err(error).context(SourceParallelismDegreeSnafu { op: self.name() })
         }
 
         fn read_data(
@@ -82,48 +108,41 @@ macro_rules! impl_source_for_non_source {
             _global_state: &dyn GlobalSourceState,
             _local_state: &mut dyn LocalSourceState,
         ) -> OperatorResult<SourceExecStatus> {
-            let error: SendableError = format!(
-                "`{}` is not a source operator. It should never happens because pipeline should be verified before execution",
+            panic!(
+                "`{}` is not a source operator, can not call the `read_data` method on it",
                 self.name()
             )
-            .into();
-            Err(error).context(ReadDataSnafu { op: self.name() })
         }
 
-        fn global_source_state(&self, _client_ctx: &ClientContext) -> OperatorResult<Arc<dyn GlobalSourceState>> {
-            GlobalSourceStateSnafu { op: self.name() }.fail()
+        fn global_source_state(&self, _client_ctx: &ClientContext) -> Arc<dyn GlobalSourceState> {
+            panic!(
+                "`{}` is not a source operator, can not call the `global_source_state` method on it",
+                self.name()
+            )
         }
 
         fn local_source_state(
             &self,
             _global_state: &dyn GlobalSourceState,
-        ) -> OperatorResult<Box<dyn LocalSourceState>> {
-            let error: SendableError = format!(
-                "`{}` is not a source operator. It should never happens because pipeline should be verified before execution",
+        ) -> Box<dyn LocalSourceState> {
+            panic!(
+                "`{}` is not a source operator, can not call the `local_source_state` method on it",
                 self.name()
             )
-            .into();
-            Err(error).context(LocalSourceStateSnafu { op: self.name() })
         }
 
-        fn progress(&self, _global_state: &dyn GlobalSourceState) -> OperatorResult<f64> {
-            let error: SendableError = format!(
-                "`{}` is not a source operator. It should never happens because pipeline should be verified before execution",
+        fn progress(&self, _global_state: &dyn GlobalSourceState) -> f64 {
+            panic!(
+                "`{}` is not a source operator, can not call the `progress` method on it",
                 self.name()
             )
-            .into();
-            Err(error).context(ProgressSnafu { op: self.name() })
         }
     };
 }
 
 macro_rules! use_types_for_impl_sink_for_non_sink {
     () => {
-        use crate::exec::physical_operator::{
-            FinalizeSinkSnafu, FinishLocalSinkSnafu, GlobalSinkState, GlobalSinkStateSnafu,
-            IsParallelSinkSnafu, LocalSinkState, LocalSinkStateSnafu, SinkExecStatus,
-            WriteDataSnafu,
-        };
+        use crate::exec::physical_operator::{GlobalSinkState, LocalSinkState, SinkExecStatus};
     };
 }
 
@@ -135,22 +154,16 @@ macro_rules! impl_sink_for_non_sink {
             false
         }
 
-        fn is_parallel_sink(&self) -> OperatorResult<bool> {
-            IsParallelSinkSnafu { op: self.name() }.fail()
-        }
-
         fn write_data(
             &self,
             _input: &DataBlock,
             _global_state: &dyn GlobalSinkState,
             _local_state: &mut dyn LocalSinkState,
         ) -> OperatorResult<SinkExecStatus> {
-            let error: SendableError = format!(
-                "`{}` is not a sink operator. It should never happens because pipeline should be verified before execution",
+            panic!(
+                "`{}` is not a sink operator, can not call the `write_data` method on it",
                 self.name()
             )
-            .into();
-            Err(error).context(WriteDataSnafu { op: self.name() })
         }
 
         fn finish_local_sink(
@@ -158,37 +171,36 @@ macro_rules! impl_sink_for_non_sink {
             _global_state: &dyn GlobalSinkState,
             _local_state: &mut dyn LocalSinkState,
         ) -> OperatorResult<()> {
-            let error: SendableError = format!(
-                "`{}` is not a sink operator. It should never happens because pipeline should be verified before execution",
+            panic!(
+                "`{}` is not a sink operator, can not call the `finish_local_sink` method on it",
                 self.name()
             )
-            .into();
-            Err(error).context(FinishLocalSinkSnafu { op: self.name() })
         }
 
-        unsafe fn finalize_sink(&self, _global_state: &dyn GlobalSinkState) -> OperatorResult<()>{
-            let error: SendableError = format!(
-                "`{}` is not a sink operator. It should never happens because pipeline should be verified before execution",
+        unsafe fn finalize_sink(&self, _global_state: &dyn GlobalSinkState) -> OperatorResult<()> {
+            panic!(
+                "`{}` is not a sink operator, can not call the `finalize_sink` method on it",
                 self.name()
             )
-            .into();
-            Err(error).context(FinalizeSinkSnafu { op: self.name() })
         }
 
-        fn global_sink_state(&self, _client_ctx: &ClientContext) -> OperatorResult<Arc<dyn GlobalSinkState>> {
-            let error: SendableError = format!("`{}` is not a sink operator", self.name()).into();
-            Err(error).context(GlobalSinkStateSnafu { op: self.name() })
+        fn global_sink_state(&self, _client_ctx: &ClientContext) -> Arc<dyn GlobalSinkState> {
+            panic!(
+                "`{}` is not a sink operator, can not call the `global_sink_state` method on it",
+                self.name()
+            )
         }
 
-        fn local_sink_state(
-            &self,
-            _global_state: &dyn GlobalSinkState,
-        ) -> OperatorResult<Box<dyn LocalSinkState>>{
-            LocalSinkStateSnafu { op: self.name() }.fail()
+        fn local_sink_state(&self, _global_state: &dyn GlobalSinkState) -> Box<dyn LocalSinkState> {
+            panic!(
+                "`{}` is not a sink operator, can not call the `global_sink_state` method on it",
+                self.name()
+            )
         }
     };
 }
 
+pub(super) use downcast_mut_local_state;
 pub(super) use impl_regular_for_non_regular;
 pub(super) use impl_sink_for_non_sink;
 pub(super) use impl_source_for_non_source;

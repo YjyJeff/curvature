@@ -2,10 +2,9 @@
 
 use std::sync::Arc;
 
-use crate::{common::client_context::ClientContext, error::SendableError};
+use crate::common::client_context::ClientContext;
 use data_block::block::DataBlock;
 use data_block::types::LogicalType;
-use snafu::ResultExt;
 
 use super::{
     impl_regular_for_non_regular, impl_sink_for_non_sink,
@@ -110,8 +109,8 @@ impl PhysicalOperator for EmptyTableScan {
     fn source_parallelism_degree(
         &self,
         _global_state: &dyn GlobalSourceState,
-    ) -> OperatorResult<ParallelismDegree> {
-        Ok(ParallelismDegree::MIN)
+    ) -> ParallelismDegree {
+        ParallelismDegree::MIN
     }
 
     fn read_data(
@@ -123,22 +122,19 @@ impl PhysicalOperator for EmptyTableScan {
         Ok(SourceExecStatus::Finished)
     }
 
-    fn global_source_state(
-        &self,
-        _client_ctx: &ClientContext,
-    ) -> OperatorResult<Arc<dyn GlobalSourceState>> {
-        Ok(Arc::new(EmptyTableScanGlobalState))
+    fn global_source_state(&self, _client_ctx: &ClientContext) -> Arc<dyn GlobalSourceState> {
+        Arc::new(EmptyTableScanGlobalState)
     }
 
     fn local_source_state(
         &self,
         _global_state: &dyn GlobalSourceState,
-    ) -> OperatorResult<Box<dyn LocalSourceState>> {
-        Ok(Box::new(EmptyTableScanLocalState))
+    ) -> Box<dyn LocalSourceState> {
+        Box::new(EmptyTableScanLocalState)
     }
 
-    fn progress(&self, _global_state: &dyn GlobalSourceState) -> OperatorResult<f64> {
-        Ok(1.0)
+    fn progress(&self, _global_state: &dyn GlobalSourceState) -> f64 {
+        1.0
     }
 
     impl_sink_for_non_sink!();

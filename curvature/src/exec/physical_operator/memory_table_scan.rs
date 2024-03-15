@@ -15,9 +15,8 @@ use super::{
     SourceExecStatus, SourceOperatorExt, StateStringify, Stringify, MAX_PARALLELISM_DEGREE,
 };
 use crate::common::client_context::ClientContext;
-use crate::error::SendableError;
 
-use snafu::{ensure, ResultExt, Snafu};
+use snafu::{ensure, Snafu};
 
 use_types_for_impl_regular_for_non_regular!();
 use_types_for_impl_sink_for_non_sink!();
@@ -235,17 +234,15 @@ impl PhysicalOperator for MemoryTableScan {
     fn source_parallelism_degree(
         &self,
         _global_state: &dyn GlobalSourceState,
-    ) -> OperatorResult<ParallelismDegree> {
+    ) -> ParallelismDegree {
         let parallelism = (self.num_blocks + (MORSEL_SIZE - 1)) / MORSEL_SIZE;
-        let parallelism = if parallelism > MAX_PARALLELISM_DEGREE.get() as usize {
+        if parallelism > MAX_PARALLELISM_DEGREE.get() as usize {
             MAX_PARALLELISM_DEGREE
         } else {
             // SAFETY: MemoryTableScan guarantees the it has at least one data block.
             // The parallelism computation guarantees the parallelism is non zero
             unsafe { ParallelismDegree::new_unchecked(parallelism as _) }
-        };
-
-        Ok(parallelism)
+        }
     }
 
     fn read_data(
@@ -257,28 +254,25 @@ impl PhysicalOperator for MemoryTableScan {
         self.read_data_in_parallel(output, global_state, local_state)
     }
 
-    fn global_source_state(
-        &self,
-        _client_ctx: &ClientContext,
-    ) -> OperatorResult<Arc<dyn GlobalSourceState>> {
-        Ok(Arc::new(MemoryTableScanGlobalSourceState))
+    fn global_source_state(&self, _client_ctx: &ClientContext) -> Arc<dyn GlobalSourceState> {
+        Arc::new(MemoryTableScanGlobalSourceState)
     }
 
     fn local_source_state(
         &self,
         _global_state: &dyn GlobalSourceState,
-    ) -> OperatorResult<Box<dyn LocalSourceState>> {
+    ) -> Box<dyn LocalSourceState> {
         let mut queue = VecDeque::with_capacity(MORSEL_SIZE);
         self.queue.dispatch(&mut queue);
-        Ok(Box::new(MemoryTableScanLocalSourceState(queue)))
+        Box::new(MemoryTableScanLocalSourceState(queue))
     }
 
-    fn progress(&self, _global_state: &dyn GlobalSourceState) -> OperatorResult<f64> {
+    fn progress(&self, _global_state: &dyn GlobalSourceState) -> f64 {
         let idx = self.queue.idx.load(Ordering::Relaxed);
         if idx < 0 {
-            Ok(1.0)
+            1.0
         } else {
-            Ok(idx as f64 / self.num_blocks as f64)
+            idx as f64 / self.num_blocks as f64
         }
     }
 
@@ -328,9 +322,7 @@ mod tests {
     fn test_read_memory_table_scan() {
         fn sum_read_memory_table_scan(table_scan: &MemoryTableScan) -> i32 {
             let mut sum = 0;
-            let mut local_state = table_scan
-                .local_source_state(&MemoryTableScanGlobalSourceState)
-                .unwrap();
+            let mut local_state = table_scan.local_source_state(&MemoryTableScanGlobalSourceState);
             let mut output = DataBlock::with_logical_types(vec![LogicalType::Integer]);
             while let SourceExecStatus::HaveMoreOutput = table_scan
                 .read_data_in_parallel(

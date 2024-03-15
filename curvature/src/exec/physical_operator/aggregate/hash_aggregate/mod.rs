@@ -38,22 +38,22 @@ use self::hash_table::{probing_swiss_table, Element, HashTable};
 use self::serde::{Serde, SerdeKey};
 use crate::common::client_context::ClientContext;
 use crate::common::types::HashValue;
-use crate::error::SendableError;
 use crate::exec::physical_expr::field_ref::FieldRef;
 use crate::exec::physical_expr::function::aggregate::{
     AggregationFunction, AggregationFunctionList, AggregationStatesPtr,
 };
 use crate::exec::physical_expr::utils::compact_display_expressions;
 use crate::exec::physical_expr::PhysicalExpr;
+use crate::exec::physical_operator::ext_traits::{SinkOperatorExt, SourceOperatorExt};
 use crate::exec::physical_operator::metric::ScopedTimerGuard;
-use crate::exec::physical_operator::source_ext::SourceOperatorExt;
 use crate::exec::physical_operator::{
     impl_regular_for_non_regular, use_types_for_impl_regular_for_non_regular, FinalizeSinkSnafu,
-    GlobalSinkState, GlobalSourceState, InvalidGlobalSinkStateSnafu, InvalidGlobalSourceStateSnafu,
-    InvalidLocalSinkStateSnafu, LocalSinkState, LocalSourceState, OperatorError, OperatorResult,
+    GlobalSinkState, GlobalSourceState, LocalSinkState, LocalSourceState, OperatorResult,
     ParallelismDegree, PhysicalOperator, ReadDataSnafu, SinkExecStatus, SourceExecStatus,
     StateStringify, Stringify, WriteDataSnafu,
 };
+
+use crate::exec::physical_operator::utils::downcast_mut_local_state;
 use crate::STANDARD_VECTOR_SIZE;
 
 use super::Arena;
@@ -97,15 +97,6 @@ pub enum HashAggregateError {
     NotFieldRefPayloads { payload: String },
     #[snafu(display("Aggregation functions passed to HashAggregate is empty. HashAggregate needs at least one aggregation function"))]
     EmptyAggregationFuncs,
-    #[snafu(display(
-        "HashAggregate can not take the lock of the GlobalSinkState in `finalize_sink`, some threads holding the lock.
-         It should never happens, query executor should guarantees `finalize_sink` is called exactly once and after all of the sink process have finished"
-    ))]
-    FinalizeContention,
-    #[snafu(display("HashAggregate can not take the lock of the GlobalState in `source_parallelism_degree`, some threads holding the lock."))]
-    SourceParallelismDegreeContention,
-    #[snafu(display("HashAggregate do not have any table for new `local_source_state`. This is caused by calling `local_source_state`"))]
-    ExhaustedTables,
 }
 
 type Result<T> = std::result::Result<T, HashAggregateError>;
@@ -294,42 +285,6 @@ impl<S: Serde> HashAggregate<S> {
             }),
         })
     }
-
-    #[inline]
-    fn downcast_global_sink_state(
-        global_state: &dyn GlobalSinkState,
-    ) -> OperatorResult<&HashAggregateGlobalSinkState<S::SerdeKey>> {
-        if let Some(global_state) = global_state
-            .as_any()
-            .downcast_ref::<HashAggregateGlobalSinkState<S::SerdeKey>>()
-        {
-            Ok(global_state)
-        } else {
-            InvalidGlobalSinkStateSnafu {
-                op: "HashAggregate",
-                state: global_state.name(),
-            }
-            .fail()
-        }
-    }
-
-    #[inline]
-    fn downcast_global_source_state(
-        global_state: &dyn GlobalSourceState,
-    ) -> OperatorResult<&HashAggregateGlobalSourceState<S::SerdeKey>> {
-        if let Some(global_state) = global_state
-            .as_any()
-            .downcast_ref::<HashAggregateGlobalSourceState<S::SerdeKey>>()
-        {
-            Ok(global_state)
-        } else {
-            InvalidGlobalSourceStateSnafu {
-                op: "HashAggregate",
-                state: global_state.name(),
-            }
-            .fail()
-        }
-    }
 }
 
 impl<S: Serde> Drop for HashAggregate<S> {
@@ -353,27 +308,6 @@ impl<S: Serde> Drop for HashAggregate<S> {
             }
         }
     }
-}
-
-/// We have to use macro here. It is pretty annoying, see [`issue`] for details.
-/// Fucking borrow checker !!!!!
-///
-/// [`issue`]: https://github.com/rust-lang/rust/issues/54663
-macro_rules! downcast_local_sink_state {
-    ($local_state:ident) => {
-        if let Some(local_state) = $local_state
-            .as_mut_any()
-            .downcast_mut::<HashAggregateLocalSinkState<S>>()
-        {
-            local_state
-        } else {
-            return InvalidLocalSinkStateSnafu {
-                op: "HashAggregate",
-                state: $local_state.name(),
-            }
-            .fail();
-        }
-    };
 }
 
 /// Global source state for [`HashAggregate`]
@@ -592,22 +526,13 @@ impl<S: Serde> PhysicalOperator for HashAggregate<S> {
     fn source_parallelism_degree(
         &self,
         _global_state: &dyn GlobalSourceState,
-    ) -> OperatorResult<ParallelismDegree> {
-        self.global_state
+    ) -> ParallelismDegree {
+        let combined_tables = self
+            .global_state
             .collected_swiss_tables
             .try_lock()
-            .map_or_else(
-                || {
-                    Err(OperatorError::SourceParallelismDegree {
-                        op: "HashAggregate",
-                        source: Box::new(HashAggregateError::SourceParallelismDegreeContention),
-                    })
-                },
-                |combined_tables| {
-                    // SAFETY: The collected_swiss_tables is guaranteed to be non-empty
-                    Ok(unsafe { ParallelismDegree::new_unchecked(combined_tables.len() as _) })
-                },
-            )
+            .expect("HashAggregate can not take the lock of the GlobalState in `source_parallelism_degree`, some threads holding the lock");
+        unsafe { ParallelismDegree::new_unchecked(combined_tables.len() as _) }
     }
 
     fn read_data(
@@ -619,62 +544,54 @@ impl<S: Serde> PhysicalOperator for HashAggregate<S> {
         self.read_data_in_parallel(output, global_state, local_state)
     }
 
-    fn global_source_state(
-        &self,
-        _client_ctx: &ClientContext,
-    ) -> OperatorResult<Arc<dyn GlobalSourceState>> {
-        Ok(Arc::new(HashAggregateGlobalSourceState {
+    fn global_source_state(&self, _client_ctx: &ClientContext) -> Arc<dyn GlobalSourceState> {
+        Arc::new(HashAggregateGlobalSourceState {
             state: Arc::clone(&self.global_state),
             read_count: Arc::new(AtomicUsize::new(0)),
-        }))
+        })
     }
 
     fn local_source_state(
         &self,
         global_state: &dyn GlobalSourceState,
-    ) -> OperatorResult<Box<dyn LocalSourceState>> {
-        let global_state = Self::downcast_global_source_state(global_state)?;
+    ) -> Box<dyn LocalSourceState> {
+        let global_state = self.downcast_ref_global_source_state(global_state);
 
-        let mut combined_table = global_state
-            .state
-            .collected_swiss_tables
-            .lock()
-            .pop()
-            .ok_or_else(|| OperatorError::LocalSourceState {
-                op: "HashAggregate",
-                source: Box::new(HashAggregateError::ExhaustedTables),
-            })?;
+        let combined_table = global_state.state.collected_swiss_tables.lock().pop();
+        let (table_into_iter, arena) = if let Some(mut combined_table) = combined_table {
+            (
+                combined_table
+                    .tables
+                    .pop()
+                    .expect("The combined table is guaranteed to be non-empty")
+                    .into_iter(),
+                combined_table.arena,
+            )
+        } else {
+            (SwissTable::new().into_iter(), Arena::new())
+        };
 
-        Ok(Box::new(HashAggregateLocalSourceState::<S> {
-            table_into_iter: combined_table
-                .tables
-                .pop()
-                .expect("The combined table is guaranteed to be non-empty")
-                .into_iter(),
+        Box::new(HashAggregateLocalSourceState::<S> {
+            table_into_iter,
             agg_func_list: Arc::clone(&self.agg_func_list),
             read_count: Arc::clone(&global_state.read_count),
-            _arena: combined_table.arena,
+            _arena: arena,
             serde_keys: Vec::new(),
             state_ptrs: Vec::new(),
-        }))
+        })
     }
 
-    fn progress(&self, global_state: &dyn GlobalSourceState) -> OperatorResult<f64> {
-        Self::downcast_global_source_state(global_state).map(|global_state| {
-            let read_count = global_state.read_count.load(Relaxed) as f64;
-            let total_count = self.global_state.total_elements_count.load(Relaxed) as f64;
-            read_count / total_count
-        })
+    fn progress(&self, global_state: &dyn GlobalSourceState) -> f64 {
+        let global_state = self.downcast_ref_global_source_state(global_state);
+        let read_count = global_state.read_count.load(Relaxed) as f64;
+        let total_count = self.global_state.total_elements_count.load(Relaxed) as f64;
+        read_count / total_count
     }
 
     // Sink
 
     fn is_sink(&self) -> bool {
         true
-    }
-
-    fn is_parallel_sink(&self) -> OperatorResult<bool> {
-        Ok(true)
     }
 
     fn write_data(
@@ -691,28 +608,27 @@ impl<S: Serde> PhysicalOperator for HashAggregate<S> {
             .zip(self.children[0].output_types())
             .all(|(input, output)| input == output));
 
-        let local_state = downcast_local_sink_state!(local_state);
+        let local_state = downcast_mut_local_state!(
+            self,
+            local_state,
+            <Self as SinkOperatorExt>::LocalSinkState,
+            SINK
+        );
 
         let _guard = ScopedTimerGuard::new(&mut local_state.write_data_time);
 
         self.group_by_keys_indexes.iter().for_each(|&index| unsafe {
-            #[cfg(debug_assertions)]
             let group_by_key = input
                     .get_array(index)
                     .expect("Index in group_by_keys is guaranteed to be valid, checked by the `try_new` constructor");
-            #[cfg(not(debug_assertions))]
-            let group_by_key = input.get_array_unchecked(index);
 
             local_state.group_by_keys.push(&*( group_by_key as *const _));
         });
 
         self.payloads_indexes.iter().for_each(|&index| unsafe{
-            #[cfg(debug_assertions)]
             let payload = input
                     .get_array(index)
                     .expect("Index in payloads_indexes is guaranteed to be valid, checked by the `try_new` constructor");
-            #[cfg(not(debug_assertions))]
-            let payload = input.get_array_unchecked(index);
 
             local_state.payloads.push(&*(payload as *const _))
         });
@@ -733,9 +649,7 @@ impl<S: Serde> PhysicalOperator for HashAggregate<S> {
             )
         }
         .boxed()
-        .context(WriteDataSnafu {
-            op: "HashAggregate",
-        })?;
+        .context(WriteDataSnafu {})?;
 
         // Important, otherwise use after free happens. Never deleting following code!!!
         local_state.group_by_keys.clear();
@@ -749,8 +663,13 @@ impl<S: Serde> PhysicalOperator for HashAggregate<S> {
         global_state: &dyn GlobalSinkState,
         local_state: &mut dyn LocalSinkState,
     ) -> OperatorResult<()> {
-        let global_state = Self::downcast_global_sink_state(global_state)?;
-        let local_state = downcast_local_sink_state!(local_state);
+        let global_state = self.downcast_ref_global_sink_state(global_state);
+        let local_state = downcast_mut_local_state!(
+            self,
+            local_state,
+            <Self as SinkOperatorExt>::LocalSinkState,
+            SINK
+        );
 
         tracing::debug!(
             "HashAggregator: aggregate {} rows local data into {} entries in  {} ms. Serialize time: {} ms. Hash time: {}ms, Probing time: {} ms. Update states time: {} ms",
@@ -785,16 +704,15 @@ impl<S: Serde> PhysicalOperator for HashAggregate<S> {
     }
 
     unsafe fn finalize_sink(&self, global_state: &dyn GlobalSinkState) -> OperatorResult<()> {
-        let global_state = Self::downcast_global_sink_state(global_state)?;
+        let global_state = self.downcast_ref_global_sink_state(global_state);
 
-        let mut collected_swiss_tables = global_state
-            .state
-            .collected_swiss_tables
-            .try_lock()
-            .ok_or_else(|| OperatorError::FinalizeSink {
-                op: "HashAggregate",
-                source: Box::new(HashAggregateError::FinalizeContention),
-            })?;
+        let mut collected_swiss_tables =
+            global_state.state.collected_swiss_tables.try_lock().expect(
+                "HashAggregate can not take the lock of the GlobalSinkState in `finalize_sink`, 
+                    some threads holding the lock. It should never happens, query executor should 
+                    guarantees `finalize_sink` is called exactly once and after all of the sink 
+                    process have finished",
+            );
 
         match &global_state.partitioning {
             Some(partitioning) => {
@@ -850,32 +768,25 @@ impl<S: Serde> PhysicalOperator for HashAggregate<S> {
         Ok(())
     }
 
-    fn global_sink_state(
-        &self,
-        client_ctx: &ClientContext,
-    ) -> OperatorResult<Arc<dyn GlobalSinkState>> {
+    fn global_sink_state(&self, client_ctx: &ClientContext) -> Arc<dyn GlobalSinkState> {
         let parallelism = client_ctx.exec_args.parallelism;
-
-        Ok(Arc::new(HashAggregateGlobalSinkState {
+        Arc::new(HashAggregateGlobalSinkState {
             state: Arc::clone(&self.global_state),
             partitioning: if parallelism > ParallelismDegree::MIN {
                 Some(ModuloPartitioning::new(parallelism))
             } else {
                 None
             },
-        }))
+        })
     }
 
-    fn local_sink_state(
-        &self,
-        _global_state: &dyn GlobalSinkState,
-    ) -> OperatorResult<Box<dyn LocalSinkState>> {
-        Ok(Box::new(HashAggregateLocalSinkState::<S> {
+    fn local_sink_state(&self, _global_state: &dyn GlobalSinkState) -> Box<dyn LocalSinkState> {
+        Box::new(HashAggregateLocalSinkState::<S> {
             hash_table: HashTable::new(),
             group_by_keys: Vec::new(),
             payloads: Vec::new(),
             write_data_time: Duration::default(),
-        }))
+        })
     }
 }
 
@@ -944,9 +855,7 @@ impl<S: Serde> SourceOperatorExt for HashAggregate<S> {
             self.agg_func_list
                 .take_states(&local_state.state_ptrs, agg_output_arrays)
                 .boxed()
-                .context(ReadDataSnafu {
-                    op: "HashAggregate",
-                })?;
+                .context(ReadDataSnafu {})?;
 
             // Calibrate the length manually
             *mutate_guard.length = local_state.state_ptrs.len();
@@ -957,6 +866,11 @@ impl<S: Serde> SourceOperatorExt for HashAggregate<S> {
 
         Ok(SourceExecStatus::HaveMoreOutput)
     }
+}
+
+impl<S: Serde> SinkOperatorExt for HashAggregate<S> {
+    type GlobalSinkState = HashAggregateGlobalSinkState<S::SerdeKey>;
+    type LocalSinkState = HashAggregateLocalSinkState<S>;
 }
 
 /// FIXME: Reuse the arena and hash table
@@ -983,12 +897,8 @@ fn combine_partitioned_tables<K: SerdeKey>(
         .map(|partition_index| {
             collected_swiss_tables
                 .iter_mut()
-                .map(|thread_local_tables| unsafe {
-                    std::mem::take(
-                        thread_local_tables
-                            .tables
-                            .get_unchecked_mut(partition_index),
-                    )
+                .map(|thread_local_tables| {
+                    std::mem::take(&mut thread_local_tables.tables[partition_index])
                 })
                 .collect::<Vec<_>>()
         })
@@ -1101,9 +1011,7 @@ unsafe fn combine_swiss_table<'a, K: SerdeKey>(
     agg_func_list
         .combine_states(partial_state_ptrs, combined_state_ptrs)
         .boxed()
-        .context(FinalizeSinkSnafu {
-            op: "HashAggregate",
-        })
+        .context(FinalizeSinkSnafu {})
 }
 
 /// Trait for partitioning the [`HashValue`] into partition index
@@ -1463,10 +1371,10 @@ mod tests {
 
         // Sink phase
         {
-            let global_sink_state = agg.global_sink_state(&client_ctx).unwrap();
+            let global_sink_state = agg.global_sink_state(&client_ctx);
             let func = || {
                 let block = mock_data_block();
-                let mut local_sink_state = agg.local_sink_state(&*global_sink_state).unwrap();
+                let mut local_sink_state = agg.local_sink_state(&*global_sink_state);
                 agg.write_data(&block, &*global_sink_state, &mut *local_sink_state)
                     .unwrap();
 
@@ -1488,8 +1396,8 @@ mod tests {
         {
             let mut output = DataBlock::with_logical_types(agg.output_types().to_owned());
 
-            let global_source_state = agg.global_source_state(&client_ctx).unwrap();
-            let mut local_source_state = agg.local_source_state(&*global_source_state).unwrap();
+            let global_source_state = agg.global_source_state(&client_ctx);
+            let mut local_source_state = agg.local_source_state(&*global_source_state);
             let status = agg
                 .read_data(&mut output, &*global_source_state, &mut *local_source_state)
                 .unwrap();

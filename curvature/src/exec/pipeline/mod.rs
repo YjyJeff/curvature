@@ -11,12 +11,11 @@ use self::builder::PipelineBuilder;
 pub use self::builder::PipelineBuilderError;
 pub use self::executor::{PipelineExecutor, PipelineExecutorError};
 use super::physical_operator::{
-    GlobalOperatorState, GlobalSinkState, GlobalSourceState, LocalSinkState, OperatorError,
-    PhysicalOperator,
+    GlobalOperatorState, GlobalSinkState, GlobalSourceState, LocalSinkState, PhysicalOperator,
 };
 use crate::common::client_context::ClientContext;
 use crate::private::Sealed;
-use crate::visit::display::IndentDisplayWrapper;
+use crate::tree_node::display::IndentDisplayWrapper;
 
 use snafu::{ResultExt, Snafu};
 
@@ -71,7 +70,7 @@ pub trait SinkTrait: Debug + Sealed {
     type LocalSinkState: Debug;
 
     /// Create a local sink state
-    fn local_sink_state(&self) -> Result<Self::LocalSinkState, OperatorError>;
+    fn local_sink_state(&self) -> Self::LocalSinkState;
 }
 
 impl Sealed for () {}
@@ -83,16 +82,14 @@ impl SinkTrait for () {
     type LocalSinkState = ();
 
     #[inline]
-    fn local_sink_state(&self) -> Result<Self::LocalSinkState, OperatorError> {
-        Ok(())
-    }
+    fn local_sink_state(&self) -> Self::LocalSinkState {}
 }
 
 impl SinkTrait for Sink {
     type LocalSinkState = Box<dyn LocalSinkState>;
 
     #[inline]
-    fn local_sink_state(&self) -> Result<Self::LocalSinkState, OperatorError> {
+    fn local_sink_state(&self) -> Self::LocalSinkState {
         self.op.local_sink_state(&*self.global_state)
     }
 }

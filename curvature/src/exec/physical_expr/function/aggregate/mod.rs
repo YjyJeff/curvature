@@ -140,7 +140,7 @@ pub struct AggregationFunctionList {
     /// Init state of the `AggregationStates`, used to init the allocated memory
     /// in the arena
     ///
-    /// Note that we can not use Vec<u8> here, because Vec<u8>'s alignment is 1.
+    /// Note that we can not use `Vec<u8>` here, because `Vec<u8>`'s alignment is 1.
     /// We have to allocate and free the memory by ourself 😂
     init_states: NonNull<u8>,
 }
@@ -210,12 +210,7 @@ impl AggregationFunctionList {
             .try_for_each(|(func, &state_offset)| {
                 let old = payload_index;
                 payload_index += func.arguments().len();
-                #[cfg(debug_assertions)]
-                let func_payloads = payloads
-                    .get(old..payload_index)
-                    .expect("Payloads should match match the signature of aggregation functions");
-                #[cfg(not(debug_assertions))]
-                let func_payloads = payloads.get_unchecked(old..payload_index);
+                let func_payloads = &payloads[old..payload_index];
 
                 func.update_states(func_payloads, state_ptrs, state_offset)
             })
@@ -457,21 +452,11 @@ unsafe fn unary_update_states<PayloadArray, S>(
     S: UnaryAggregationState<PayloadArray>,
     for<'a> &'a PayloadArray: TryFrom<&'a ArrayImpl, Error = ArrayError>,
 {
-    #[cfg(debug_assertions)]
-    let &payload = payloads
-        .first()
-        .expect("Unary aggregation accept one payload, the input payloads should not be empty");
+    let payload = payloads[0];
 
-    #[cfg(not(debug_assertions))]
-    let &payload = payloads.get_unchecked(0);
-
-    #[cfg(debug_assertions)]
     let payload: &PayloadArray = payload
         .try_into()
         .expect("Unary aggregation's payload array should match its signature");
-
-    #[cfg(not(debug_assertions))]
-    let payload: &PayloadArray = payload.try_into().unwrap_unchecked();
 
     let validity = payload.validity();
     if validity.is_empty() {
@@ -526,13 +511,9 @@ unsafe fn unary_take_states<PayloadArray, OutputArray, S>(
     S: UnaryAggregationState<PayloadArray, Output = Option<OutputArray::Element>>,
     for<'a> &'a mut OutputArray: TryFrom<&'a mut ArrayImpl, Error = ArrayError>,
 {
-    #[cfg(debug_assertions)]
     let output: &mut OutputArray = output
         .try_into()
         .expect("Output of the unary aggregation should match its signature");
-
-    #[cfg(not(debug_assertions))]
-    let output: &mut OutputArray = output.try_into().unwrap_unchecked();
 
     let trusted_len_iterator = state_ptrs.iter().map(|ptr| {
         let state = ptr.offset_as_mut::<S>(state_offset);

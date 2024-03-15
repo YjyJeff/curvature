@@ -6,7 +6,6 @@ use data_block::block::DataBlock;
 use data_block::types::LogicalType;
 
 use crate::common::client_context::ClientContext;
-use crate::error::SendableError;
 use crate::exec::physical_expr::function::aggregate::{
     AggregationFunction, AggregationFunctionList,
 };
@@ -18,7 +17,6 @@ use crate::exec::physical_operator::{
     ParallelismDegree, PhysicalOperator, SinkExecStatus, SourceExecStatus, StateStringify,
     Stringify,
 };
-use snafu::ResultExt;
 use_types_for_impl_regular_for_non_regular!();
 
 #[allow(missing_docs)]
@@ -171,8 +169,8 @@ impl PhysicalOperator for SimpleAggregate {
     fn source_parallelism_degree(
         &self,
         _global_state: &dyn GlobalSourceState,
-    ) -> OperatorResult<ParallelismDegree> {
-        todo!()
+    ) -> ParallelismDegree {
+        ParallelismDegree::MIN
     }
 
     fn read_data(
@@ -185,21 +183,18 @@ impl PhysicalOperator for SimpleAggregate {
     }
 
     /// FIXME: Correct state
-    fn global_source_state(
-        &self,
-        _client_ctx: &ClientContext,
-    ) -> OperatorResult<Arc<dyn GlobalSourceState>> {
-        Ok(Arc::new(SimpleAggregateGlobalSourceState))
+    fn global_source_state(&self, _client_ctx: &ClientContext) -> Arc<dyn GlobalSourceState> {
+        Arc::new(SimpleAggregateGlobalSourceState)
     }
 
     fn local_source_state(
         &self,
         _global_state: &dyn GlobalSourceState,
-    ) -> OperatorResult<Box<dyn LocalSourceState>> {
+    ) -> Box<dyn LocalSourceState> {
         todo!()
     }
 
-    fn progress(&self, _global_state: &dyn GlobalSourceState) -> OperatorResult<f64> {
+    fn progress(&self, _global_state: &dyn GlobalSourceState) -> f64 {
         todo!()
     }
 
@@ -207,10 +202,6 @@ impl PhysicalOperator for SimpleAggregate {
 
     fn is_sink(&self) -> bool {
         true
-    }
-
-    fn is_parallel_sink(&self) -> OperatorResult<bool> {
-        Ok(true)
     }
 
     fn write_data(
@@ -235,17 +226,11 @@ impl PhysicalOperator for SimpleAggregate {
     }
 
     /// FIXME: Correct state
-    fn global_sink_state(
-        &self,
-        _client_ctx: &ClientContext,
-    ) -> OperatorResult<Arc<dyn GlobalSinkState>> {
-        Ok(Arc::new(SimpleAggregateGlobalSinkState))
+    fn global_sink_state(&self, _client_ctx: &ClientContext) -> Arc<dyn GlobalSinkState> {
+        Arc::new(SimpleAggregateGlobalSinkState)
     }
 
-    fn local_sink_state(
-        &self,
-        _global_state: &dyn GlobalSinkState,
-    ) -> OperatorResult<Box<dyn LocalSinkState>> {
+    fn local_sink_state(&self, _global_state: &dyn GlobalSinkState) -> Box<dyn LocalSinkState> {
         todo!()
     }
 }

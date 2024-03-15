@@ -14,7 +14,7 @@ use curvature::exec::physical_operator::numbers::Numbers;
 use curvature::exec::physical_operator::projection::Projection;
 use curvature::exec::physical_operator::PhysicalOperator;
 use curvature::exec::query_executor::QueryExecutor;
-use curvature::visit::display::IndentDisplayWrapper;
+use curvature::tree_node::display::IndentDisplayWrapper;
 use data_block::array::UInt64Array;
 use data_block::types::LogicalType;
 use tracing_subscriber::layer::SubscriberExt;

@@ -1,29 +1,12 @@
-//! Source extension
+//! Extension traits for operator
 
 use data_block::block::DataBlock;
 
+use super::utils::downcast_mut_local_state;
 use super::{
-    GlobalSourceState, InvalidGlobalSourceStateSnafu, InvalidLocalSourceStateSnafu,
-    LocalSourceState, OperatorResult, PhysicalOperator, SourceExecStatus,
+    GlobalSinkState, GlobalSourceState, LocalSinkState, LocalSourceState, OperatorResult,
+    PhysicalOperator, SourceExecStatus,
 };
-
-/// We have to use macro here. It is pretty annoying, see [`issue`] for details.
-/// Fucking borrow checker !!!!!
-///
-/// [`issue`]: https://github.com/rust-lang/rust/issues/54663
-macro_rules! downcast_mut_local_source_state {
-    ($self:ident, $local_state:ident, $ty:ty) => {
-        if let Some(local_state) = $local_state.as_mut_any().downcast_mut::<$ty>() {
-            local_state
-        } else {
-            return InvalidLocalSourceStateSnafu {
-                op: $self.name(),
-                state: $local_state.name(),
-            }
-            .fail();
-        }
-    };
-}
 
 /// Extension of the source operator
 pub trait SourceOperatorExt: PhysicalOperator {
@@ -36,18 +19,18 @@ pub trait SourceOperatorExt: PhysicalOperator {
     fn downcast_ref_global_source_state<'a>(
         &self,
         global_state: &'a dyn GlobalSourceState,
-    ) -> OperatorResult<&'a Self::GlobalSourceState> {
+    ) -> &'a Self::GlobalSourceState {
         if let Some(global_state) = global_state
             .as_any()
             .downcast_ref::<Self::GlobalSourceState>()
         {
-            Ok(global_state)
+            global_state
         } else {
-            InvalidGlobalSourceStateSnafu {
-                op: self.name(),
-                state: global_state.name(),
-            }
-            .fail()
+            panic!(
+                "Source operator: `{}` accepts invalid GlobalSourceState: `{}`. PipelineExecutor should guarantee it never happens, it has fatal bug 😭",
+                self.name(),
+                global_state.name()
+            )
         }
     }
 
@@ -84,9 +67,9 @@ pub trait SourceOperatorExt: PhysicalOperator {
             .zip(output.arrays())
             .all(|(output_type, output_array)| { output_array.logical_type() == output_type }));
 
-        let global_state = self.downcast_ref_global_source_state(global_state)?;
+        let global_state = self.downcast_ref_global_source_state(global_state);
         let local_state =
-            downcast_mut_local_source_state!(self, local_state, Self::LocalSourceState);
+            downcast_mut_local_state!(self, local_state, Self::LocalSourceState, SOURCE);
 
         // TBD: Can the morsel fetched from global state be empty?
         // If the morsel can not be empty, we can remove the loop
@@ -102,6 +85,33 @@ pub trait SourceOperatorExt: PhysicalOperator {
                     }
                 }
             }
+        }
+    }
+}
+
+/// Extension of the sink operator
+pub trait SinkOperatorExt: PhysicalOperator {
+    /// Global sink state of the sink operator
+    type GlobalSinkState: GlobalSinkState;
+    /// Local sink state of the sink operator
+    type LocalSinkState: LocalSinkState;
+
+    #[inline]
+    fn downcast_ref_global_sink_state<'a>(
+        &self,
+        global_state: &'a dyn GlobalSinkState,
+    ) -> &'a Self::GlobalSinkState {
+        if let Some(global_state) = global_state
+            .as_any()
+            .downcast_ref::<Self::GlobalSinkState>()
+        {
+            global_state
+        } else {
+            panic!(
+                "`{}` operator accepts invalid GlobalSinkState: `{}`. PipelineExecutor should guarantee it never happens, it has fatal bug 😭",
+                self.name(),
+                global_state.name()
+            )
         }
     }
 }

@@ -22,13 +22,11 @@ use_types_for_impl_regular_for_non_regular!();
 use_types_for_impl_sink_for_non_sink!();
 
 use crate::common::client_context::ClientContext;
-use crate::error::SendableError;
 use crate::STANDARD_VECTOR_SIZE;
 use data_block::array::ArrayImpl;
 use data_block::block::DataBlock;
 use data_block::compute::sequence::sequence;
 use data_block::types::LogicalType;
-use snafu::ResultExt;
 
 #[derive(Debug)]
 /// A table with single field `number` that has logical type `UnsignedBigInt`
@@ -154,17 +152,15 @@ impl PhysicalOperator for Numbers {
     fn source_parallelism_degree(
         &self,
         _global_state: &dyn GlobalSourceState,
-    ) -> OperatorResult<ParallelismDegree> {
+    ) -> ParallelismDegree {
         let parallelism = ((self.end - self.start) + Self::MORSEL_SIZE - 1) / Self::MORSEL_SIZE;
-        let parallelism = if parallelism > MAX_PARALLELISM_DEGREE.get() as u64 {
+        if parallelism > MAX_PARALLELISM_DEGREE.get() as u64 {
             MAX_PARALLELISM_DEGREE
         } else {
             // SAFETY: Numbers produce at least one element. The parallelism computation
             // guarantees the parallelism is non zero
             unsafe { ParallelismDegree::new_unchecked(parallelism as _) }
-        };
-
-        Ok(parallelism)
+        }
     }
 
     fn read_data(
@@ -176,43 +172,40 @@ impl PhysicalOperator for Numbers {
         self.read_data_in_parallel(output, global_state, local_state)
     }
 
-    fn global_source_state(
-        &self,
-        _client_ctx: &ClientContext,
-    ) -> OperatorResult<Arc<dyn GlobalSourceState>> {
-        Ok(Arc::new(NumbersGlobalSourceState(Arc::new(
-            AtomicU64::new(self.start),
+    fn global_source_state(&self, _client_ctx: &ClientContext) -> Arc<dyn GlobalSourceState> {
+        Arc::new(NumbersGlobalSourceState(Arc::new(AtomicU64::new(
+            self.start,
         ))))
     }
 
     fn local_source_state(
         &self,
         global_state: &dyn GlobalSourceState,
-    ) -> OperatorResult<Box<dyn LocalSourceState>> {
-        let current = self.downcast_ref_global_source_state(global_state)?;
+    ) -> Box<dyn LocalSourceState> {
+        let current = self.downcast_ref_global_source_state(global_state);
 
         let morsel_start = current.0.fetch_add(Self::MORSEL_SIZE, Relaxed);
         if morsel_start < self.end {
             let morsel_end = min(morsel_start + Self::MORSEL_SIZE, self.end);
-            Ok(Box::new(NumbersLocalSourceState {
+            Box::new(NumbersLocalSourceState {
                 current: morsel_start,
                 morsel_end,
-            }))
+            })
         } else {
-            Ok(Box::new(NumbersLocalSourceState {
+            Box::new(NumbersLocalSourceState {
                 current: self.end,
                 morsel_end: self.end,
-            }))
+            })
         }
     }
 
-    fn progress(&self, global_state: &dyn GlobalSourceState) -> OperatorResult<f64> {
-        let current = self.downcast_ref_global_source_state(global_state)?;
+    fn progress(&self, global_state: &dyn GlobalSourceState) -> f64 {
+        let current = self.downcast_ref_global_source_state(global_state);
         let current = current.0.load(Relaxed);
         if current >= self.end {
-            Ok(1.0)
+            1.0
         } else {
-            Ok((current - self.start) as f64 / (self.end - self.start) as f64)
+            (current - self.start) as f64 / (self.end - self.start) as f64
         }
     }
 
@@ -309,7 +302,7 @@ mod tests {
             global_state: &dyn GlobalSourceState,
         ) -> OperatorResult<u64> {
             let mut sum = 0;
-            let mut local_state = numbers.local_source_state(global_state)?;
+            let mut local_state = numbers.local_source_state(global_state);
             let mut output = DataBlock::with_logical_types(vec![LogicalType::UnsignedBigInt]);
             while let SourceExecStatus::HaveMoreOutput =
                 numbers.read_data_in_parallel(&mut output, global_state, &mut *local_state)?
@@ -328,7 +321,7 @@ mod tests {
             let client_ctx = crate::common::client_context::tests::mock_client_context();
             let count = Numbers::MORSEL_SIZE * 3;
             let numbers = Numbers::new(0, NonZeroU64::new(count).unwrap());
-            let global_state = numbers.global_source_state(&client_ctx)?;
+            let global_state = numbers.global_source_state(&client_ctx);
             let sum = std::thread::scope(|s| {
                 let jh_0 = s.spawn(|| sum_read_numbers(&numbers, &*global_state));
                 let jh_1 = s.spawn(|| sum_read_numbers(&numbers, &*global_state));

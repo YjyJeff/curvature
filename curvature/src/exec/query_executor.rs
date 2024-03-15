@@ -218,10 +218,7 @@ where
     let source_parallelism_degree = pipeline
         .source
         .op
-        .source_parallelism_degree(&*pipeline.source.global_state)
-        .with_context(|_| SourceParallelismDegreeSnafu {
-            pipeline: format!("{}", pipeline),
-        })?;
+        .source_parallelism_degree(&*pipeline.source.global_state);
 
     Ok(std::cmp::min(source_parallelism_degree, parallelism))
 }

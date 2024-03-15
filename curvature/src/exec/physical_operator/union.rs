@@ -3,10 +3,9 @@
 use std::sync::Arc;
 
 use crate::common::client_context::ClientContext;
-use crate::error::SendableError;
 use data_block::block::DataBlock;
 use data_block::types::LogicalType;
-use snafu::{ensure, ResultExt, Snafu};
+use snafu::{ensure, Snafu};
 
 use super::{
     impl_regular_for_non_regular, impl_sink_for_non_sink, impl_source_for_non_source,
