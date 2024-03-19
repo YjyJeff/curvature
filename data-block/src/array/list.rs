@@ -12,7 +12,7 @@ use crate::types::{LogicalType, PhysicalType};
 use std::fmt::Debug;
 
 use super::iter::ArrayValuesIter;
-use super::ping_pong::PingPongPtr;
+use super::swar::SwarPtr;
 use super::{Array, ArrayImpl, MutateArrayExt, Result};
 
 /// [Array of lists](https://facebookincubator.github.io/velox/develop/vectors.html#flat-vectors-complex-types)
@@ -20,14 +20,14 @@ pub struct ListArray {
     /// Logical type
     logical_type: LogicalType,
     /// validity
-    validity: PingPongPtr<Bitmap>,
+    validity: SwarPtr<Bitmap>,
     /// offsets[i] and offsets[i+1] represents the start and end address of the ith
     /// element in the child array
-    offsets: PingPongPtr<AlignedVec<u32>>,
+    offsets: SwarPtr<AlignedVec<u32>>,
     /// length of each list in the array
-    lengths: PingPongPtr<AlignedVec<u32>>,
+    lengths: SwarPtr<AlignedVec<u32>>,
     /// array that contains its elements
-    elements: PingPongPtr<ArrayImpl>,
+    elements: SwarPtr<ArrayImpl>,
 }
 
 impl Debug for ListArray {
@@ -89,10 +89,10 @@ impl ListArray {
 
         Self {
             logical_type,
-            validity: PingPongPtr::default(),
-            offsets: PingPongPtr::new(AlignedVec::with_capacity(capacity)),
-            lengths: PingPongPtr::new(AlignedVec::with_capacity(capacity)),
-            elements: PingPongPtr::with_constructor(|| ArrayImpl::new(child_type.clone())),
+            validity: SwarPtr::default(),
+            offsets: SwarPtr::new(AlignedVec::with_capacity(capacity)),
+            lengths: SwarPtr::new(AlignedVec::with_capacity(capacity)),
+            elements: SwarPtr::with_constructor(|| ArrayImpl::new(child_type.clone())),
         }
     }
 }
@@ -126,8 +126,8 @@ impl Array for ListArray {
     }
 
     #[inline]
-    fn validity_mut(&mut self) -> &mut PingPongPtr<Bitmap> {
-        &mut self.validity
+    unsafe fn validity_mut(&mut self) -> &mut Bitmap {
+        self.validity.as_mut()
     }
 
     #[inline]

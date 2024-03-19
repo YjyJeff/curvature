@@ -4,41 +4,46 @@ use libc::memcmp;
 
 use crate::array::{Array, BooleanArray, StringArray};
 use crate::element::string::{StringView, PREFIX_LEN};
-use crate::mutate_array_func;
 
 macro_rules! impl_eq_scalar {
     ($func:ident, $op:tt, $conjunct:tt) => {
-        mutate_array_func!(
-            #[doc = concat!(" Perform `lhs ", stringify!($op), " rhs` between a StringArray and a StringView")]
-            pub unsafe fn $func(lhs: &StringArray, rhs: StringView<'_>, dst: &mut BooleanArray) {
-                dst.validity.reference(&lhs.validity);
+        #[doc = concat!(" Perform `lhs ", stringify!($op), " rhs` between a StringArray and a StringView")]
+        ///
+        /// # Safety
+        ///
+        /// - `lhs`'s validity should not reference `dst`'s validity. In the computation graph,
+        /// `lhs` must be the descendant of `dst`
+        ///
+        /// - No other arrays that reference the `dst`'s data and validity are accessed! In the
+        /// computation graph, it will never happens
+        pub unsafe fn $func(lhs: &StringArray, rhs: StringView<'_>, dst: &mut BooleanArray) {
+            dst.validity.reference(&lhs.validity);
 
-                let bitmap = dst.data.exactly_once_mut();
-                if rhs.is_inlined() {
-                    bitmap.reset(
-                        lhs.len(),
-                        lhs.values_iter().map(|lhs| {
-                            // Compare the whole string view. Inlined bytes is padded with 0
-                            lhs.as_u128() $op rhs.as_u128()
-                        }),
-                    );
-                } else {
-                    let cmp_len = rhs.length as usize - PREFIX_LEN;
-                    bitmap.reset(
-                        lhs.len(),
-                        lhs.values_iter().map(|lhs| {
-                            // Compare the whole string view. Inlined bytes is padded with 0
-                            lhs.size_and_prefix_as_u64() $op rhs.size_and_prefix_as_u64()
-                                $conjunct memcmp(
-                                    lhs.indirect_ptr().add(PREFIX_LEN) as _,
-                                    rhs.indirect_ptr().add(PREFIX_LEN) as _,
-                                    cmp_len,
-                                ) $op 0
-                        }),
-                    );
-                }
+            let bitmap = dst.data.as_mut();
+            if rhs.is_inlined() {
+                bitmap.reset(
+                    lhs.len(),
+                    lhs.values_iter().map(|lhs| {
+                        // Compare the whole string view. Inlined bytes is padded with 0
+                        lhs.as_u128() $op rhs.as_u128()
+                    }),
+                );
+            } else {
+                let cmp_len = rhs.length as usize - PREFIX_LEN;
+                bitmap.reset(
+                    lhs.len(),
+                    lhs.values_iter().map(|lhs| {
+                        // Compare the whole string view. Inlined bytes is padded with 0
+                        lhs.size_and_prefix_as_u64() $op rhs.size_and_prefix_as_u64()
+                            $conjunct memcmp(
+                                lhs.indirect_ptr().add(PREFIX_LEN) as _,
+                                rhs.indirect_ptr().add(PREFIX_LEN) as _,
+                                cmp_len,
+                            ) $op 0
+                    }),
+                );
             }
-        );
+        }
     };
 }
 
@@ -47,31 +52,37 @@ impl_eq_scalar!(ne_scalar, !=, ||);
 
 macro_rules! impl_ord_scalar {
     ($func:ident, $op:tt) => {
-        mutate_array_func!(
-            #[doc = concat!(" Perform `lhs ", stringify!($op), " rhs` between a StringArray and a StringView")]
-            pub unsafe fn $func(lhs: &StringArray, rhs: StringView<'_>, dst: &mut BooleanArray) {
-                dst.validity.reference(&lhs.validity);
+        #[doc = concat!(" Perform `lhs ", stringify!($op), " rhs` between a StringArray and a StringView")]
+        ///
+        /// # Safety
+        ///
+        /// - `lhs`'s validity should not reference `dst`'s validity. In the computation graph,
+        /// `lhs` must be the descendant of `dst`
+        ///
+        /// - No other arrays that reference the `dst`'s data and validity are accessed! In the
+        /// computation graph, it will never happens
+        pub unsafe fn $func(lhs: &StringArray, rhs: StringView<'_>, dst: &mut BooleanArray) {
+            dst.validity.reference(&lhs.validity);
 
-                let bitmap = dst.data.exactly_once_mut();
-                if rhs.is_inlined_in_prefix() {
-                    // We only need to compare the prefix
-                    bitmap.reset(
-                        lhs.len(),
-                        lhs.values_iter().map(|lhs| {
-                            let cmp =
-                                memcmp(lhs.inlined_ptr() as _, rhs.inlined_ptr() as _, PREFIX_LEN);
-                            if cmp != 0 {
-                                cmp $op 0
-                            } else {
-                                lhs.length $op rhs.length
-                            }
-                        }),
-                    );
-                } else {
-                    bitmap.reset(lhs.len(), lhs.values_iter().map(|lhs| lhs $op rhs));
-                }
+            let bitmap = dst.data.as_mut();
+            if rhs.is_inlined_in_prefix() {
+                // We only need to compare the prefix
+                bitmap.reset(
+                    lhs.len(),
+                    lhs.values_iter().map(|lhs| {
+                        let cmp =
+                            memcmp(lhs.inlined_ptr() as _, rhs.inlined_ptr() as _, PREFIX_LEN);
+                        if cmp != 0 {
+                            cmp $op 0
+                        } else {
+                            lhs.length $op rhs.length
+                        }
+                    }),
+                );
+            } else {
+                bitmap.reset(lhs.len(), lhs.values_iter().map(|lhs| lhs $op rhs));
             }
-        );
+        }
     };
 }
 

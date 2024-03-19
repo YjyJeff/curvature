@@ -7,13 +7,12 @@ pub mod boolean;
 pub mod constant;
 pub mod iter;
 pub mod list;
-pub mod ping_pong;
 pub mod primitive;
 pub mod string;
+pub mod swar;
 pub mod utils;
 
 use self::iter::ArrayIter;
-use self::ping_pong::PingPongPtr;
 use crate::bitmap::{Bitmap, BitmapIter};
 use crate::element::{Element, ElementImplRef};
 use crate::private::Sealed;
@@ -81,7 +80,12 @@ pub trait Array: Sealed + Debug + 'static + Sized {
     fn validity(&self) -> &Bitmap;
 
     /// Get the mutable validity.
-    fn validity_mut(&mut self) -> &mut PingPongPtr<Bitmap>;
+    ///
+    /// # Safety
+    ///
+    /// You must enforce Rust’s aliasing rules. In particular, while this reference exists,
+    /// the Bitmap must not get accessed (read or written) through any other array.
+    unsafe fn validity_mut(&mut self) -> &mut Bitmap;
 
     /// Get the number of elements in the [`Array`]
     fn len(&self) -> usize;

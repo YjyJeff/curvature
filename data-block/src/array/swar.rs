@@ -1,15 +1,15 @@
 //! Shared writable and readable pointer
 
-use std::cell::{Ref, RefCell, RefMut};
 use std::fmt::Debug;
-use std::rc::Rc;
+use std::ops::Deref;
+use std::ptr::NonNull;
 
 /// Shared writable and readable pointer designed for query execution
 pub struct SwarPtr<T> {
     /// Reference to other data or not
-    reference: Option<Rc<RefCell<T>>>,
+    reference: Option<NonNull<T>>,
     /// Owned data
-    owned: Rc<RefCell<T>>,
+    owned: NonNull<T>,
 }
 
 impl<T: Default> Default for SwarPtr<T> {
@@ -17,7 +17,7 @@ impl<T: Default> Default for SwarPtr<T> {
     fn default() -> Self {
         Self {
             reference: None,
-            owned: Rc::new(RefCell::new(T::default())),
+            owned: unsafe { NonNull::new_unchecked(Box::into_raw(Box::default())) },
         }
     }
 }
@@ -25,12 +25,12 @@ impl<T: Default> Default for SwarPtr<T> {
 impl<T: Debug> Debug for SwarPtr<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "SwarPtr {{")?;
-        match &self.reference {
+        match self.reference {
             Some(reference) => {
-                write!(f, "Reference: {:?} }}", reference)
+                write!(f, "Reference: {:?} }}", unsafe { reference.as_ref() })
             }
             None => {
-                write!(f, "Owned: {:?} }}", self.owned)
+                write!(f, "Owned: {:?} }}", unsafe { self.owned.as_ref() })
             }
         }
     }
@@ -39,9 +39,23 @@ impl<T: Debug> Debug for SwarPtr<T> {
 impl<T: Default> SwarPtr<T> {
     /// Create a new SwarPtr with value
     pub fn new(inner: T) -> Self {
+        let owned = Box::new(inner);
         Self {
             reference: None,
-            owned: Rc::new(RefCell::new(inner)),
+            owned: unsafe { NonNull::new_unchecked(Box::into_raw(owned)) },
+        }
+    }
+}
+
+impl<T> Deref for SwarPtr<T> {
+    type Target = T;
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        unsafe {
+            match self.reference {
+                Some(reference) => reference.as_ref(),
+                None => self.owned.as_ref(),
+            }
         }
     }
 }
@@ -49,45 +63,42 @@ impl<T: Default> SwarPtr<T> {
 impl<T> SwarPtr<T> {
     /// Create a new SwarPtr with constructor
     pub fn with_constructor<F: Fn() -> T>(constructor: F) -> Self {
+        let owned = Box::new(constructor());
         Self {
             reference: None,
-            owned: Rc::new(RefCell::new(constructor())),
+            owned: unsafe { NonNull::new_unchecked(Box::into_raw(owned)) },
         }
     }
 
     /// Reference self to other SwarPtr
     #[inline]
     pub fn reference(&mut self, other: &Self) {
-        let refrence = match &other.reference {
-            Some(reference) => Rc::clone(reference),
-            None => Rc::clone(&other.owned),
+        let refrence = match other.reference {
+            Some(reference) => reference,
+            None => other.owned,
         };
         self.reference = Some(refrence);
     }
 
     /// Mutably borrows the wrapped value.
     ///
-    /// # Panics
-    ///
-    /// Panics if the owed data is currently borrowed, in the  query execution,
-    /// it should never happens! All of the data is written once, then read
-    /// multiple times
+    /// # Safety
+    /// You must enforce Rust’s aliasing rules. In particular, while this reference exists,
+    /// the memory the pointer points to must not get accessed (read or written) through
+    /// any other pointer.
     #[inline]
-    pub fn borrow_mut(&mut self) -> RefMut<'_, T> {
+    pub unsafe fn as_mut(&mut self) -> &mut T {
         self.reference = None;
-        self.owned.borrow_mut()
+        self.owned.as_mut()
     }
+}
 
-    /// Immutably borrows the wrapped value.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the value is currently mutably borrowed.
+/// Drop the owned memory
+impl<T> Drop for SwarPtr<T> {
     #[inline]
-    pub fn borrow(&self) -> Ref<'_, T> {
-        match &self.reference {
-            Some(reference) => reference.borrow(),
-            None => self.owned.borrow(),
+    fn drop(&mut self) {
+        unsafe {
+            drop(Box::from_raw(self.owned.as_ptr()));
         }
     }
 }

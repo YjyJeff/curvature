@@ -6,7 +6,7 @@ pub mod regex_match;
 pub mod sequence;
 
 use self::logical::and_bitmaps_dynamic;
-use crate::array::ping_pong::PingPongPtr;
+use crate::array::swar::SwarPtr;
 use crate::bitmap::Bitmap;
 use crate::types::PrimitiveType;
 
@@ -30,14 +30,14 @@ macro_rules! impl_intrinsic {
 crate::macros::for_all_intrinsic!(impl_intrinsic);
 
 unsafe fn combine_validities(
-    lhs: &PingPongPtr<Bitmap>,
-    rhs: &PingPongPtr<Bitmap>,
-    dst: &mut PingPongPtr<Bitmap>,
+    lhs: &SwarPtr<Bitmap>,
+    rhs: &SwarPtr<Bitmap>,
+    dst: &mut SwarPtr<Bitmap>,
 ) {
     match (lhs.is_empty(), rhs.is_empty()) {
         (true, true) => {
             // Both of them are empty
-            dst.exactly_once_mut().clear();
+            dst.as_mut().clear();
         }
         (true, false) => {
             // left is empty, reference right
@@ -52,7 +52,7 @@ unsafe fn combine_validities(
             and_bitmaps_dynamic(
                 lhs.as_raw_slice(),
                 rhs.as_raw_slice(),
-                dst.exactly_once_mut().clear_and_resize(lhs.len()),
+                dst.as_mut().clear_and_resize(lhs.len()),
             )
         }
     }

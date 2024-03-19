@@ -10,7 +10,6 @@
 //! it does not matters, we still want to forbid this behavior in the compiler stage
 
 use crate::array::{Array, PrimitiveArray};
-use crate::mutate_array_func;
 use crate::private::Sealed;
 use crate::types::{IntrinsicType, PrimitiveType};
 use std::ops::{Add, Div, Mul, Rem, Sub};
@@ -229,20 +228,6 @@ crate::dynamic_func!(
     where T: IntrinsicType + DivExt
 );
 
-macro_rules! rem_scalar {
-    ($lhs:ident, $rhs:ident, $dst:ident) => {{
-        let rhs = T::new_remainder($rhs);
-        array_scalar_arith($lhs, rhs, $dst, Rem::rem)
-    }};
-}
-
-crate::dynamic_func!(
-    rem_scalar,
-    <T>,
-    (lhs: &[T], rhs: T, dst: &mut [T]),
-    where T: IntrinsicType + RemExt
-);
-
 #[inline]
 fn add_scalar_<T>(lhs: &[T], rhs: T, dst: &mut [T])
 where
@@ -277,46 +262,52 @@ where
 }
 
 #[inline]
-fn rem_scalar_<T>(lhs: &[T], rhs: T, dst: &mut [T])
+fn rem_scalar_<T, U>(lhs: &[T], rhs: U, dst: &mut [U])
 where
     T: PrimitiveType + RemExt,
+    U: RemCast<T>,
 {
-    let rhs = rhs.new_remainder();
-    array_scalar_arith(lhs, rhs, dst, Rem::rem)
+    let rhs = T::new_remainder(rhs.cast());
+    lhs.iter().zip(dst).for_each(|(&lhs, dst)| {
+        *dst = U::cast_back(lhs % rhs);
+    })
 }
 
 // Traits such that intrinsic type and primitive type can call different functions
 
-type ArithFunc<T> = fn(&[T], T, &mut [T]);
+type ArithFunc<T, U> = fn(&[T], U, &mut [U]);
 
 /// Trait for add array with scalar
 pub trait ArrayAddElement: PrimitiveType + Add<Output = Self> {
     /// Add func
-    const FUNC: ArithFunc<Self>;
+    const FUNC: ArithFunc<Self, Self>;
 }
 
 /// Trait for sub array with scalar
 pub trait ArraySubElement: PrimitiveType + Sub<Output = Self> {
     /// Sub func
-    const FUNC: ArithFunc<Self>;
+    const FUNC: ArithFunc<Self, Self>;
 }
 
 /// Trait for multiple array with scalar
 pub trait ArrayMulElement: PrimitiveType + Mul<Output = Self> {
     /// Multiple func
-    const FUNC: ArithFunc<Self>;
+    const FUNC: ArithFunc<Self, Self>;
 }
 
 /// Trait for div array with scalar
 pub trait ArrayDivElement: PrimitiveType + DivExt {
     /// Div func
-    const FUNC: ArithFunc<Self>;
+    const FUNC: ArithFunc<Self, Self>;
 }
 
 /// Trait for rem array with scalar
-pub trait ArrayRemElement: PrimitiveType + RemExt {
+pub trait ArrayRemElement<U>: PrimitiveType + RemExt
+where
+    U: RemCast<Self>,
+{
     /// rem func
-    const FUNC: ArithFunc<Self>;
+    const FUNC: ArithFunc<Self, U>;
 }
 
 macro_rules! impl_array_scalar_arith {
@@ -324,23 +315,25 @@ macro_rules! impl_array_scalar_arith {
         // Intrinsic type
         $(
             impl ArrayAddElement for $ty {
-                const FUNC: ArithFunc<Self> = $add;
+                const FUNC: ArithFunc<Self, Self> = $add;
             }
 
             impl ArraySubElement for $ty {
-                const FUNC: ArithFunc<Self> = $sub;
+                const FUNC: ArithFunc<Self, Self> = $sub;
             }
 
             impl ArrayMulElement for $ty {
-                const FUNC: ArithFunc<Self> = $mul;
+                const FUNC: ArithFunc<Self, Self> = $mul;
             }
 
             impl ArrayDivElement for $ty {
-                const FUNC: ArithFunc<Self> = $div;
+                const FUNC: ArithFunc<Self, Self> = $div;
             }
 
-            impl ArrayRemElement for $ty {
-                const FUNC: ArithFunc<Self> = $rem;
+            impl<U> ArrayRemElement<U> for $ty
+            where U: RemCast<Self>
+            {
+                const FUNC: ArithFunc<Self, U> = $rem;
             }
         )+
     };
@@ -368,20 +361,26 @@ impl_array_scalar_arith!(
 
 macro_rules! arith_scalar {
     ($func_name:ident, $op:tt, $trait_bound:ident) => {
-        mutate_array_func!(
-            #[doc = concat!("Perform `lhs ", stringify!($op), " rhs` for `PrimitiveArray<T>` with `T`")]
-            pub unsafe fn $func_name<T>(lhs: &PrimitiveArray<T>, rhs: T, dst: &mut PrimitiveArray<T>)
-            where
-                PrimitiveArray<T>: Array,
-                T: $trait_bound,
-            {
-                dst.validity.reference(&lhs.validity);
+        #[doc = concat!("Perform `lhs ", stringify!($op), " rhs` for `PrimitiveArray<T>` with `T`")]
+        ///
+        /// # Safety
+        ///
+        /// - `lhs` data and validity should not reference `dst`'s data and validity. In the computation
+        /// graph, `lhs` must be the descendant of `dst`
+        ///
+        /// - No other arrays that reference the `dst`'s data and validity are accessed! In the
+        /// computation graph, it will never happens
+        pub unsafe fn $func_name<T>(lhs: &PrimitiveArray<T>, rhs: T, dst: &mut PrimitiveArray<T>)
+        where
+            PrimitiveArray<T>: Array,
+            T: $trait_bound,
+        {
+            dst.validity.reference(&lhs.validity);
 
-                let dst = dst.data.exactly_once_mut() ;
-                let uninitialized = dst.clear_and_resize(lhs.len());
-                T::FUNC(lhs.data.as_slice(), rhs, uninitialized);
-            }
-        );
+            let dst = dst.data.as_mut();
+            let uninitialized = dst.clear_and_resize(lhs.len());
+            T::FUNC(lhs.data.as_slice(), rhs, uninitialized);
+        }
     };
 }
 
@@ -389,7 +388,6 @@ arith_scalar!(add_scalar, +, ArrayAddElement);
 arith_scalar!(sub_scalar, -, ArraySubElement);
 arith_scalar!(mul_scalar, *, ArrayMulElement);
 arith_scalar!(div_scalar, /, ArrayDivElement);
-arith_scalar!(rem_scalar, %, ArrayRemElement);
 
 /// Trait for arith function
 pub trait ArithFuncTrait<T>: Send + Sync + 'static
@@ -429,7 +427,82 @@ impl_default_arith_func_trait!(Add, +, add_scalar, ArrayAddElement);
 impl_default_arith_func_trait!(Sub, -, sub_scalar, ArraySubElement);
 impl_default_arith_func_trait!(Mul, *, mul_scalar, ArrayMulElement);
 impl_default_arith_func_trait!(Div, /, div_scalar, ArrayDivElement);
-impl_default_arith_func_trait!(Rem, %, rem_scalar, ArrayRemElement);
+
+/// Trait for casting used in rem
+pub trait RemCast<T: PrimitiveType>: PrimitiveType {
+    /// Cast self to T
+    fn cast(self) -> T;
+
+    /// Cast back T to self
+    fn cast_back(val: T) -> Self;
+}
+
+macro_rules! impl_rem_cast {
+    ($ty:ty, {$($cast_ty:ty),+}) => {
+        $(
+            impl RemCast<$cast_ty> for $ty {
+                #[inline]
+                fn cast(self) -> $cast_ty {
+                    self as $cast_ty
+                }
+
+                #[inline]
+                fn cast_back(val: $cast_ty) -> Self{
+                    val as $ty
+                }
+            }
+        )+
+    };
+}
+
+impl_rem_cast!(u8, {u8, u16, u32, u64});
+impl_rem_cast!(u16, {u16, u32, u64});
+impl_rem_cast!(u32, {u32, u64});
+impl_rem_cast!(u64, { u64 });
+impl_rem_cast!(i8, {i8, i16, i32, i64, i128});
+impl_rem_cast!(i16, {i16, i32, i64, i128});
+impl_rem_cast!(i32, {i32, i64, i128});
+impl_rem_cast!(i64, { i64, i128 });
+impl_rem_cast!(i128, { i128 });
+
+macro_rules! rem_scalar {
+    ($lhs:ident, $rhs:ident, $dst:ident) => {{
+        let rhs = T::new_remainder($rhs.cast());
+        $lhs.iter().zip($dst).for_each(|(&lhs, dst)| {
+            *dst = U::cast_back(lhs % rhs);
+        })
+    }};
+}
+
+crate::dynamic_func!(
+    rem_scalar,
+    <T, U>,
+    (lhs: &[T], rhs: U, dst: &mut [U]),
+    where T: IntrinsicType + RemExt, U: RemCast<T>
+);
+
+/// Perform `lhs % rhs` for `PrimitiveArray<T>` with `U`
+///
+/// # Safety
+///
+/// - `lhs` validity should not reference `dst`'s validity. In the computation
+/// graph, `lhs` must be the descendant of `dst`
+///
+/// - No other arrays that reference the `dst`'s data and validity are accessed! In the
+/// computation graph, it will never happens
+pub unsafe fn rem_scalar<T, U>(lhs: &PrimitiveArray<T>, rhs: U, dst: &mut PrimitiveArray<U>)
+where
+    PrimitiveArray<T>: Array,
+    PrimitiveArray<U>: Array,
+    T: PrimitiveType + ArrayRemElement<U>,
+    U: RemCast<T>,
+{
+    dst.validity.reference(&lhs.validity);
+
+    let dst = dst.data.as_mut();
+    let uninitialized = dst.clear_and_resize(lhs.len());
+    T::FUNC(lhs.data.as_slice(), rhs, uninitialized)
+}
 
 #[cfg(test)]
 mod tests {

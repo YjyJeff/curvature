@@ -1,22 +1,22 @@
 //! Generate sequence
 
 use crate::array::UInt64Array;
-use crate::{dynamic_func, mutate_array_func};
+use crate::dynamic_func;
 
-mutate_array_func!(
-    /// Replace the array with sequence (start..end). Caller should guarantee `end >= start`
-    #[inline]
-    pub unsafe fn sequence(array: &mut UInt64Array, start: u64, end: u64) {
-        array.validity.exactly_once_mut().clear();
+/// Replace the array with sequence (start..end). Caller should guarantee `end >= start`
+///
+/// # Safety
+///
+/// No other arrays that reference the `array`'s data and validity are accessed! In the
+/// computation graph, it will never happens
+#[inline]
+pub unsafe fn sequence(array: &mut UInt64Array, start: u64, end: u64) {
+    array.validity.as_mut().clear();
 
-        let array = array
-            .data
-            .exactly_once_mut()
-            .clear_and_resize((end - start) as usize);
+    let array = array.data.as_mut().clear_and_resize((end - start) as usize);
 
-        sequence_assign_dynamic(array, start)
-    }
-);
+    sequence_assign_dynamic(array, start)
+}
 
 macro_rules! sequence_assign {
     ($array:ident, $start:ident) => {

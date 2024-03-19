@@ -4,7 +4,7 @@ use std::fmt::Debug;
 
 use snafu::ensure;
 
-use super::ping_pong::PingPongPtr;
+use super::swar::SwarPtr;
 use super::{Array, InvalidLogicalTypeSnafu, MutateArrayExt, Result, ScalarArray};
 use crate::bitmap::{Bitmap, BitmapIter};
 use crate::private::Sealed;
@@ -13,8 +13,8 @@ use crate::types::{LogicalType, PhysicalType};
 /// Boolean Array
 pub struct BooleanArray {
     logical_type: LogicalType,
-    pub(crate) data: PingPongPtr<Bitmap>,
-    pub(crate) validity: PingPongPtr<Bitmap>,
+    pub(crate) data: SwarPtr<Bitmap>,
+    pub(crate) validity: SwarPtr<Bitmap>,
 }
 
 impl BooleanArray {
@@ -58,8 +58,8 @@ impl BooleanArray {
     pub unsafe fn with_capacity_unchecked(logical_type: LogicalType, capacity: usize) -> Self {
         Self {
             logical_type,
-            data: PingPongPtr::new(Bitmap::with_capacity(capacity)),
-            validity: PingPongPtr::new(Bitmap::new()),
+            data: SwarPtr::new(Bitmap::with_capacity(capacity)),
+            validity: SwarPtr::new(Bitmap::new()),
         }
     }
 }
@@ -86,8 +86,8 @@ impl Array for BooleanArray {
     }
 
     #[inline]
-    fn validity_mut(&mut self) -> &mut PingPongPtr<Bitmap> {
-        &mut self.validity
+    unsafe fn validity_mut(&mut self) -> &mut Bitmap {
+        self.validity.as_mut()
     }
 
     #[inline]
@@ -122,10 +122,8 @@ impl ScalarArray for BooleanArray {
         len: usize,
         trusted_len_iterator: impl Iterator<Item = bool>,
     ) {
-        self.validity.exactly_once_mut().clear();
-        self.data
-            .exactly_once_mut()
-            .reset(len, trusted_len_iterator);
+        self.validity.as_mut().clear();
+        self.data.as_mut().reset(len, trusted_len_iterator);
     }
 
     unsafe fn replace_with_trusted_len_iterator(
@@ -133,9 +131,9 @@ impl ScalarArray for BooleanArray {
         len: usize,
         trusted_len_iterator: impl Iterator<Item = Option<bool>>,
     ) {
-        let uninitiated = self.data.exactly_once_mut();
+        let uninitiated = self.data.as_mut();
         let _ = uninitiated.clear_and_resize(len);
-        let uninitiated_validity = self.validity.exactly_once_mut();
+        let uninitiated_validity = self.validity.as_mut();
 
         // FIXME: set the data with unfold loop
         uninitiated_validity.reset(
@@ -170,8 +168,8 @@ impl Default for BooleanArray {
     fn default() -> Self {
         Self {
             logical_type: LogicalType::Boolean,
-            data: PingPongPtr::default(),
-            validity: PingPongPtr::default(),
+            data: SwarPtr::default(),
+            validity: SwarPtr::default(),
         }
     }
 }
@@ -197,8 +195,8 @@ impl FromIterator<Option<bool>> for BooleanArray {
 
         Self {
             logical_type: LogicalType::Boolean,
-            data: PingPongPtr::new(data),
-            validity: PingPongPtr::new(validity),
+            data: SwarPtr::new(data),
+            validity: SwarPtr::new(validity),
         }
     }
 }
@@ -211,8 +209,8 @@ mod tests {
         pub fn new_with_data(data: Bitmap) -> Self {
             Self {
                 logical_type: LogicalType::Boolean,
-                data: PingPongPtr::new(data),
-                validity: PingPongPtr::default(),
+                data: SwarPtr::new(data),
+                validity: SwarPtr::default(),
             }
         }
     }

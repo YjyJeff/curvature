@@ -26,8 +26,6 @@ expect-test = "1.4"
 # type that is 512 bits no matter what target_feature is used. LLVM will choose the 
 # best instruction for you based on the target feature
 portable_simd = []
-# Use core intrinsics to hint the compiler! likely, unlikely, etc
-intrinsics = []
 
 [[bench]]
 name = "aligned_vec"

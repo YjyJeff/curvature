@@ -17,7 +17,6 @@ use crate::compute::comparison::primitive::{
     eq_scalar_default_, ge_scalar_default_, gt_scalar_default_, le_scalar_default_,
     lt_scalar_default_, ne_scalar_default_,
 };
-use crate::mutate_array_func;
 
 // FIXME: Following implementation heavily depends on the reading intrinsic types from
 // uninitialized  memory optimization. However, it is undefined behavior in the Rust.
@@ -101,38 +100,43 @@ pub trait PrimitiveCmpElement: PrimitiveType + PartialOrd {
 
 macro_rules! cmp_scalar {
     ($func_name:ident, $cmp_avx2:ident, $cmp_sse2:ident, $cmp_neon:ident, $cmp_default:ident, $op:tt) => {
-        mutate_array_func!(
-            #[cfg_attr(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64"), allow(unreachable_code))]
-            #[doc = concat!("Perform `lhs ", stringify!($op), " rhs` between `PrimitiveArray<T>` and `T`")]
-            pub unsafe fn $func_name<T>(lhs: &PrimitiveArray<T>, rhs: T, dst: &mut BooleanArray)
-            where
-                T: PrimitiveCmpElement,
-                PrimitiveArray<T>: Array,
+        #[cfg_attr(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64"), allow(unreachable_code))]
+        #[doc = concat!("Perform `lhs ", stringify!($op), " rhs` between `PrimitiveArray<T>` and `T`")]
+        /// # Safety
+        ///
+        /// - `lhs`'s data and validity should not reference `dst`'s data and validity. In the computation
+        /// graph, `lhs` must be the descendant of `dst`
+        ///
+        /// - No other arrays that reference the `dst`'s data and validity are accessed! In the
+        /// computation graph, it will never happens
+        pub unsafe fn $func_name<T>(lhs: &PrimitiveArray<T>, rhs: T, dst: &mut BooleanArray)
+        where
+            T: PrimitiveCmpElement,
+            PrimitiveArray<T>: Array,
+        {
+            // Reference dst's validity to lhs'validity
+            dst.validity.reference(&lhs.validity);
+
+            let uninitialized = dst.data.as_mut().clear_and_resize(lhs.len()).as_mut_ptr();
+
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             {
-                // Reference dst's validity to lhs'validity
-                dst.validity.reference(&lhs.validity);
-
-                let uninitialized = dst.data.exactly_once_mut().clear_and_resize(lhs.len()).as_mut_ptr();
-
-                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-                {
-                    if std::arch::is_x86_feature_detected!("avx2") {
-                        return T::$cmp_avx2(&lhs.data, rhs, uninitialized);
-                    } else {
-                        return T::$cmp_sse2(&lhs.data, rhs, uninitialized);
-                    }
+                if std::arch::is_x86_feature_detected!("avx2") {
+                    return T::$cmp_avx2(&lhs.data, rhs, uninitialized);
+                } else {
+                    return T::$cmp_sse2(&lhs.data, rhs, uninitialized);
                 }
-
-                #[cfg(all(any(target_arch = "arm", target_arch = "aarch64"), not(miri)))]
-                {
-                    if std::arch::is_aarch64_feature_detected!("neon"){
-                        return T::$cmp_neon(&lhs.data, rhs, uninitialized);
-                    }
-                }
-
-                $cmp_default(&lhs.data, rhs, uninitialized);
             }
-        );
+
+            #[cfg(all(any(target_arch = "arm", target_arch = "aarch64"), not(miri)))]
+            {
+                if std::arch::is_aarch64_feature_detected!("neon"){
+                    return T::$cmp_neon(&lhs.data, rhs, uninitialized);
+                }
+            }
+
+            $cmp_default(&lhs.data, rhs, uninitialized);
+        }
     };
 }
 

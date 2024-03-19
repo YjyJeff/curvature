@@ -1,6 +1,6 @@
 //! [`PrimitiveArray`] that stores fixed byte-width data
 
-use super::ping_pong::PingPongPtr;
+use super::swar::SwarPtr;
 use super::{Array, InvalidLogicalTypeSnafu, MutateArrayExt, Result, ScalarArray};
 use snafu::ensure;
 use std::fmt::Debug;
@@ -36,8 +36,8 @@ for_all_primitive_types!(impl_primitive_type);
 /// [`PrimitiveArray`] that stores fixed byte-width data, such as `i32` or `f64`
 pub struct PrimitiveArray<T: PrimitiveType> {
     logical_type: LogicalType,
-    pub(crate) data: PingPongPtr<AlignedVec<T>>,
-    pub(crate) validity: PingPongPtr<Bitmap>,
+    pub(crate) data: SwarPtr<AlignedVec<T>>,
+    pub(crate) validity: SwarPtr<Bitmap>,
 }
 
 impl<T: PrimitiveType> PrimitiveArray<T> {
@@ -81,8 +81,8 @@ impl<T: PrimitiveType> PrimitiveArray<T> {
     pub unsafe fn with_capacity_unchecked(logical_type: LogicalType, capacity: usize) -> Self {
         Self {
             logical_type,
-            data: PingPongPtr::new(AlignedVec::with_capacity(capacity)),
-            validity: PingPongPtr::default(),
+            data: SwarPtr::new(AlignedVec::with_capacity(capacity)),
+            validity: SwarPtr::default(),
         }
     }
 
@@ -107,8 +107,8 @@ impl<T: PrimitiveType> PrimitiveArray<T> {
 
         Self {
             logical_type: T::LOGICAL_TYPE,
-            data: PingPongPtr::new(data),
-            validity: PingPongPtr::default(),
+            data: SwarPtr::new(data),
+            validity: SwarPtr::default(),
         }
     }
 }
@@ -169,8 +169,8 @@ where
     }
 
     #[inline]
-    fn validity_mut(&mut self) -> &mut PingPongPtr<Bitmap> {
-        &mut self.validity
+    unsafe fn validity_mut(&mut self) -> &mut Bitmap {
+        self.validity.as_mut()
     }
 
     #[inline]
@@ -213,9 +213,9 @@ where
         len: usize,
         trusted_len_iterator: impl Iterator<Item = T>,
     ) {
-        self.validity.exactly_once_mut().clear();
+        self.validity.as_mut().clear();
 
-        let uninitiated = self.data.exactly_once_mut();
+        let uninitiated = self.data.as_mut();
         uninitiated
             .clear_and_resize(len)
             .iter_mut()
@@ -231,9 +231,9 @@ where
         len: usize,
         trusted_len_iterator: impl Iterator<Item = Option<T>>,
     ) {
-        let uninitiated_vec = self.data.exactly_once_mut();
+        let uninitiated_vec = self.data.as_mut();
         let uninitiated_slice = uninitiated_vec.clear_and_resize(len);
-        let uninitiated_validity = self.validity.exactly_once_mut();
+        let uninitiated_validity = self.validity.as_mut();
 
         uninitiated_validity.reset(
             len,
@@ -274,8 +274,8 @@ impl<T: PrimitiveType> FromIterator<Option<T>> for PrimitiveArray<T> {
 
         Self {
             logical_type: T::LOGICAL_TYPE,
-            data: PingPongPtr::new(data),
-            validity: PingPongPtr::new(validity),
+            data: SwarPtr::new(data),
+            validity: SwarPtr::new(validity),
         }
     }
 }
@@ -285,8 +285,8 @@ impl<T: PrimitiveType> Default for PrimitiveArray<T> {
     fn default() -> Self {
         Self {
             logical_type: T::LOGICAL_TYPE,
-            data: PingPongPtr::default(),
-            validity: PingPongPtr::default(),
+            data: SwarPtr::default(),
+            validity: SwarPtr::default(),
         }
     }
 }

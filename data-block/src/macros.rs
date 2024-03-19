@@ -194,21 +194,6 @@ macro_rules! dynamic_func {
     };
 }
 
-/// Generate docs for functions that mutating arrays
-#[macro_export]
-macro_rules! mutate_array_func {
-    ($(#[$doc:meta])+ $vis:vis unsafe fn $($tt:tt)+) => {
-        $(#[$doc])+
-        #[doc = ""]
-        #[doc = " # Safety"]
-        #[doc = ""]
-        #[doc = " Caller should guarantee this function is only used in the computation"]
-        #[doc = " that satisfy the expression execution pattern: **All of the arrays in the"]
-        #[doc = " computation graph(DAG) should be visited and are written exactly once"]
-        $vis unsafe fn $($tt)+
-    };
-}
-
 #[cfg(test)]
 mod tests {
     macro_rules! add {

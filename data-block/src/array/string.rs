@@ -26,7 +26,7 @@ use crate::types::{LogicalType, PhysicalType};
 use std::fmt::Debug;
 
 use super::iter::ArrayValuesIter;
-use super::ping_pong::PingPongPtr;
+use super::swar::SwarPtr;
 use super::{Array, InvalidLogicalTypeSnafu, MutateArrayExt, Result, ScalarArray};
 
 /// [`Array`] of string
@@ -34,12 +34,12 @@ pub struct StringArray {
     logical_type: LogicalType,
     /// A continuous byte array that stores the content of the
     /// indirection String
-    _bytes: PingPongPtr<AlignedVec<u8>>,
+    _bytes: SwarPtr<AlignedVec<u8>>,
     /// Views of the String. Use [`StringView`] here is safe! The pointer in the views
     /// points to the [`Self::_bytes`], therefore the 'static lifetime is fake !!! It
     /// is a hack to allow the self-referential
-    pub(crate) views: PingPongPtr<AlignedVec<StringView<'static>>>,
-    pub(crate) validity: PingPongPtr<Bitmap>,
+    pub(crate) views: SwarPtr<AlignedVec<StringView<'static>>>,
+    pub(crate) validity: SwarPtr<Bitmap>,
     // An auxiliary vector to record the offset to the bytes. Reallocation
     // invalid the address of the bytes, therefore, if we store the pointer
     // to the bytes directly, we will get invalid pointer
@@ -87,9 +87,9 @@ impl StringArray {
     pub unsafe fn with_capacity_unchecked(logical_type: LogicalType, capacity: usize) -> Self {
         Self {
             logical_type,
-            _bytes: PingPongPtr::default(),
-            views: PingPongPtr::new(AlignedVec::with_capacity(capacity)),
-            validity: PingPongPtr::default(),
+            _bytes: SwarPtr::default(),
+            views: SwarPtr::new(AlignedVec::with_capacity(capacity)),
+            validity: SwarPtr::default(),
             _calibrate_offsets: Vec::with_capacity(capacity),
         }
     }
@@ -116,9 +116,9 @@ impl StringArray {
 
         Self {
             logical_type: LogicalType::VarChar,
-            _bytes: PingPongPtr::new(bytes),
-            views: PingPongPtr::new(views),
-            validity: PingPongPtr::default(),
+            _bytes: SwarPtr::new(bytes),
+            views: SwarPtr::new(views),
+            validity: SwarPtr::default(),
             _calibrate_offsets: calibrate_offsets,
         }
     }
@@ -166,8 +166,8 @@ impl Array for StringArray {
     }
 
     #[inline]
-    fn validity_mut(&mut self) -> &mut PingPongPtr<Bitmap> {
-        &mut self.validity
+    unsafe fn validity_mut(&mut self) -> &mut Bitmap {
+        self.validity.as_mut()
     }
 
     #[inline]
@@ -291,9 +291,9 @@ impl<V: AsRef<str> + Debug> FromIterator<Option<V>> for StringArray {
 
         Self {
             logical_type: LogicalType::VarChar,
-            _bytes: PingPongPtr::new(bytes),
-            views: PingPongPtr::new(views),
-            validity: PingPongPtr::new(validity),
+            _bytes: SwarPtr::new(bytes),
+            views: SwarPtr::new(views),
+            validity: SwarPtr::new(validity),
             _calibrate_offsets: calibrate_offsets,
         }
     }
@@ -308,10 +308,10 @@ impl ScalarArray for StringArray {
         len: usize,
         trusted_len_iterator: impl Iterator<Item = Self::Element>,
     ) {
-        self.validity.exactly_once_mut().clear();
+        self.validity.as_mut().clear();
 
-        let uninitiated_views = self.views.exactly_once_mut().clear_and_resize(len);
-        let uninitiated_bytes = self._bytes.exactly_once_mut();
+        let uninitiated_views = self.views.as_mut().clear_and_resize(len);
+        let uninitiated_bytes = self._bytes.as_mut();
         uninitiated_bytes.clear();
         self._calibrate_offsets.clear();
 
@@ -339,10 +339,10 @@ impl ScalarArray for StringArray {
         len: usize,
         trusted_len_iterator: impl Iterator<Item = Option<Self::Element>>,
     ) {
-        let uninitiated_validity = self.validity.exactly_once_mut();
+        let uninitiated_validity = self.validity.as_mut();
 
-        let uninitiated_views = self.views.exactly_once_mut().clear_and_resize(len);
-        let uninitiated_bytes = self._bytes.exactly_once_mut();
+        let uninitiated_views = self.views.as_mut().clear_and_resize(len);
+        let uninitiated_bytes = self._bytes.as_mut();
         uninitiated_bytes.clear();
         self._calibrate_offsets.clear();
 

@@ -2,7 +2,6 @@
 
 use crate::array::{Array, BooleanArray};
 use crate::bitmap::BitStore;
-use crate::mutate_array_func;
 
 macro_rules! not_bitmap {
     ($lhs:ident, $dst:ident) => {
@@ -18,107 +17,143 @@ crate::dynamic_func!(
     (lhs: &[BitStore], dst: &mut [BitStore]),
 );
 
-mutate_array_func!(
-    /// Perform `lhs == rhs` between [`BooleanArray`] and bool
-    pub unsafe fn eq_scalar(lhs: &BooleanArray, rhs: bool, dst: &mut BooleanArray) {
-        dst.validity.reference(&lhs.validity);
+/// Perform `lhs == rhs` between [`BooleanArray`] and bool
+///
+/// # Safety
+///
+/// - `lhs` data and validity should not reference `dst`'s data and validity. In the computation
+/// graph, `lhs` must be the descendant of `dst`
+///
+/// - No other arrays that reference the `dst`'s data and validity are accessed! In the
+/// computation graph, it will never happens
+pub unsafe fn eq_scalar(lhs: &BooleanArray, rhs: bool, dst: &mut BooleanArray) {
+    dst.validity.reference(&lhs.validity);
 
-        if rhs {
-            dst.data.reference(&lhs.data)
-        } else {
-            not_bitmap_dynamic(
-                lhs.data.as_raw_slice(),
-                dst.data.exactly_once_mut().clear_and_resize(lhs.len()),
-            );
-        }
+    if rhs {
+        dst.data.reference(&lhs.data)
+    } else {
+        not_bitmap_dynamic(
+            lhs.data.as_raw_slice(),
+            dst.data.as_mut().clear_and_resize(lhs.len()),
+        );
     }
-);
+}
 
-mutate_array_func!(
-    /// Perform `lhs != rhs` between [`BooleanArray`] and bool
-    pub unsafe fn ne_scalar(lhs: &BooleanArray, rhs: bool, dst: &mut BooleanArray) {
-        dst.validity.reference(&lhs.validity);
+/// Perform `lhs != rhs` between [`BooleanArray`] and bool
+///
+/// # Safety
+///
+/// - `lhs`'s data and validity should not reference `dst`'s data and validity. In the computation
+/// graph, `lhs` must be the descendant of `dst`
+///
+/// - No other arrays that reference the `dst`'s data and validity are accessed! In the
+/// computation graph, it will never happens
+pub unsafe fn ne_scalar(lhs: &BooleanArray, rhs: bool, dst: &mut BooleanArray) {
+    dst.validity.reference(&lhs.validity);
 
-        if !rhs {
-            dst.data.reference(&lhs.data)
-        } else {
-            not_bitmap_dynamic(
-                lhs.data.as_raw_slice(),
-                dst.data.exactly_once_mut().clear_and_resize(lhs.len()),
-            );
-        }
+    if !rhs {
+        dst.data.reference(&lhs.data)
+    } else {
+        not_bitmap_dynamic(
+            lhs.data.as_raw_slice(),
+            dst.data.as_mut().clear_and_resize(lhs.len()),
+        );
     }
-);
+}
 
-mutate_array_func!(
-    /// Perform `lhs > rhs` between [`BooleanArray`] and bool
-    pub unsafe fn gt_scalar(lhs: &BooleanArray, rhs: bool, dst: &mut BooleanArray) {
-        dst.validity.reference(&lhs.validity);
+/// Perform `lhs > rhs` between [`BooleanArray`] and bool
+///
+/// # Safety
+///
+/// - `lhs`'s data and validity should not reference `dst`'s data and validity. In the computation
+/// graph, `lhs` must be the descendant of `dst`
+///
+/// - No other arrays that reference the `dst`'s data and validity are accessed! In the
+/// computation graph, it will never happens
+pub unsafe fn gt_scalar(lhs: &BooleanArray, rhs: bool, dst: &mut BooleanArray) {
+    dst.validity.reference(&lhs.validity);
 
-        if !rhs {
-            dst.data.reference(&lhs.data);
-        } else {
-            // Compiler will optimize it to memset
-            dst.data
-                .exactly_once_mut()
-                .clear_and_resize(lhs.len())
-                .iter_mut()
-                .for_each(|v| *v = 0);
-        }
+    if !rhs {
+        dst.data.reference(&lhs.data);
+    } else {
+        // Compiler will optimize it to memset
+        dst.data
+            .as_mut()
+            .clear_and_resize(lhs.len())
+            .iter_mut()
+            .for_each(|v| *v = 0);
     }
-);
+}
 
-mutate_array_func!(
-    /// Perform `lhs >= rhs` between [`BooleanArray`] and bool
-    pub unsafe fn ge_scalar(lhs: &BooleanArray, rhs: bool, dst: &mut BooleanArray) {
-        dst.validity.reference(&lhs.validity);
+/// Perform `lhs >= rhs` between [`BooleanArray`] and bool
+///
+/// # Safety
+///
+/// - `lhs` data and validity should not reference `dst`'s data and validity. In the computation
+/// graph, `lhs`/`rhs` must be the descendant of `dst`
+///
+/// - No other arrays that reference the `dst`'s data and validity are accessed! In the
+/// computation graph, it will never happens
+pub unsafe fn ge_scalar(lhs: &BooleanArray, rhs: bool, dst: &mut BooleanArray) {
+    dst.validity.reference(&lhs.validity);
 
-        if rhs {
-            dst.data.reference(&lhs.data);
-        } else {
-            // Compiler will optimize it to memset
-            dst.data
-                .exactly_once_mut()
-                .clear_and_resize(lhs.len())
-                .iter_mut()
-                .for_each(|v| *v = u64::MAX);
-        }
+    if rhs {
+        dst.data.reference(&lhs.data);
+    } else {
+        // Compiler will optimize it to memset
+        dst.data
+            .as_mut()
+            .clear_and_resize(lhs.len())
+            .iter_mut()
+            .for_each(|v| *v = u64::MAX);
     }
-);
+}
 
-mutate_array_func!(
-    /// Perform `lhs < rhs` between [`BooleanArray`] and bool
-    pub unsafe fn lt_scalar(lhs: &BooleanArray, rhs: bool, dst: &mut BooleanArray) {
-        dst.validity.reference(&lhs.validity);
+/// Perform `lhs < rhs` between [`BooleanArray`] and bool
+///
+/// # Safety
+///
+/// - `lhs`'s data and validity should not reference `dst`'s data and validity. In the computation
+/// graph, `lhs` must be the descendant of `dst`
+///
+/// - No other arrays that reference the `dst`'s data and validity are accessed! In the
+/// computation graph, it will never happens
+pub unsafe fn lt_scalar(lhs: &BooleanArray, rhs: bool, dst: &mut BooleanArray) {
+    dst.validity.reference(&lhs.validity);
 
-        let dst = dst.data.exactly_once_mut();
-        if rhs {
-            not_bitmap_dynamic(lhs.data.as_raw_slice(), dst.clear_and_resize(lhs.len()));
-        } else {
-            // Compiler will optimize it to memset
-            dst.clear_and_resize(lhs.len())
-                .iter_mut()
-                .for_each(|v| *v = 0);
-        }
+    let dst = dst.data.as_mut();
+    if rhs {
+        not_bitmap_dynamic(lhs.data.as_raw_slice(), dst.clear_and_resize(lhs.len()));
+    } else {
+        // Compiler will optimize it to memset
+        dst.clear_and_resize(lhs.len())
+            .iter_mut()
+            .for_each(|v| *v = 0);
     }
-);
+}
 
-mutate_array_func!(
-    /// Perform `lhs <= rhs` between [`BooleanArray`] and bool
-    pub unsafe fn le_scalar(lhs: &BooleanArray, rhs: bool, dst: &mut BooleanArray) {
-        dst.validity.reference(&lhs.validity);
+/// Perform `lhs <= rhs` between [`BooleanArray`] and bool
+///
+/// # Safety
+///
+/// - `lhs`'s data and validity should not reference `dst`'s data and validity. In the computation
+/// graph, `lhs` must be the descendant of `dst`
+///
+/// - No other arrays that reference the `dst`'s data and validity are accessed! In the
+/// computation graph, it will never happens
+pub unsafe fn le_scalar(lhs: &BooleanArray, rhs: bool, dst: &mut BooleanArray) {
+    dst.validity.reference(&lhs.validity);
 
-        let dst = dst.data.exactly_once_mut();
-        if rhs {
-            // Compiler will optimize it to memset
-            dst.clear_and_resize(lhs.len())
-                .iter_mut()
-                .for_each(|v| *v = u64::MAX);
-        } else {
-            not_bitmap_dynamic(lhs.data.as_raw_slice(), dst.clear_and_resize(lhs.len()))
-        }
+    let dst = dst.data.as_mut();
+    if rhs {
+        // Compiler will optimize it to memset
+        dst.clear_and_resize(lhs.len())
+            .iter_mut()
+            .for_each(|v| *v = u64::MAX);
+    } else {
+        not_bitmap_dynamic(lhs.data.as_raw_slice(), dst.clear_and_resize(lhs.len()))
     }
-);
+}
 
 #[cfg(test)]
 mod tests {

@@ -5,7 +5,6 @@
 use crate::array::{Array, BooleanArray, MutateArrayExt};
 use crate::bitmap::BitStore;
 use crate::compute::combine_validities;
-use crate::mutate_array_func;
 use std::ops::{BitAnd, BitOr};
 
 /// This will be optimized for different target feature
@@ -46,116 +45,140 @@ crate::dynamic_func!(
     (lhs: &[BitStore], rhs: &[BitStore], dst: &mut [BitStore]),
 );
 
-mutate_array_func!(
-    /// Perform `&&` operation on two [`BooleanArray`]s, combine the validity
-    ///
-    /// Note that caller should guarantee `lhs` and `rhs` have same length
-    pub unsafe fn and(lhs: &BooleanArray, rhs: &BooleanArray, dst: &mut BooleanArray) {
-        debug_assert_eq!(lhs.len(), rhs.len());
-        if lhs.validity.count_zeros() == 0 && rhs.validity.count_zeros() == 0 {
-            match (lhs.data.count_zeros(), rhs.data.count_zeros()) {
-                (0, 0) => {
-                    // all values are true on both side
-                    dst.reference(lhs);
-                    return;
-                }
-                (l, _) if l == lhs.len() => {
-                    // all values are `false` on left side
-                    dst.reference(lhs);
-                    return;
-                }
-                (_, r) if r == rhs.len() => {
-                    // all values are `false` on right side
-                    dst.reference(rhs);
-                    return;
-                }
-                (_, _) => (),
+/// Perform `&&` operation on two [`BooleanArray`]s, combine the validity
+///
+/// Note that caller should guarantee `lhs` and `rhs` have same length
+///
+/// # Safety
+///
+/// - `lhs`/`rhs`'s data and validity should not reference `dst`'s data and validity. In the computation
+/// graph, `lhs`/`rhs` must be the descendant of `dst`
+///
+/// - No other arrays that reference the `dst`'s data and validity are accessed! In the
+/// computation graph, it will never happens
+pub unsafe fn and(lhs: &BooleanArray, rhs: &BooleanArray, dst: &mut BooleanArray) {
+    debug_assert_eq!(lhs.len(), rhs.len());
+    if lhs.validity.count_zeros() == 0 && rhs.validity.count_zeros() == 0 {
+        match (lhs.data.count_zeros(), rhs.data.count_zeros()) {
+            (0, 0) => {
+                // all values are true on both side
+                dst.reference(lhs);
+                return;
             }
-        }
-
-        combine_validities(&lhs.validity, &rhs.validity, &mut dst.validity);
-        and_bitmaps_dynamic(
-            lhs.data.as_raw_slice(),
-            rhs.data.as_raw_slice(),
-            dst.data.exactly_once_mut().clear_and_resize(lhs.len()),
-        )
-    }
-);
-
-mutate_array_func!(
-    /// Perform `||` operation on two [`BooleanArray`]s, combine the validity
-    ///
-    /// Note that caller should guarantee `lhs` and `rhs` have same length
-    pub unsafe fn or(lhs: &BooleanArray, rhs: &BooleanArray, dst: &mut BooleanArray) {
-        debug_assert_eq!(lhs.len(), rhs.len());
-
-        if lhs.validity.count_zeros() == 0 && rhs.validity.count_zeros() == 0 {
-            match (lhs.data.count_zeros(), rhs.data.count_zeros()) {
-                (0, _) => {
-                    // all values are true on left side
-                    dst.data.reference(&lhs.data);
-                    dst.validity.reference(&lhs.validity);
-                    return;
-                }
-                (_, 0) => {
-                    // all values are `true` on right side
-                    dst.data.reference(&rhs.data);
-                    dst.validity.reference(&rhs.validity);
-                    return;
-                }
-                (l, r) if l == lhs.len() && r == rhs.len() => {
-                    // all values are `false` on both sides
-                    dst.data.reference(&rhs.data);
-                    dst.validity.reference(&rhs.validity);
-                    return;
-                }
-                (_, _) => (),
+            (l, _) if l == lhs.len() => {
+                // all values are `false` on left side
+                dst.reference(lhs);
+                return;
             }
-        }
-
-        // SAFETY: dst is the unique owner
-        combine_validities(&lhs.validity, &rhs.validity, &mut dst.validity);
-        or_bitmaps_dynamic(
-            lhs.data.as_raw_slice(),
-            rhs.data.as_raw_slice(),
-            dst.data.exactly_once_mut().clear_and_resize(lhs.len()),
-        )
-    }
-);
-
-mutate_array_func!(
-    /// Perform `and` operation on [`BooleanArray`] and scalar
-    pub unsafe fn and_scalar(lhs: &BooleanArray, rhs: bool, dst: &mut BooleanArray) {
-        if rhs {
-            dst.reference(lhs)
-        } else {
-            dst.validity.reference(&lhs.validity);
-            // Compiler will optimize set zero to memset
-            dst.data
-                .exactly_once_mut()
-                .clear_and_resize(lhs.len())
-                .iter_mut()
-                .for_each(|v| *v = 0);
+            (_, r) if r == rhs.len() => {
+                // all values are `false` on right side
+                dst.reference(rhs);
+                return;
+            }
+            (_, _) => (),
         }
     }
-);
 
-mutate_array_func!(
-    /// Perform `or` operation on [`BooleanArray`] and scalar
-    pub unsafe fn or_scalar(lhs: &BooleanArray, rhs: bool, dst: &mut BooleanArray) {
-        if rhs {
-            dst.validity.reference(&lhs.validity);
-            // Compiler will optimize set u64::MAX to memset
-            dst.data
-                .exactly_once_mut()
-                .clear_and_resize(lhs.len())
-                .iter_mut()
-                .for_each(|v| *v = u64::MAX);
-        } else {
-            dst.reference(lhs);
+    combine_validities(&lhs.validity, &rhs.validity, &mut dst.validity);
+    and_bitmaps_dynamic(
+        lhs.data.as_raw_slice(),
+        rhs.data.as_raw_slice(),
+        dst.data.as_mut().clear_and_resize(lhs.len()),
+    )
+}
+
+/// Perform `||` operation on two [`BooleanArray`]s, combine the validity
+///
+/// Note that caller should guarantee `lhs` and `rhs` have same length
+///
+/// # Safety
+///
+/// - `lhs`/`rhs`'s data and validity should not reference `dst`'s data and validity. In the computation
+/// graph, `lhs`/`rhs` must be the descendant of `dst`
+///
+/// - No other arrays that reference the `dst`'s data and validity are accessed! In the
+/// computation graph, it will never happens
+pub unsafe fn or(lhs: &BooleanArray, rhs: &BooleanArray, dst: &mut BooleanArray) {
+    debug_assert_eq!(lhs.len(), rhs.len());
+
+    if lhs.validity.count_zeros() == 0 && rhs.validity.count_zeros() == 0 {
+        match (lhs.data.count_zeros(), rhs.data.count_zeros()) {
+            (0, _) => {
+                // all values are true on left side
+                dst.data.reference(&lhs.data);
+                dst.validity.reference(&lhs.validity);
+                return;
+            }
+            (_, 0) => {
+                // all values are `true` on right side
+                dst.data.reference(&rhs.data);
+                dst.validity.reference(&rhs.validity);
+                return;
+            }
+            (l, r) if l == lhs.len() && r == rhs.len() => {
+                // all values are `false` on both sides
+                dst.data.reference(&rhs.data);
+                dst.validity.reference(&rhs.validity);
+                return;
+            }
+            (_, _) => (),
         }
     }
-);
+
+    // SAFETY: dst is the unique owner
+    combine_validities(&lhs.validity, &rhs.validity, &mut dst.validity);
+    or_bitmaps_dynamic(
+        lhs.data.as_raw_slice(),
+        rhs.data.as_raw_slice(),
+        dst.data.as_mut().clear_and_resize(lhs.len()),
+    )
+}
+
+/// Perform `and` operation on [`BooleanArray`] and scalar
+///
+/// # Safety
+///
+/// - `lhs` data and validity should not reference `dst`'s data and validity. In the computation
+/// graph, `lhs` must be the descendant of `dst`
+///
+/// - No other arrays that reference the `dst`'s data and validity are accessed! In the
+/// computation graph, it will never happens
+pub unsafe fn and_scalar(lhs: &BooleanArray, rhs: bool, dst: &mut BooleanArray) {
+    if rhs {
+        dst.reference(lhs)
+    } else {
+        dst.validity.reference(&lhs.validity);
+        // Compiler will optimize set zero to memset
+        dst.data
+            .as_mut()
+            .clear_and_resize(lhs.len())
+            .iter_mut()
+            .for_each(|v| *v = 0);
+    }
+}
+
+/// Perform `or` operation on [`BooleanArray`] and scalar
+///
+/// # Safety
+///
+/// - `lhs` data and validity should not reference `dst`'s data and validity. In the computation
+/// graph, `lhs` must be the descendant of `dst`
+///
+/// - No other arrays that reference the `dst`'s data and validity are accessed! In the
+/// computation graph, it will never happens
+pub unsafe fn or_scalar(lhs: &BooleanArray, rhs: bool, dst: &mut BooleanArray) {
+    if rhs {
+        dst.validity.reference(&lhs.validity);
+        // Compiler will optimize set u64::MAX to memset
+        dst.data
+            .as_mut()
+            .clear_and_resize(lhs.len())
+            .iter_mut()
+            .for_each(|v| *v = u64::MAX);
+    } else {
+        dst.reference(lhs);
+    }
+}
 
 macro_rules! not_bitmap {
     ($input:ident, $dst:ident) => {
@@ -172,17 +195,23 @@ crate::dynamic_func!(
     (input: &[BitStore], dst: &mut [BitStore]),
 );
 
-mutate_array_func!(
-    /// Perform `NOT` operation on [`BooleanArray`]. If the value is null, then the result
-    /// is also null
-    pub unsafe fn not(array: &BooleanArray, dst: &mut BooleanArray) {
-        dst.validity.reference(&array.validity);
-        not_bitmap_dynamic(
-            array.data.as_raw_slice(),
-            dst.data.exactly_once_mut().clear_and_resize(array.len()),
-        )
-    }
-);
+/// Perform `NOT` operation on [`BooleanArray`]. If the value is null, then the result
+/// is also null
+///
+/// # Safety
+///
+/// - `lhs` data and validity should not reference `dst`'s data and validity. In the computation
+/// graph, `lhs` must be the descendant of `dst`
+///
+/// - No other arrays that reference the `dst`'s data and validity are accessed! In the
+/// computation graph, it will never happens
+pub unsafe fn not(array: &BooleanArray, dst: &mut BooleanArray) {
+    dst.validity.reference(&array.validity);
+    not_bitmap_dynamic(
+        array.data.as_raw_slice(),
+        dst.data.as_mut().clear_and_resize(array.len()),
+    )
+}
 
 #[cfg(test)]
 mod tests {

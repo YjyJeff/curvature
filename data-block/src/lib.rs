@@ -10,7 +10,6 @@
     missing_debug_implementations
 )]
 #![cfg_attr(feature = "portable_simd", feature(portable_simd))]
-#![cfg_attr(feature = "intrinsics", feature(core_intrinsics))]
 
 //! # DataBlock
 //!

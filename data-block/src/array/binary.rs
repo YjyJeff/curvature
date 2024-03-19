@@ -11,7 +11,7 @@ use crate::private::Sealed;
 use crate::types::{LogicalType, PhysicalType};
 
 use super::iter::ArrayValuesIter;
-use super::ping_pong::PingPongPtr;
+use super::swar::SwarPtr;
 use super::{Array, InvalidLogicalTypeSnafu, MutateArrayExt, Result};
 
 /// Offset in the binary array
@@ -26,12 +26,12 @@ pub struct BinaryArray {
     logical_type: LogicalType,
     /// A continuous byte array that stores the data of the element, to access the data
     /// in the array, you need to depend on [`Self::offsets`]
-    pub(crate) bytes: PingPongPtr<AlignedVec<u8>>,
+    pub(crate) bytes: SwarPtr<AlignedVec<u8>>,
     /// offsets[i] and offsets[i+1] represents the start and end address of the ith
     /// element in the array. Therefore, its length is always equal to self.len() + 1
-    pub(crate) offsets: PingPongPtr<AlignedVec<Offset>>,
+    pub(crate) offsets: SwarPtr<AlignedVec<Offset>>,
     /// Validity map of the array
-    pub(crate) validity: PingPongPtr<Bitmap>,
+    pub(crate) validity: SwarPtr<Bitmap>,
 }
 
 impl BinaryArray {
@@ -79,9 +79,9 @@ impl BinaryArray {
         offsets.len = 1;
         Self {
             logical_type,
-            bytes: PingPongPtr::default(),
-            offsets: PingPongPtr::new(offsets),
-            validity: PingPongPtr::default(),
+            bytes: SwarPtr::default(),
+            offsets: SwarPtr::new(offsets),
+            validity: SwarPtr::default(),
         }
     }
 
@@ -126,9 +126,9 @@ impl BinaryArray {
 
         Self {
             logical_type: LogicalType::VarBinary,
-            bytes: PingPongPtr::new(bytes),
-            offsets: PingPongPtr::new(offsets),
-            validity: PingPongPtr::default(),
+            bytes: SwarPtr::new(bytes),
+            offsets: SwarPtr::new(offsets),
+            validity: SwarPtr::default(),
         }
     }
 }
@@ -175,8 +175,8 @@ impl Array for BinaryArray {
     }
 
     #[inline]
-    fn validity_mut(&mut self) -> &mut PingPongPtr<Bitmap> {
-        &mut self.validity
+    unsafe fn validity_mut(&mut self) -> &mut Bitmap {
+        self.validity.as_mut()
     }
 
     #[inline]
@@ -252,9 +252,9 @@ impl<V: AsRef<[u8]>> FromIterator<Option<V>> for BinaryArray {
 
         Self {
             logical_type: LogicalType::VarBinary,
-            bytes: PingPongPtr::new(bytes),
-            offsets: PingPongPtr::new(offsets),
-            validity: PingPongPtr::new(validity),
+            bytes: SwarPtr::new(bytes),
+            offsets: SwarPtr::new(offsets),
+            validity: SwarPtr::new(validity),
         }
     }
 }
