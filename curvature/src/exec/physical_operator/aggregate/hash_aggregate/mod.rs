@@ -823,16 +823,12 @@ impl<S: Serde> SourceOperatorExt for HashAggregate<S> {
             return Ok(SourceExecStatus::Finished);
         };
         local_state.state_ptrs.push(element.agg_states_ptr);
-        local_state
-            .serde_keys
-            .push(element.serde_key_and_hash.serde_key);
+        local_state.serde_keys.push(element.serde_key);
 
         for _ in 1..STANDARD_VECTOR_SIZE {
             if let Some(element) = local_state.table_into_iter.next() {
                 local_state.state_ptrs.push(element.agg_states_ptr);
-                local_state
-                    .serde_keys
-                    .push(element.serde_key_and_hash.serde_key);
+                local_state.serde_keys.push(element.serde_key);
             } else {
                 break;
             }
@@ -998,8 +994,8 @@ unsafe fn combine_swiss_table<'a, K: SerdeKey>(
             probing_swiss_table(
                 combined_table,
                 combined_arena,
-                &mut element.serde_key_and_hash.serde_key,
-                element.serde_key_and_hash.hash_value,
+                &mut element.serde_key,
+                element.hash_value,
                 combined_ptr,
                 agg_func_list,
             )
@@ -1070,23 +1066,19 @@ fn partition<S: Serde, P: Partitioning>(
     });
 
     swiss_table.into_iter().for_each(|element| {
-        let partition_index = partitioning.partition(element.serde_key_and_hash.hash_value);
+        let partition_index = partitioning.partition(element.hash_value);
         debug_assert!(partition_index < partitioning.partition_count().get() as _);
 
         // SAFETY: We already allocate the hash table in the tables and the partition index
         // is guaranteed smaller than the partition count
         let hash_table = unsafe { partitioned.get_unchecked_mut(partition_index) };
-        hash_table.insert(element.serde_key_and_hash.hash_value, element, |element| {
-            element.serde_key_and_hash.hash_value
-        });
+        hash_table.insert(element.hash_value, element, |element| element.hash_value);
     });
 }
 
 #[cfg(test)]
 mod tests {
     use self::serde::FixedSizedSerdeKeySerializer;
-
-    use super::hash_table::SerdeKeyAndHash;
 
     use super::serde::FixedSizedSerdeKey;
 
@@ -1120,10 +1112,7 @@ mod tests {
         let mut mocked = vec![Vec::new(), Vec::new()];
         (0..duplicate_count).for_each(|_| {
             let khs = (0..6)
-                .map(|i| SerdeKeyAndHash {
-                    serde_key: FixedSizedSerdeKey::new(i, 0),
-                    hash_value: i,
-                })
+                .map(|i| (FixedSizedSerdeKey::new(i, 0), i))
                 .collect::<Vec<_>>();
 
             let ptrs_array = (0..2)
@@ -1144,7 +1133,8 @@ mod tests {
                         .iter()
                         .enumerate()
                         .map(|(j, &index)| Element {
-                            serde_key_and_hash: khs[index].clone(),
+                            serde_key: khs[index].0.clone(),
+                            hash_value: khs[index].1,
                             agg_states_ptr: ptrs_array[i][j],
                         })
                         .collect::<Vec<_>>()
@@ -1174,9 +1164,7 @@ mod tests {
                 .for_each(|(index, elements)| {
                     let mut table = SwissTable::with_capacity(16);
                     elements.into_iter().for_each(|element| {
-                        table.insert(element.serde_key_and_hash.hash_value, element, |element| {
-                            element.serde_key_and_hash.hash_value
-                        });
+                        table.insert(element.hash_value, element, |element| element.hash_value);
                     });
                     mocked[index].push(table)
                 });

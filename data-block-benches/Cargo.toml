@@ -21,7 +21,6 @@ arrow2 = { version = "0.18", features = ["benchmarks", "compute"] }
 libc = { workspace = true }
 
 [features]
-intrinsics = ["data-block/intrinsics"]
 portable_simd = ["data-block/portable_simd"]
 # enable target feature avx512
 avx512 = []

@@ -68,21 +68,14 @@ impl<S: Serde> std::fmt::Debug for HashTable<S> {
 /// Element of the hash table
 #[derive(Debug, Clone)]
 pub struct Element<K> {
-    /// Serde key and its hash
-    pub(super) serde_key_and_hash: SerdeKeyAndHash<K>,
-    /// Pointer to the combined `AggregationStates`, the pointer is allocated
-    /// in the arena
-    pub(super) agg_states_ptr: AggregationStatesPtr,
-}
-
-/// Serde key and its hash value
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct SerdeKeyAndHash<K> {
+    /// Serde key
+    pub(super) serde_key: K,
     /// Hash value of this element. It is used to avoid rehashing the keys
     /// when we need to resize the hash table
     pub(super) hash_value: HashValue,
-    /// The serialized `GroupByKeys`, it maybe u64/u32/u128/Vec<u8>
-    pub(super) serde_key: K,
+    /// Pointer to the combined `AggregationStates`, the pointer is allocated
+    /// in the arena
+    pub(super) agg_states_ptr: AggregationStatesPtr,
 }
 
 unsafe impl<K: Send> Send for Element<K> {}
@@ -202,9 +195,7 @@ pub(super) fn probing_swiss_table<K: SerdeKey>(
     state_ptr: &mut AggregationStatesPtr,
     agg_func_list: &AggregationFunctionList,
 ) {
-    match swiss_table.get(hash_value, |probe_element| {
-        probe_element.serde_key_and_hash.serde_key.eq(key)
-    }) {
+    match swiss_table.get(hash_value, |probe_element| probe_element.serde_key.eq(key)) {
         None => {
             // The group by keys do not in the hash table, we need to create a new
             // aggregation states to store its result
@@ -213,13 +204,11 @@ pub(super) fn probing_swiss_table<K: SerdeKey>(
             swiss_table.insert(
                 hash_value,
                 Element {
-                    serde_key_and_hash: SerdeKeyAndHash {
-                        serde_key: std::mem::take(key),
-                        hash_value,
-                    },
+                    serde_key: std::mem::take(key),
+                    hash_value,
                     agg_states_ptr,
                 },
-                |element| element.serde_key_and_hash.hash_value,
+                |element| element.hash_value,
             );
             *state_ptr = agg_states_ptr;
         }

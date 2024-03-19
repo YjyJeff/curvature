@@ -4,11 +4,13 @@ use std::sync::Arc;
 use curvature::common::client_context::{ClientContext, ExecArgs};
 use curvature::common::types::ParallelismDegree;
 use curvature::common::uuid::QueryId;
-use curvature::exec::physical_expr::arith::DefaultRemConstantArith;
+use curvature::exec::physical_expr::arith::ConstDiv;
 use curvature::exec::physical_expr::field_ref::FieldRef;
 use curvature::exec::physical_expr::function::aggregate::min_max::Max;
 use curvature::exec::physical_expr::PhysicalExpr;
-use curvature::exec::physical_operator::aggregate::hash_aggregate::serde::NonNullableFixedSizedSerdeKeySerializer;
+use curvature::exec::physical_operator::aggregate::hash_aggregate::serde::{
+    FixedSizedSerdeKeySerializer, NonNullableFixedSizedSerdeKeySerializer,
+};
 use curvature::exec::physical_operator::aggregate::hash_aggregate::HashAggregate;
 use curvature::exec::physical_operator::numbers::Numbers;
 use curvature::exec::physical_operator::projection::Projection;
@@ -43,41 +45,41 @@ fn main() {
         physical_plan,
         vec![
             Arc::clone(&field_ref),
-            Arc::new(DefaultRemConstantArith::new(
+            Arc::new(ConstDiv::<u64, u8>::new(
                 Arc::clone(&field_ref),
-                3_u64,
+                3,
                 "number % 3".to_string(),
             )),
-            Arc::new(DefaultRemConstantArith::new(
+            Arc::new(ConstDiv::<u64, u8>::new(
                 Arc::clone(&field_ref),
-                4_u64,
+                4,
                 "number % 4".to_string(),
             )),
-            Arc::new(DefaultRemConstantArith::new(
+            Arc::new(ConstDiv::<u64, u8>::new(
                 Arc::clone(&field_ref),
-                5_u64,
+                5,
                 "number % 5".to_string(),
             )),
         ],
     ));
 
     let physical_plan: Arc<dyn PhysicalOperator> = Arc::new(
-        HashAggregate::<NonNullableFixedSizedSerdeKeySerializer<[u8; 32]>>::try_new(
+        HashAggregate::<NonNullableFixedSizedSerdeKeySerializer<u32>>::try_new(
             physical_plan,
             vec![
                 Arc::new(FieldRef::new(
                     1,
-                    LogicalType::UnsignedBigInt,
+                    LogicalType::UnsignedTinyInt,
                     "number % 3".to_string(),
                 )),
                 Arc::new(FieldRef::new(
                     2,
-                    LogicalType::UnsignedBigInt,
+                    LogicalType::UnsignedTinyInt,
                     "number % 4".to_string(),
                 )),
                 Arc::new(FieldRef::new(
                     3,
-                    LogicalType::UnsignedBigInt,
+                    LogicalType::UnsignedTinyInt,
                     "number % 5".to_string(),
                 )),
             ],

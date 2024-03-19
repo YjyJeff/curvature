@@ -258,7 +258,6 @@ impl SourceOperatorExt for Numbers {
             )
         };
 
-        crate::mutate_data_block_safety!();
         unsafe {
             sequence(array, start, end);
         }

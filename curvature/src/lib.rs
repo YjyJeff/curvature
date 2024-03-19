@@ -17,9 +17,7 @@
 pub mod common;
 pub mod error;
 pub mod exec;
-mod macros;
 pub mod tree_node;
-use self::macros::mutate_data_block_safety;
 
 /// The default vector size used by the curvature
 pub const STANDARD_VECTOR_SIZE: usize = 1024;

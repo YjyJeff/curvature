@@ -74,7 +74,7 @@ impl FloatExt for f64 {}
 /// TBD: Should we separate the validity with value? We can also serialize the
 /// validity into values such that compare is much faster! However, it also means
 /// we need larger key to store `GroupByKeys`
-#[derive(Debug, Default, PartialEq, Eq, Hash, Clone)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
 pub struct FixedSizedSerdeKey<K: Eq + Hash + Default + Clone + Debug + 'static> {
     key: K,
     validity: BitStore,

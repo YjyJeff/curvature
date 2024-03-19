@@ -3,8 +3,8 @@
 use data_block::array::{ArrayError, ArrayImpl, PrimitiveArray};
 use data_block::block::DataBlock;
 use data_block::compute::arith::{
-    ArithFuncTrait, DefaultAddScalar, DefaultDivScalar, DefaultMulScalar, DefaultRemScalar,
-    DefaultSubScalar,
+    ArithFuncTrait, ArrayRemElement, DefaultAddScalar, DefaultDivScalar, DefaultMulScalar,
+    DefaultSubScalar, RemCast, RemExt,
 };
 use data_block::types::{Array, LogicalType, PrimitiveType};
 use std::fmt::Debug;
@@ -24,8 +24,6 @@ pub type DefaultSubConstantArith<T> = ConstantArith<T, DefaultSubScalar>;
 pub type DefaultMulConstantArith<T> = ConstantArith<T, DefaultMulScalar>;
 /// Div primitive array with constant, the element in the primitive array are interpreted as numbers
 pub type DefaultDivConstantArith<T> = ConstantArith<T, DefaultDivScalar>;
-/// Rem primitive array with constant, the element in the primitive array are interpreted as numbers
-pub type DefaultRemConstantArith<T> = ConstantArith<T, DefaultRemScalar>;
 
 /// Expression to perform `+`/`-`/`*`/`/`/`%` between Array and constant
 #[derive(Debug)]
@@ -141,9 +139,128 @@ where
             )
         });
 
-        crate::mutate_data_block_safety!();
         unsafe {
             F::SCALAR_FUNC(input, self.constant, output);
+        }
+
+        Ok(())
+    }
+}
+
+/// Rem
+#[derive(Debug)]
+pub struct ConstDiv<T, U> {
+    children: Vec<Arc<dyn PhysicalExpr>>,
+    constant: U,
+    name: String,
+    output_type: LogicalType,
+    _phantom: PhantomData<T>,
+}
+
+impl<T, U> ConstDiv<T, U>
+where
+    PrimitiveArray<T>: Array,
+    PrimitiveArray<U>: Array,
+    T: PrimitiveType + RemExt,
+    U: PrimitiveType + RemCast<T>,
+{
+    /// Create a new constant arithmetic
+    pub fn new(input: Arc<dyn PhysicalExpr>, constant: U, name: String) -> Self {
+        Self {
+            output_type: U::LOGICAL_TYPE,
+            children: vec![input],
+            constant,
+            name,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<T, U> Stringify for ConstDiv<T, U>
+where
+    PrimitiveArray<T>: Array,
+    PrimitiveArray<U>: Array,
+    T: PrimitiveType + ArrayRemElement<U>,
+    U: PrimitiveType + RemCast<T>,
+    Self: Debug,
+{
+    /// FIXME: Generic info
+    fn name(&self) -> &'static str {
+        "ConstantArith"
+    }
+
+    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+
+    fn compact_display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.children[0].compact_display(f)?;
+        write!(f, " % {}", self.constant)
+    }
+
+    fn display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "% {} -> {:?}", self.constant, self.output_type)
+    }
+}
+
+impl<T, U> PhysicalExpr for ConstDiv<T, U>
+where
+    PrimitiveArray<T>: Array,
+    PrimitiveArray<U>: Array,
+    T: PrimitiveType + ArrayRemElement<U>,
+    U: PrimitiveType + RemCast<T>,
+    for<'a> &'a PrimitiveArray<T>: TryFrom<&'a ArrayImpl, Error = ArrayError>,
+    for<'a> &'a mut PrimitiveArray<U>: TryFrom<&'a mut ArrayImpl, Error = ArrayError>,
+    Self: Debug,
+{
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn output_type(&self) -> &LogicalType {
+        &self.output_type
+    }
+
+    fn children(&self) -> &[Arc<dyn PhysicalExpr>] {
+        &self.children
+    }
+
+    fn execute(
+        &self,
+        leaf_input: &DataBlock,
+        exec_ctx: &mut ExprExecCtx,
+        output: &mut ArrayImpl,
+    ) -> ExprResult<()> {
+        // Execute input
+        let mut guard = exec_ctx.intermediate_block.mutate_single_array();
+
+        self.children[0].execute(leaf_input, &mut exec_ctx.children[0], guard.deref_mut())?;
+
+        // Execute self
+        let input: &PrimitiveArray<T> = guard.deref().try_into().unwrap_or_else(|_| {
+            panic!(
+                "`{}` expect the input have `{}`, however the input array `{}Array` has logical type: `{:?}` with `{}`",
+                CompactExprDisplayWrapper::new(self),
+                T::PHYSICAL_TYPE,
+                guard.ident(),
+                guard.logical_type(),
+                guard.logical_type().physical_type(),
+            )
+        });
+
+        let output: &mut PrimitiveArray<U> = output.try_into().unwrap_or_else(|_| {
+            panic!(
+                "`{}` expect the output have `{}`, however the output array `{}Array` has logical type: `{:?}` with `{}`", 
+                CompactExprDisplayWrapper::new(self),
+                T::PHYSICAL_TYPE,
+                guard.ident(),
+                guard.logical_type(),
+                guard.logical_type().physical_type()
+            )
+        });
+
+        unsafe {
+            data_block::compute::arith::rem_scalar(input, self.constant, output);
         }
 
         Ok(())
