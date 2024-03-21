@@ -4,7 +4,7 @@ use std::convert::identity;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::marker::PhantomData;
-use std::mem::size_of;
+use std::mem;
 
 use data_block::array::{Array, ArrayImpl, ScalarArray};
 use data_block::bitmap::BitStore;
@@ -44,7 +44,7 @@ pub trait Serde: Debug + 'static {
 }
 
 /// Extension for float
-trait FloatExt: num_traits::Float {
+trait FloatSerdeExt: num_traits::Float {
     // Normalize the float, make `NaN`/`-Nan` and `-0.0`/`0.0` consistent
     #[inline]
     fn normalize(self) -> Self {
@@ -58,8 +58,8 @@ trait FloatExt: num_traits::Float {
     }
 }
 
-impl FloatExt for f32 {}
-impl FloatExt for f64 {}
+impl FloatSerdeExt for f32 {}
+impl FloatSerdeExt for f64 {}
 
 /// Serde key that contains the keys that all of them are fixed size.
 ///
@@ -96,11 +96,11 @@ macro_rules! impl_fixed_sized_serde_key {
     ($(<$ty:ty, $({$_:ident, $__:ty}),+, $([$___:ident, $____:ty]),* >),+) => {
         $(
             impl SerdeKey for FixedSizedSerdeKey<$ty> {
-                const PHYSICAL_SIZE: PhysicalSize = PhysicalSize::Fixed(size_of::<$ty>());
+                const PHYSICAL_SIZE: PhysicalSize = PhysicalSize::Fixed(mem::size_of::<$ty>());
             }
 
             impl SerdeKey for $ty {
-                const PHYSICAL_SIZE: PhysicalSize = PhysicalSize::Fixed(size_of::<$ty>());
+                const PHYSICAL_SIZE: PhysicalSize = PhysicalSize::Fixed(mem::size_of::<$ty>());
             }
         )+
     };
@@ -123,34 +123,26 @@ macro_rules! impl_fixed_sized_serde_key_serializer {
                         match array {
                             ArrayImpl::Boolean(array) => {
                                 serialize_scalar_fixed_sized_array(array, keys, offset_in_byte, index, identity);
-                                offset_in_byte += size_of::<bool>();
+                                offset_in_byte += mem::size_of::<bool>();
                             }
                             $(
                                 ArrayImpl::$int_variant(array) => {
                                     serialize_scalar_fixed_sized_array(array, keys, offset_in_byte, index, identity);
-                                    offset_in_byte += size_of::<$int_primitive_ty>();
+                                    offset_in_byte += mem::size_of::<$int_primitive_ty>();
                                 }
                             )+
                             $(
                                 ArrayImpl::$float_variant(array) => {
-                                    serialize_scalar_fixed_sized_array(array, keys, offset_in_byte, index, <$float_primitive_ty as FloatExt>::normalize);
-                                    offset_in_byte += size_of::<$float_primitive_ty>();
+                                    serialize_scalar_fixed_sized_array(array, keys, offset_in_byte, index, <$float_primitive_ty as FloatSerdeExt>::normalize);
+                                    offset_in_byte += mem::size_of::<$float_primitive_ty>();
                                 }
                             )*
                             _ => {
-                                #[cfg(debug_assertions)]
-                                {
-                                    unreachable!(
-                                        "FixedSizedSerdeKeySerializer<{}> can not serialize {} array. Caller breaks the safety contract",
-                                        stringify!($serde_key_ty),
-                                        array.ident()
-                                    )
-                                }
-
-                                #[cfg(not(debug_assertions))]
-                                {
-                                    std::hint::unreachable_unchecked()
-                                }
+                                unreachable!(
+                                    "FixedSizedSerdeKeySerializer<{}> can not serialize {} array. Caller breaks the safety contract",
+                                    stringify!($serde_key_ty),
+                                    array.ident()
+                                )
                             }
                         }
                     }
@@ -162,34 +154,26 @@ macro_rules! impl_fixed_sized_serde_key_serializer {
                         match array{
                             ArrayImpl::Boolean(array) => {
                                 deserialize_scalar_fixed_sized_array(array, keys, offset_in_byte, index);
-                                offset_in_byte += size_of::<bool>();
+                                offset_in_byte += mem::size_of::<bool>();
                             }
                             $(
                                 ArrayImpl::$int_variant(array) => {
                                     deserialize_scalar_fixed_sized_array(array, keys, offset_in_byte, index);
-                                    offset_in_byte += size_of::<$int_primitive_ty>();
+                                    offset_in_byte += mem::size_of::<$int_primitive_ty>();
                                 }
                             )+
                             $(
                                 ArrayImpl::$float_variant(array) => {
                                     deserialize_scalar_fixed_sized_array(array, keys, offset_in_byte, index);
-                                    offset_in_byte += size_of::<$float_primitive_ty>();
+                                    offset_in_byte += mem::size_of::<$float_primitive_ty>();
                                 }
                             )*
                             _ => {
-                                #[cfg(debug_assertions)]
-                                {
-                                    unreachable!(
-                                        "FixedSizedSerdeKeySerializer<{}> can not deserialize {} array. Caller breaks the safety contract",
-                                        stringify!($serde_key_ty),
-                                        array.ident()
-                                    )
-                                }
-
-                                #[cfg(not(debug_assertions))]
-                                {
-                                    std::hint::unreachable_unchecked()
-                                }
+                                unreachable!(
+                                    "FixedSizedSerdeKeySerializer<{}> can not deserialize {} array. Caller breaks the safety contract",
+                                    stringify!($serde_key_ty),
+                                    array.ident()
+                                )
                             }
                         }
                     }
@@ -205,34 +189,26 @@ macro_rules! impl_fixed_sized_serde_key_serializer {
                         match array {
                             ArrayImpl::Boolean(array) => {
                                 serialize_non_nullable_scalar_fixed_sized_array(array, keys, offset_in_byte, identity);
-                                offset_in_byte += size_of::<bool>();
+                                offset_in_byte += mem::size_of::<bool>();
                             }
                             $(
                                 ArrayImpl::$int_variant(array) => {
                                     serialize_non_nullable_scalar_fixed_sized_array(array, keys, offset_in_byte, identity);
-                                    offset_in_byte += size_of::<$int_primitive_ty>();
+                                    offset_in_byte += mem::size_of::<$int_primitive_ty>();
                                 }
                             )+
                             $(
                                 ArrayImpl::$float_variant(array) => {
-                                    serialize_non_nullable_scalar_fixed_sized_array(array, keys, offset_in_byte, <$float_primitive_ty as FloatExt>::normalize);
-                                    offset_in_byte += size_of::<$float_primitive_ty>();
+                                    serialize_non_nullable_scalar_fixed_sized_array(array, keys, offset_in_byte, <$float_primitive_ty as FloatSerdeExt>::normalize);
+                                    offset_in_byte += mem::size_of::<$float_primitive_ty>();
                                 }
                             )*
                             _ => {
-                                #[cfg(debug_assertions)]
-                                {
-                                    unreachable!(
-                                        "NonNullableFixedSizedSerdeKeySerializer<{}> can not serialize {} array. Caller breaks the safety contract",
-                                        stringify!($serde_key_ty),
-                                        array.ident()
-                                    )
-                                }
-
-                                #[cfg(not(debug_assertions))]
-                                {
-                                    std::hint::unreachable_unchecked()
-                                }
+                                unreachable!(
+                                    "NonNullableFixedSizedSerdeKeySerializer<{}> can not serialize {} array. Caller breaks the safety contract",
+                                    stringify!($serde_key_ty),
+                                    array.ident()
+                                )
                             }
                         }
                     }
@@ -244,34 +220,26 @@ macro_rules! impl_fixed_sized_serde_key_serializer {
                         match array{
                             ArrayImpl::Boolean(array) => {
                                 deserialize_non_nullable_scalar_fixed_sized_array(array, keys, offset_in_byte);
-                                offset_in_byte += size_of::<bool>();
+                                offset_in_byte += mem::size_of::<bool>();
                             }
                             $(
                                 ArrayImpl::$int_variant(array) => {
                                     deserialize_non_nullable_scalar_fixed_sized_array(array, keys, offset_in_byte);
-                                    offset_in_byte += size_of::<$int_primitive_ty>();
+                                    offset_in_byte += mem::size_of::<$int_primitive_ty>();
                                 }
                             )+
                             $(
                                 ArrayImpl::$float_variant(array) => {
                                     deserialize_non_nullable_scalar_fixed_sized_array(array, keys, offset_in_byte);
-                                    offset_in_byte += size_of::<$float_primitive_ty>();
+                                    offset_in_byte += mem::size_of::<$float_primitive_ty>();
                                 }
                             )*
                             _ => {
-                                #[cfg(debug_assertions)]
-                                {
-                                    unreachable!(
-                                        "NonNullableFixedSizedSerdeKeySerializer<{}> can not deserialize {} array. Caller breaks the safety contract",
-                                        stringify!($serde_key_ty),
-                                        array.ident()
-                                    )
-                                }
-
-                                #[cfg(not(debug_assertions))]
-                                {
-                                    std::hint::unreachable_unchecked()
-                                }
+                                unreachable!(
+                                    "NonNullableFixedSizedSerdeKeySerializer<{}> can not deserialize {} array. Caller breaks the safety contract",
+                                    stringify!($serde_key_ty),
+                                    array.ident()
+                                )
                             }
                         }
                     }
@@ -296,7 +264,6 @@ pub struct NonNullableFixedSizedSerdeKeySerializer<K> {
     _phantom: PhantomData<K>,
 }
 
-#[inline]
 unsafe fn serialize_scalar_fixed_sized_array<A, T, K, F>(
     array: &A,
     keys: &mut [FixedSizedSerdeKey<K>],
@@ -310,7 +277,7 @@ unsafe fn serialize_scalar_fixed_sized_array<A, T, K, F>(
     F: Fn(T) -> T,
 {
     // Assert we have enough space
-    debug_assert!(offset_in_byte + size_of::<T>() <= size_of::<K>());
+    debug_assert!(offset_in_byte + mem::size_of::<T>() <= mem::size_of::<K>());
 
     let set_mask = 1 << index;
     let clear_mask = !set_mask;
@@ -321,9 +288,9 @@ unsafe fn serialize_scalar_fixed_sized_array<A, T, K, F>(
             let val = func(val);
             let src = (&val) as *const _ as *const u8;
             let dst = (&mut serde_key.key) as *mut _ as *mut u8;
-            // size_of::<T> is important, it is a constant, give compiler lots of
+            // mem::size_of::<T> is important, it is a constant, give compiler lots of
             // optimization info
-            std::ptr::copy_nonoverlapping(src, dst.add(offset_in_byte), size_of::<T>());
+            std::ptr::copy_nonoverlapping(src, dst.add(offset_in_byte), mem::size_of::<T>());
 
             serde_key.validity |= set_mask;
         });
@@ -337,9 +304,13 @@ unsafe fn serialize_scalar_fixed_sized_array<A, T, K, F>(
                     let val = func(val);
                     let src = (&val) as *const _ as *const u8;
                     let dst = (&mut serde_key.key) as *mut _ as *mut u8;
-                    // size_of::<T> is important, it is a constant, give compiler lots of
+                    // mem::size_of::<T> is important, it is a constant, give compiler lots of
                     // optimization info
-                    std::ptr::copy_nonoverlapping(src, dst.add(offset_in_byte), size_of::<T>());
+                    std::ptr::copy_nonoverlapping(
+                        src,
+                        dst.add(offset_in_byte),
+                        mem::size_of::<T>(),
+                    );
 
                     serde_key.validity |= set_mask;
                 } else {
@@ -349,7 +320,6 @@ unsafe fn serialize_scalar_fixed_sized_array<A, T, K, F>(
     }
 }
 
-#[inline]
 unsafe fn deserialize_scalar_fixed_sized_array<A, T, K>(
     array: &mut A,
     keys: &[FixedSizedSerdeKey<K>],
@@ -374,7 +344,6 @@ unsafe fn deserialize_scalar_fixed_sized_array<A, T, K>(
     array.replace_with_trusted_len_iterator(keys.len(), trusted_len_iterator)
 }
 
-#[inline]
 unsafe fn serialize_non_nullable_scalar_fixed_sized_array<A, T, K, F>(
     array: &A,
     keys: &mut [K],
@@ -387,19 +356,18 @@ unsafe fn serialize_non_nullable_scalar_fixed_sized_array<A, T, K, F>(
     F: Fn(T) -> T,
 {
     // Assert we have enough space
-    debug_assert!(offset_in_byte + size_of::<T>() <= size_of::<K>());
+    debug_assert!(offset_in_byte + mem::size_of::<T>() <= mem::size_of::<K>());
 
     array.values_iter().zip(keys).for_each(|(val, serde_key)| {
         let val = func(val);
         let src = (&val) as *const _ as *const u8;
         let dst = serde_key as *mut _ as *mut u8;
-        // size_of::<T> is important, it is a constant, give compiler lots of
+        // mem::size_of::<T> is important, it is a constant, give compiler lots of
         // optimization info
-        std::ptr::copy_nonoverlapping(src, dst.add(offset_in_byte), size_of::<T>());
+        std::ptr::copy_nonoverlapping(src, dst.add(offset_in_byte), mem::size_of::<T>());
     });
 }
 
-#[inline]
 unsafe fn deserialize_non_nullable_scalar_fixed_sized_array<A, T, K>(
     array: &mut A,
     keys: &[K],

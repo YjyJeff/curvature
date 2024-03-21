@@ -35,3 +35,5 @@ data-block = { path = "data-block" }
 
 [profile.release]
 lto = true
+opt-level = 3
+codegen-units = 1

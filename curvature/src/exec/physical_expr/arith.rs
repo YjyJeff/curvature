@@ -7,6 +7,7 @@ use data_block::compute::arith::{
     DefaultSubScalar, RemCast, RemExt,
 };
 use data_block::types::{Array, LogicalType, PrimitiveType};
+use snafu::ResultExt;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
@@ -14,7 +15,7 @@ use std::sync::Arc;
 
 use super::executor::ExprExecCtx;
 use super::utils::CompactExprDisplayWrapper;
-use super::{ExprResult, PhysicalExpr, Stringify};
+use super::{ExecuteSnafu, ExprResult, PhysicalExpr, Stringify};
 
 /// Add primitive array with constant, the element in the primitive array are interpreted as numbers
 pub type DefaultAddConstantArith<T> = ConstantArith<T, DefaultAddScalar>;
@@ -114,7 +115,12 @@ where
         // Execute input
         let mut guard = exec_ctx.intermediate_block.mutate_single_array();
 
-        self.children[0].execute(leaf_input, &mut exec_ctx.children[0], guard.deref_mut())?;
+        self.children[0]
+            .execute(leaf_input, &mut exec_ctx.children[0], guard.deref_mut())
+            .boxed()
+            .with_context(|_| ExecuteSnafu {
+                expr: CompactExprDisplayWrapper::new(self).to_string(),
+            })?;
 
         // Execute self
         let input: &PrimitiveArray<T> = guard.deref().try_into().unwrap_or_else(|_| {

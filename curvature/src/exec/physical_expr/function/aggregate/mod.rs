@@ -39,16 +39,10 @@ pub enum AggregationError {
         expect_physical_type: PhysicalType,
         arg_type: LogicalType,
     },
-    #[snafu(display("Failed to update the aggregation states of the `{func}`"))]
-    UpdateStates {
-        func: &'static str,
-        source: SendableError,
-    },
-    #[snafu(display("Failed to finalize the aggregation states of the `{func}`"))]
-    FinalizeStates {
-        func: &'static str,
-        source: SendableError,
-    },
+    #[snafu(display("Failed to update the aggregation states"))]
+    UpdateStates { source: SendableError },
+    #[snafu(display("Failed to combine the aggregation states"))]
+    CombineStates { source: SendableError },
 }
 
 /// Aggregation result
@@ -411,14 +405,17 @@ pub trait UnaryAggregationState<PayloadArray: Array> {
     type Output;
 
     /// Update the state based on the element in the payload
-    fn update(&mut self, payload_element: <PayloadArray::Element as Element>::ElementRef<'_>);
+    fn update(
+        &mut self,
+        payload_element: <PayloadArray::Element as Element>::ElementRef<'_>,
+    ) -> Result<()>;
 
     /// Combine the unary aggregation state
     ///
     /// # Safety
     ///
     /// Implementation should free the memory occupied by the `partial_state` that does not in arena
-    unsafe fn combine(&mut self, partial: &mut Self);
+    unsafe fn combine(&mut self, partial: &mut Self) -> Result<()>;
 
     /// Consume the aggregation state, return the output of the aggregation state
     ///
@@ -447,7 +444,8 @@ unsafe fn unary_update_states<PayloadArray, S>(
     payloads: &[&ArrayImpl],
     state_ptrs: &[AggregationStatesPtr],
     state_offset: usize,
-) where
+) -> Result<()>
+where
     PayloadArray: Array,
     S: UnaryAggregationState<PayloadArray>,
     for<'a> &'a PayloadArray: TryFrom<&'a ArrayImpl, Error = ArrayError>,
@@ -464,18 +462,20 @@ unsafe fn unary_update_states<PayloadArray, S>(
         payload
             .values_iter()
             .zip(state_ptrs)
-            .for_each(|(payload_element, ptr)| {
+            .try_for_each(|(payload_element, ptr)| {
                 ptr.offset_as_mut::<S>(state_offset).update(payload_element)
-            });
+            })
     } else {
         // Some elements are null
         payload
             .values_iter()
             .zip(validity.iter())
             .zip(state_ptrs)
-            .for_each(|((payload_element, not_null), ptr)| {
+            .try_for_each(|((payload_element, not_null), ptr)| {
                 if not_null {
                     ptr.offset_as_mut::<S>(state_offset).update(payload_element)
+                } else {
+                    Ok(())
                 }
             })
     }
@@ -486,18 +486,19 @@ unsafe fn unary_combine_states<PayloadArray, S>(
     partial_state_ptrs: &[AggregationStatesPtr],
     combined_state_ptrs: &[AggregationStatesPtr],
     state_offset: usize,
-) where
+) -> Result<()>
+where
     PayloadArray: Array,
     S: UnaryAggregationState<PayloadArray>,
 {
     combined_state_ptrs
         .iter()
         .zip(partial_state_ptrs)
-        .for_each(|(combined, partial)| {
+        .try_for_each(|(combined, partial)| {
             let combined = combined.offset_as_mut::<S>(state_offset);
             let partial = partial.offset_as_mut::<S>(state_offset);
             combined.combine(partial)
-        });
+        })
 }
 
 #[inline]

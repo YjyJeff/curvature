@@ -7,6 +7,7 @@ use curvature::common::uuid::QueryId;
 use curvature::exec::physical_expr::arith::ConstDiv;
 use curvature::exec::physical_expr::field_ref::FieldRef;
 use curvature::exec::physical_expr::function::aggregate::min_max::Max;
+use curvature::exec::physical_expr::function::aggregate::sum::Sum;
 use curvature::exec::physical_expr::PhysicalExpr;
 use curvature::exec::physical_operator::aggregate::hash_aggregate::serde::{
     FixedSizedSerdeKeySerializer, NonNullableFixedSizedSerdeKeySerializer,
@@ -83,9 +84,10 @@ fn main() {
                     "number % 5".to_string(),
                 )),
             ],
-            vec![Arc::new(
-                Max::<UInt64Array>::try_new(Arc::clone(&field_ref)).unwrap(),
-            )],
+            vec![
+                // Arc::new(Sum::<UInt64Array>::try_new(Arc::clone(&field_ref)).unwrap()),
+                Arc::new(Max::<UInt64Array>::try_new(Arc::clone(&field_ref)).unwrap()),
+            ],
         )
         .unwrap(),
     );
@@ -104,6 +106,7 @@ fn main() {
     .unwrap();
 
     executor.execute(|block| println!("{}", block)).unwrap();
+    // executor.execute(|block| {}).unwrap();
 
     tracing::info!("Elapsed {} sec", now.elapsed().as_millis() as f64 / 1000.0);
 }

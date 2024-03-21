@@ -35,6 +35,8 @@ default = []
 profile = []
 nightly = ["hashbrown/nightly"]
 portable_simd = ["data-block/portable_simd"]
+# Check overflow in arithmetic
+overflow_checks = []
 
 [[bench]]
 name = "numbers"

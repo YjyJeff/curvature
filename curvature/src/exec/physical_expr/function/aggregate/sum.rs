@@ -8,13 +8,13 @@
 use std::alloc::Layout;
 use std::fmt::Debug;
 use std::marker::PhantomData;
-use std::ops::AddAssign;
+
 use std::sync::Arc;
 
 use data_block::array::{ArrayError, ArrayImpl, PrimitiveArray, PrimitiveType, ScalarArray};
 use data_block::element::interval::DayTime;
 use data_block::types::LogicalType;
-use snafu::ensure;
+use snafu::{ensure, Snafu};
 
 use crate::exec::physical_expr::field_ref::FieldRef;
 use crate::exec::physical_expr::function::aggregate::ArgTypeMismatchSnafu;
@@ -25,6 +25,16 @@ use super::{
     unary_combine_states, unary_take_states, unary_update_states, AggregationFunction,
     AggregationStatesPtr, NotFieldRefArgsSnafu, Result, Stringify, UnaryAggregationState,
 };
+
+#[cfg(feature = "overflow_checks")]
+use super::{CombineStatesSnafu, UpdateStatesSnafu};
+#[cfg(feature = "overflow_checks")]
+use snafu::ResultExt;
+
+/// Overflow error
+#[derive(Debug, Snafu)]
+#[snafu(display("Overflow happens when computing the `sum` aggregation function"))]
+pub struct OverflowError;
 
 /// Trait for constrain the payload array of the sum function, only the arrays implement
 /// this trait can be summed
@@ -49,12 +59,34 @@ pub trait PayloadCast: PrimitiveType {
 /// # Safety
 ///
 /// The type implement [`SumType`] does not have any heap allocation
-pub unsafe trait SumType: PrimitiveType + AddAssign {}
+pub unsafe trait SumType: PrimitiveType {
+    #[cfg(not(feature = "overflow_checks"))]
+    /// Function for adding two sum type
+    const ADD_FUNC: fn(Self, Self) -> Self;
+
+    #[cfg(feature = "overflow_checks")]
+    /// Function for adding two sum type
+    const ADD_FUNC: fn(Self, Self) -> Option<Self>;
+}
+
+#[cfg(feature = "overflow_checks")]
+/// Some the f64 and wrapping it in Option
+#[inline]
+fn float_checked_add(lhs: f64, rhs: f64) -> Option<f64> {
+    Some(lhs + rhs)
+}
 
 macro_rules! impl_sum_payload_array {
-    ($sum_ty:ty, {$($payload_ty:ty),+}) => {
+    ($sum_ty:ty, {$($payload_ty:ty),+}, $checked_method:path) => {
 
-        unsafe impl SumType for $sum_ty {}
+        unsafe impl SumType for $sum_ty {
+            #[cfg(not(feature = "overflow_checks"))]
+            const ADD_FUNC: fn(Self, Self) -> Self = std::ops::Add::add;
+
+            #[cfg(feature = "overflow_checks")]
+            /// Function for adding two sum type
+            const ADD_FUNC: fn(Self, Self) -> Option<Self> = $checked_method;
+        }
 
         $(
             impl PayloadCast for $payload_ty {
@@ -73,10 +105,10 @@ macro_rules! impl_sum_payload_array {
     };
 }
 
-impl_sum_payload_array!(u64, {u8, u16, u32, u64});
-impl_sum_payload_array!(i64, {i8, i16, i32, i64});
-impl_sum_payload_array!(f64, {f32, f64});
-impl_sum_payload_array!(DayTime, { DayTime });
+impl_sum_payload_array!(u64, {u8, u16, u32, u64}, u64::checked_add);
+impl_sum_payload_array!(i64, {i8, i16, i32, i64}, i64::checked_add);
+impl_sum_payload_array!(f64, {f32, f64}, float_checked_add);
+impl_sum_payload_array!(DayTime, { DayTime }, DayTime::checked_add);
 
 /// Aggregation state of the sum function
 #[derive(Debug)]
@@ -160,11 +192,11 @@ where
         state_ptrs: &[AggregationStatesPtr],
         state_offset: usize,
     ) -> Result<()> {
-        unary_update_states::<
-            PayloadArray,
-            SumState<<PayloadArray::Element as PayloadCast>::SumType>,
-        >(payloads, state_ptrs, state_offset);
-        Ok(())
+        unary_update_states::<PayloadArray, SumState<<PayloadArray::Element as PayloadCast>::SumType>>(
+            payloads,
+            state_ptrs,
+            state_offset,
+        )
     }
 
     unsafe fn combine_states(
@@ -176,9 +208,7 @@ where
         unary_combine_states::<
             PayloadArray,
             SumState<<PayloadArray::Element as PayloadCast>::SumType>,
-        >(partial_state_ptrs, combined_state_ptrs, state_offset);
-
-        Ok(())
+        >(partial_state_ptrs, combined_state_ptrs, state_offset)
     }
 
     unsafe fn take_states(
@@ -213,27 +243,71 @@ where
 
     /// FIXME: accelerate with likely
     #[inline]
-    fn update(&mut self, payload_element: PayloadArray::Element) {
+    fn update(&mut self, payload_element: PayloadArray::Element) -> Result<()> {
         let payload_element = payload_element.cast();
         match &mut self.sum {
             Some(sum) => {
-                *sum += payload_element;
+                #[cfg(not(feature = "overflow_checks"))]
+                {
+                    *sum = <PayloadArray::Element as PayloadCast>::SumType::ADD_FUNC(
+                        *sum,
+                        payload_element,
+                    );
+                }
+
+                #[cfg(feature = "overflow_checks")]
+                {
+                    if let Some(s) = <PayloadArray::Element as PayloadCast>::SumType::ADD_FUNC(
+                        *sum,
+                        payload_element,
+                    ) {
+                        *sum = s;
+                    } else {
+                        return Err(Box::new(OverflowError) as _).context(CombineStatesSnafu);
+                    }
+                }
             }
-            None => self.sum = Some(payload_element),
+            None => {
+                self.sum = Some(payload_element);
+            }
         }
+
+        Ok(())
     }
 
     /// FIXME: accelerate with likely
     #[inline]
-    unsafe fn combine(&mut self, partial: &mut Self) {
+    unsafe fn combine(&mut self, partial: &mut Self) -> Result<()> {
         if let Some(partial_sum) = Option::take(&mut partial.sum) {
             match &mut self.sum {
                 Some(combined_sum) => {
-                    *combined_sum += partial_sum;
+                    #[cfg(not(feature = "overflow_checks"))]
+                    {
+                        *combined_sum = <PayloadArray::Element as PayloadCast>::SumType::ADD_FUNC(
+                            *combined_sum,
+                            partial_sum,
+                        );
+                    }
+
+                    #[cfg(feature = "overflow_checks")]
+                    {
+                        if let Some(s) = <PayloadArray::Element as PayloadCast>::SumType::ADD_FUNC(
+                            *combined_sum,
+                            partial_sum,
+                        ) {
+                            *combined_sum = s;
+                        } else {
+                            return Err(Box::new(OverflowError) as _).context(UpdateStatesSnafu);
+                        }
+                    }
                 }
-                None => self.sum = Some(partial_sum),
+                None => {
+                    self.sum = Some(partial_sum);
+                }
             }
         }
+
+        Ok(())
     }
 
     #[inline]
@@ -300,9 +374,9 @@ mod tests {
     #[test]
     fn test_sum_update() {
         let mut sum_state = SumState::<i64> { sum: None };
-        <SumState<i64> as UnaryAggregationState<Int32Array>>::update(&mut sum_state, 10);
+        <SumState<i64> as UnaryAggregationState<Int32Array>>::update(&mut sum_state, 10).unwrap();
         assert_eq!(sum_state.sum, Some(10));
-        <SumState<i64> as UnaryAggregationState<Int32Array>>::update(&mut sum_state, 10);
+        <SumState<i64> as UnaryAggregationState<Int32Array>>::update(&mut sum_state, 10).unwrap();
         assert_eq!(sum_state.sum, Some(20));
     }
 
@@ -311,15 +385,18 @@ mod tests {
         let mut s0 = SumState::<i64> { sum: None };
         let mut s1 = SumState::<i64> { sum: None };
         unsafe {
-            <SumState<i64> as UnaryAggregationState<Int64Array>>::combine(&mut s0, &mut s1);
+            <SumState<i64> as UnaryAggregationState<Int64Array>>::combine(&mut s0, &mut s1)
+                .unwrap();
             assert_eq!(s0.sum, None);
 
-            <SumState<i64> as UnaryAggregationState<Int64Array>>::update(&mut s1, 10);
-            <SumState<i64> as UnaryAggregationState<Int64Array>>::combine(&mut s0, &mut s1);
+            <SumState<i64> as UnaryAggregationState<Int64Array>>::update(&mut s1, 10).unwrap();
+            <SumState<i64> as UnaryAggregationState<Int64Array>>::combine(&mut s0, &mut s1)
+                .unwrap();
             assert_eq!(s0.sum, Some(10));
 
-            <SumState<i64> as UnaryAggregationState<Int64Array>>::update(&mut s1, 10);
-            <SumState<i64> as UnaryAggregationState<Int64Array>>::combine(&mut s0, &mut s1);
+            <SumState<i64> as UnaryAggregationState<Int64Array>>::update(&mut s1, 10).unwrap();
+            <SumState<i64> as UnaryAggregationState<Int64Array>>::combine(&mut s0, &mut s1)
+                .unwrap();
             assert_eq!(s0.sum, Some(20));
         }
     }
@@ -365,6 +442,29 @@ mod tests {
                 )
             "#]];
             expected.assert_debug_eq(&output)
+        }
+    }
+
+    #[cfg(feature = "overflow_checks")]
+    #[test]
+    fn test_sum_overflow_checks() {
+        let mut sum_state = SumState::<i64> {
+            sum: Some(i64::MAX),
+        };
+        assert!(
+            <SumState<i64> as UnaryAggregationState<Int32Array>>::update(&mut sum_state, 1)
+                .is_err()
+        );
+
+        let mut s0 = SumState::<i64> {
+            sum: Some(i64::MAX),
+        };
+        let mut s1 = SumState::<i64> { sum: Some(1) };
+        unsafe {
+            assert!(
+                <SumState<i64> as UnaryAggregationState<Int64Array>>::combine(&mut s0, &mut s1)
+                    .is_err()
+            );
         }
     }
 }

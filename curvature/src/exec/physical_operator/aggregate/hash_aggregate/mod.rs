@@ -122,7 +122,7 @@ pub struct HashAggregate<S: Serde> {
 
 /// FIXME: Add metric
 #[derive(Debug)]
-struct GlobalState<K> {
+struct GlobalState<K: SerdeKey> {
     /// Swiss tables collected from different threads. In different phases, this struct
     /// has different meaning. In the `sink` phase, It represents partitioned/un-partitioned
     /// tables collected from different threads. In the `source` phase, it represents
@@ -154,14 +154,14 @@ struct GlobalState<K> {
 }
 
 /// Swiss tables collected from a single thread's local states.
-struct ThreadLocalTables<K> {
+struct ThreadLocalTables<K: SerdeKey> {
     /// Swiss tables produced by a single thread. It is guaranteed to be non-empty
     tables: Vec<SwissTable<Element<K>>>,
     /// Arena the element in the tables located on
     arena: Arena,
 }
 
-impl<K: Debug> Debug for ThreadLocalTables<K> {
+impl<K: Debug + SerdeKey> Debug for ThreadLocalTables<K> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "ThreadLocalTables {{ [")?;
         for table in self.tables.iter() {
@@ -312,13 +312,13 @@ impl<S: Serde> Drop for HashAggregate<S> {
 
 /// Global source state for [`HashAggregate`]
 #[derive(Debug)]
-pub struct HashAggregateGlobalSourceState<K> {
+pub struct HashAggregateGlobalSourceState<K: SerdeKey> {
     state: Arc<GlobalState<K>>,
     /// Until now, how many elements have been read
     read_count: Arc<AtomicUsize>,
 }
 
-impl<K: Debug> StateStringify for HashAggregateGlobalSourceState<K> {
+impl<K: Debug + SerdeKey> StateStringify for HashAggregateGlobalSourceState<K> {
     fn name(&self) -> &'static str {
         "HashAggregateGlobalSourceState"
     }
@@ -328,7 +328,9 @@ impl<K: Debug> StateStringify for HashAggregateGlobalSourceState<K> {
     }
 }
 
-impl<K: Send + Sync + 'static + Debug> GlobalSourceState for HashAggregateGlobalSourceState<K> {
+impl<K: Send + Sync + 'static + Debug + SerdeKey> GlobalSourceState
+    for HashAggregateGlobalSourceState<K>
+{
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
@@ -388,12 +390,12 @@ impl<S: Serde + 'static> LocalSourceState for HashAggregateLocalSourceState<S> {
 ///
 /// TBD: Advantage of radix partitioning?
 #[derive(Debug)]
-pub struct HashAggregateGlobalSinkState<K> {
+pub struct HashAggregateGlobalSinkState<K: SerdeKey> {
     state: Arc<GlobalState<K>>,
     partitioning: Option<ModuloPartitioning>,
 }
 
-impl<K: Debug> StateStringify for HashAggregateGlobalSinkState<K> {
+impl<K: Debug + SerdeKey> StateStringify for HashAggregateGlobalSinkState<K> {
     /// FIXME: Include generic info
     fn name(&self) -> &'static str {
         "HashAggregateGlobalSinkState"
@@ -404,13 +406,15 @@ impl<K: Debug> StateStringify for HashAggregateGlobalSinkState<K> {
     }
 }
 
-impl<K: Send + Sync + 'static + Debug> GlobalSinkState for HashAggregateGlobalSinkState<K> {
+impl<K: Send + Sync + 'static + Debug + SerdeKey> GlobalSinkState
+    for HashAggregateGlobalSinkState<K>
+{
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
 }
 
-impl<K> HashAggregateGlobalSinkState<K> {
+impl<K: SerdeKey> HashAggregateGlobalSinkState<K> {
     /// Combine the thread local swiss tables into self
     fn combine(&self, thread_local_tables: ThreadLocalTables<K>) {
         self.state
@@ -1066,13 +1070,14 @@ fn partition<S: Serde, P: Partitioning>(
     });
 
     swiss_table.into_iter().for_each(|element| {
-        let partition_index = partitioning.partition(element.hash_value);
+        let hash_value = element.hash_value;
+        let partition_index = partitioning.partition(hash_value);
         debug_assert!(partition_index < partitioning.partition_count().get() as _);
 
         // SAFETY: We already allocate the hash table in the tables and the partition index
         // is guaranteed smaller than the partition count
         let hash_table = unsafe { partitioned.get_unchecked_mut(partition_index) };
-        hash_table.insert(element.hash_value, element, |element| element.hash_value);
+        hash_table.insert(hash_value, element, |element| element.hash_value);
     });
 }
 
@@ -1112,7 +1117,7 @@ mod tests {
         let mut mocked = vec![Vec::new(), Vec::new()];
         (0..duplicate_count).for_each(|_| {
             let khs = (0..6)
-                .map(|i| (FixedSizedSerdeKey::new(i, 0), i))
+                .map(|i| FixedSizedSerdeKey::new(i, 0))
                 .collect::<Vec<_>>();
 
             let ptrs_array = (0..2)
@@ -1133,8 +1138,9 @@ mod tests {
                         .iter()
                         .enumerate()
                         .map(|(j, &index)| Element {
-                            serde_key: khs[index].0.clone(),
-                            hash_value: khs[index].1,
+                            serde_key: khs[index].clone(),
+                            hash_value: crate::common::utils::hash::BUILD_HASHER_DEFAULT
+                                .hash_one(&khs[index]),
                             agg_states_ptr: ptrs_array[i][j],
                         })
                         .collect::<Vec<_>>()
@@ -1204,23 +1210,10 @@ mod tests {
             guard.mutate(mutate_func).unwrap();
         }
 
-        let expect = expect_test::expect![[r#"
-            ┌────────────────┬────────┐
-            │ UnsignedBigInt │ BigInt │
-            ├────────────────┼────────┤
-            │ 1              │ -1     │
-            ├────────────────┼────────┤
-            │ 2              │ 4      │
-            ├────────────────┼────────┤
-            │ 1              │ -9     │
-            ├────────────────┼────────┤
-            │ 1              │ -3     │
-            ├────────────────┼────────┤
-            │ 2              │ -2     │
-            ├────────────────┼────────┤
-            │ 1              │ 9      │
-            └────────────────┴────────┘"#]];
-        expect.assert_eq(&output.to_string());
+        assert_data_block(
+            &output,
+            ["1,-1,", "2,4,", "1,-9,", "1,-3,", "2,-2,", "1,9,"],
+        );
     }
 
     pub fn assert_data_block(

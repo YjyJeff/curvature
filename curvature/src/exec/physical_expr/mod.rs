@@ -21,8 +21,8 @@ use self::executor::ExprExecCtx;
 #[allow(missing_docs)]
 #[derive(Debug, Snafu)]
 pub enum ExprError {
-    #[snafu(display("Failed to execute the expression"))]
-    Execute { source: SendableError },
+    #[snafu(display("Failed to execute the `{}` expression", expr))]
+    Execute { expr: String, source: SendableError },
 }
 
 type Result<T> = std::result::Result<T, ExprError>;

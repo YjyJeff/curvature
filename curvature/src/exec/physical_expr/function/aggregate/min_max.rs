@@ -138,8 +138,7 @@ where
             payloads,
             state_ptrs,
             state_offset,
-        );
-        Ok(())
+        )
     }
 
     unsafe fn combine_states(
@@ -152,9 +151,7 @@ where
             partial_state_ptrs,
             combined_state_ptrs,
             state_offset,
-        );
-
-        Ok(())
+        )
     }
 
     unsafe fn take_states(
@@ -193,12 +190,12 @@ where
 
     type Output = Option<PayloadArray::Element>;
 
-    /// FIXME: accelerate with likely
+    /// FIXME: If the float array contains NaN, the result will be indeterminacy
     #[inline]
     fn update(
         &mut self,
         payload_element: <<PayloadArray as Array>::Element as Element>::ElementRef<'_>,
-    ) {
+    ) -> Result<()> {
         if let Some(current) = &mut self.state {
             let current_ = <PayloadArray::Element as Element>::upcast_gat(current.as_ref());
             let payload_element_ = <PayloadArray::Element as Element>::upcast_gat(payload_element);
@@ -212,11 +209,13 @@ where
         } else {
             self.state = Some(payload_element.to_owned());
         }
+
+        Ok(())
     }
 
-    /// FIXME: accelerate with likely
+    /// FIXME: If the float array contains NaN, the result will be indeterminacy
     #[inline]
-    unsafe fn combine(&mut self, partial: &mut Self) {
+    unsafe fn combine(&mut self, partial: &mut Self) -> Result<()> {
         // Take is important, such that the partial state will be dropped
         if let Some(partial) = partial.state.take() {
             match &mut self.state {
@@ -232,6 +231,8 @@ where
                 None => self.state = Some(partial),
             }
         }
+
+        Ok(())
     }
 
     #[inline]
@@ -302,17 +303,20 @@ mod tests {
             let mut state = MinMaxState::<$is_min, StringElement> { state: None };
             <MinMaxState<$is_min, StringElement> as UnaryAggregationState<StringArray>>::update(
                 &mut state, $s0,
-            );
+            )
+            .unwrap();
             assert_eq!(state.state.as_ref().map(|v| v.view()), Some($s0));
 
             <MinMaxState<$is_min, StringElement> as UnaryAggregationState<StringArray>>::update(
                 &mut state, $s1,
-            );
+            )
+            .unwrap();
             assert_eq!(state.state.as_ref().map(|v| v.view()), Some($gt0));
 
             <MinMaxState<$is_min, StringElement> as UnaryAggregationState<StringArray>>::update(
                 &mut state, $s2,
-            );
+            )
+            .unwrap();
             assert_eq!(state.state.as_ref().map(|v| v.view()), Some($gt1));
         }};
     }
@@ -340,33 +344,33 @@ mod tests {
             unsafe {
                 <MinMaxState<$is_min, StringElement> as UnaryAggregationState<StringArray>>::combine(
                     &mut s0, &mut s1,
-                );
+                ).unwrap();
                 assert!(s0.state.is_none());
 
                 <MinMaxState<$is_min, StringElement> as UnaryAggregationState<StringArray>>::update(
                     &mut s0, $view_0,
-                );
+                ).unwrap();
                 <MinMaxState<$is_min, StringElement> as UnaryAggregationState<StringArray>>::combine(
                     &mut s0, &mut s1,
-                );
+                ).unwrap();
                 assert_eq!(s0.state.as_ref().map(|v| v.view()), Some($view_0));
                 assert!(s1.state.is_none());
 
                 <MinMaxState<$is_min, StringElement> as UnaryAggregationState<StringArray>>::update(
                     &mut s0, $view_1,
-                );
+                ).unwrap();
                 <MinMaxState<$is_min, StringElement> as UnaryAggregationState<StringArray>>::combine(
                     &mut s0, &mut s1,
-                );
+                ).unwrap();
                 assert_eq!(s0.state.as_ref().map(|v| v.view()), Some($gt0));
                 assert!(s1.state.is_none());
 
                 <MinMaxState<$is_min, StringElement> as UnaryAggregationState<StringArray>>::update(
                     &mut s0, $view_2,
-                );
+                ).unwrap();
                 <MinMaxState<$is_min, StringElement> as UnaryAggregationState<StringArray>>::combine(
                     &mut s0, &mut s1,
-                );
+                ).unwrap();
                 assert_eq!(s0.state.as_ref().map(|v| v.view()), Some($gt1));
                 assert!(s1.state.is_none());
             }

@@ -67,19 +67,21 @@ impl<S: Serde> std::fmt::Debug for HashTable<S> {
 
 /// Element of the hash table
 #[derive(Debug, Clone)]
-pub struct Element<K> {
+pub struct Element<K: SerdeKey> {
     /// Serde key
     pub(super) serde_key: K,
     /// Hash value of this element. It is used to avoid rehashing the keys
-    /// when we need to resize the hash table
-    pub(super) hash_value: HashValue,
+    /// when we need to resize the hash table. For fixed size keys, it will
+    /// be `()` such that Self has small footprint and increasing the cache
+    /// locality when probing
+    pub(super) hash_value: u64,
     /// Pointer to the combined `AggregationStates`, the pointer is allocated
     /// in the arena
     pub(super) agg_states_ptr: AggregationStatesPtr,
 }
 
-unsafe impl<K: Send> Send for Element<K> {}
-unsafe impl<K: Send + Sync> Sync for Element<K> {}
+unsafe impl<K: Send + SerdeKey> Send for Element<K> {}
+unsafe impl<K: Send + Sync + SerdeKey> Sync for Element<K> {}
 
 impl<S: Serde> HashTable<S> {
     /// Create a new hash table
@@ -123,8 +125,9 @@ impl<S: Serde> HashTable<S> {
             .resize(len, AggregationStatesPtr::dangling());
 
         // 1. Serialize the group by keys into the serde key in elements
-        // SAFETY: `group_by_keys` fit into `S::SerdeKey` is guaranteed by the safety of the function
-        // elements have same length with the keys is guaranteed by above resize
+        // SAFETY:
+        // - `group_by_keys` fit into `S::SerdeKey` is guaranteed by the safety of the function
+        // - elements have same length with the keys is guaranteed by above resize
         {
             let _guard = ScopedTimerGuard::new(&mut self.metrics.serialize_time);
             S::serialize(group_by_keys, &mut self.keys);
@@ -186,7 +189,10 @@ impl<S: Serde> Default for HashTable<S> {
 }
 
 /// Probing the swiss table, set the state_ptr to the ptr in the swiss table
-#[inline]
+///
+/// METAPHYSICS: For rust 1.76, inline(always) will guarantee it is inlined. Otherwise
+/// when `codegen-units=1`, this function will not inlined!
+#[inline(always)]
 pub(super) fn probing_swiss_table<K: SerdeKey>(
     swiss_table: &mut SwissTable<Element<K>>,
     arena: &Arena,

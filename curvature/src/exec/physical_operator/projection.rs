@@ -2,11 +2,12 @@
 
 use data_block::block::DataBlock;
 use data_block::types::LogicalType;
+use snafu::Snafu;
 use std::sync::Arc;
 
 use crate::common::client_context::ClientContext;
 use crate::exec::physical_expr::utils::compact_display_expressions;
-use crate::exec::physical_expr::{ExprExecutor, PhysicalExpr};
+use crate::exec::physical_expr::{ExprError, ExprExecutor, PhysicalExpr};
 
 use super::utils::downcast_mut_local_state;
 use super::{
@@ -18,6 +19,13 @@ use super::{
 
 use_types_for_impl_sink_for_non_sink!();
 use_types_for_impl_source_for_non_source!();
+
+#[derive(Debug, Snafu)]
+#[snafu(display("Failed to execute the `{}` operator", projection))]
+struct ProjectionError {
+    projection: String,
+    source: ExprError,
+}
 
 #[derive(Debug)]
 /// Projection operator, it selects the expression from input
@@ -112,7 +120,10 @@ impl PhysicalOperator for Projection {
             .map_or_else(
                 |e| {
                     Err(OperatorError::Execute {
-                        source: Box::new(e),
+                        source: Box::new(ProjectionError {
+                            projection: (self as &dyn PhysicalOperator).to_string(),
+                            source: e,
+                        }),
                     })
                 },
                 |_| Ok(OperatorExecStatus::NeedMoreInput),

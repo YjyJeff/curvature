@@ -12,6 +12,20 @@ pub struct DayTime {
     mills: i32,
 }
 
+impl DayTime {
+    /// Checked add day time
+    #[inline]
+    pub fn checked_add(self, rhs: Self) -> Option<Self> {
+        let mut day = self.day.checked_add(rhs.day)?;
+        let mut mills = self.mills + rhs.mills;
+        if mills >= MILLS_OF_DAY {
+            day = day.checked_add(1)?;
+            mills -= MILLS_OF_DAY;
+        }
+        Some(DayTime { day, mills })
+    }
+}
+
 impl Display for DayTime {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self)
