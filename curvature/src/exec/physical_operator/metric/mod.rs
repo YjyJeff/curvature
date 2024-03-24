@@ -60,3 +60,34 @@ impl<'a> Drop for ScopedTimerGuard<'a> {
         *self.accumulation += self.now.elapsed();
     }
 }
+
+/// A counter to record things such as number of input or output rows
+#[derive(Debug)]
+pub struct Count(AtomicU64);
+
+impl Default for Count {
+    #[inline]
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Count {
+    /// create a new counter
+    #[inline]
+    pub fn new() -> Self {
+        Self(AtomicU64::new(0))
+    }
+
+    /// Add `n` to the metric's value
+    #[inline]
+    pub fn add(&self, n: u64) {
+        self.0.fetch_add(n, Relaxed);
+    }
+
+    /// Get the current value
+    #[inline]
+    pub fn value(&self) -> u64 {
+        self.0.load(Relaxed)
+    }
+}

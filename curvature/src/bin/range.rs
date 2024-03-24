@@ -6,6 +6,7 @@ use curvature::common::types::ParallelismDegree;
 use curvature::common::uuid::QueryId;
 use curvature::exec::physical_expr::arith::ConstDiv;
 use curvature::exec::physical_expr::field_ref::FieldRef;
+use curvature::exec::physical_expr::function::aggregate::avg::Avg;
 use curvature::exec::physical_expr::function::aggregate::min_max::Max;
 use curvature::exec::physical_expr::function::aggregate::sum::Sum;
 use curvature::exec::physical_expr::PhysicalExpr;
@@ -86,7 +87,8 @@ fn main() {
             ],
             vec![
                 // Arc::new(Sum::<UInt64Array>::try_new(Arc::clone(&field_ref)).unwrap()),
-                Arc::new(Max::<UInt64Array>::try_new(Arc::clone(&field_ref)).unwrap()),
+                // Arc::new(Max::<UInt64Array>::try_new(Arc::clone(&field_ref)).unwrap()),
+                Arc::new(Avg::<UInt64Array>::try_new(Arc::clone(&field_ref)).unwrap()),
             ],
         )
         .unwrap(),

@@ -236,7 +236,7 @@ where
     }
 
     #[inline]
-    unsafe fn finalize(&mut self) -> Self::Output {
+    unsafe fn take(&mut self) -> Self::Output {
         self.state.take()
     }
 }

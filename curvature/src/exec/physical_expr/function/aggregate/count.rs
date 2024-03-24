@@ -27,7 +27,6 @@ pub struct Count<const STAR: bool> {
 }
 
 impl<const STAR: bool> Stringify for Count<STAR> {
-    #[inline]
     fn name(&self) -> &'static str {
         if STAR {
             "CountStar"

@@ -34,7 +34,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize};
 use std::sync::Arc;
 use std::time::Duration;
 
-use self::hash_table::{probing_swiss_table, Element, HashTable};
+use self::hash_table::{probing_swiss_table, Element, HashTable, HashTableMetrics};
 use self::serde::{Serde, SerdeKey};
 use crate::common::client_context::ClientContext;
 use crate::common::types::HashValue;
@@ -45,7 +45,7 @@ use crate::exec::physical_expr::function::aggregate::{
 use crate::exec::physical_expr::utils::compact_display_expressions;
 use crate::exec::physical_expr::PhysicalExpr;
 use crate::exec::physical_operator::ext_traits::{SinkOperatorExt, SourceOperatorExt};
-use crate::exec::physical_operator::metric::ScopedTimerGuard;
+use crate::exec::physical_operator::metric::{Count, ScopedTimerGuard, Time};
 use crate::exec::physical_operator::{
     impl_regular_for_non_regular, use_types_for_impl_regular_for_non_regular, FinalizeSinkSnafu,
     GlobalSinkState, GlobalSourceState, LocalSinkState, LocalSourceState, OperatorResult,
@@ -120,7 +120,6 @@ pub struct HashAggregate<S: Serde> {
     global_state: Arc<GlobalState<S::SerdeKey>>,
 }
 
-/// FIXME: Add metric
 #[derive(Debug)]
 struct GlobalState<K: SerdeKey> {
     /// Swiss tables collected from different threads. In different phases, this struct
@@ -151,6 +150,9 @@ struct GlobalState<K: SerdeKey> {
     /// The write and read will never happen at the same time. However, the compiler can not
     /// know it.
     total_elements_count: AtomicUsize,
+
+    /// Metics
+    metrics: HashAggregateMetics,
 }
 
 /// Swiss tables collected from a single thread's local states.
@@ -171,6 +173,33 @@ impl<K: Debug + SerdeKey> Debug for ThreadLocalTables<K> {
             write!(f, ", ")?;
         }
         write!(f, "] }}")
+    }
+}
+
+/// Metrics for the hash aggregate
+#[derive(Debug, Default)]
+pub struct HashAggregateMetics {
+    /// The number of rows written to the operator
+    pub num_rows: Count,
+    /// Time spent in serialization
+    pub serialize_time: Time,
+    /// Time spent in hash the serde key
+    pub hash_time: Time,
+    /// Time spent in probing the hash table
+    pub probing_time: Time,
+    /// Time spent in update the aggregation states
+    pub update_states_time: Time,
+}
+
+impl HashAggregateMetics {
+    fn combine(&self, local_metics: &HashTableMetrics) {
+        self.num_rows.add(local_metics.num_rows);
+        self.serialize_time
+            .add_duration(local_metics.serialize_time);
+        self.hash_time.add_duration(local_metics.hash_time);
+        self.probing_time.add_duration(local_metics.probing_time);
+        self.update_states_time
+            .add_duration(local_metics.update_states_time);
     }
 }
 
@@ -282,6 +311,7 @@ impl<S: Serde> HashAggregate<S> {
                 collected_swiss_tables: Mutex::new(Vec::new()),
                 any_partitioned: AtomicBool::new(false),
                 total_elements_count: AtomicUsize::new(0),
+                metrics: HashAggregateMetics::default(),
             }),
         })
     }
@@ -685,6 +715,9 @@ impl<S: Serde> PhysicalOperator for HashAggregate<S> {
             local_state.hash_table.metrics.probing_time.as_millis(),
             local_state.hash_table.metrics.update_states_time.as_millis(),
         );
+        self.global_state
+            .metrics
+            .combine(&local_state.hash_table.metrics);
 
         let now = crate::common::profiler::Instant::now();
         match &global_state.partitioning {

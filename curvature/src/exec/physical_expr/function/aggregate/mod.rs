@@ -1,5 +1,6 @@
 //! Aggregate functions
 
+pub mod avg;
 pub mod count;
 pub mod min_max;
 pub mod sum;
@@ -422,7 +423,7 @@ pub trait UnaryAggregationState<PayloadArray: Array> {
     /// # Safety
     ///
     /// Implementation should free the memory occupied by the state that does not in arena
-    unsafe fn finalize(&mut self) -> Self::Output;
+    unsafe fn take(&mut self) -> Self::Output;
 }
 
 /// Update the unary states pointers based on the element in the payload.
@@ -518,7 +519,7 @@ unsafe fn unary_take_states<PayloadArray, OutputArray, S>(
 
     let trusted_len_iterator = state_ptrs.iter().map(|ptr| {
         let state = ptr.offset_as_mut::<S>(state_offset);
-        state.finalize()
+        state.take()
     });
 
     output.replace_with_trusted_len_iterator(state_ptrs.len(), trusted_len_iterator)

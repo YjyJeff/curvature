@@ -70,6 +70,8 @@ pub trait Stringify {
 /// Note that we do not provide default implementation. Because we want to avoid the case
 /// that compiler compiles but user forget to implement the method that should implement.
 /// You can use some macros defined in the [utils] to avoid repeated code
+///
+/// TODO: add metics
 pub trait PhysicalOperator: Send + Sync + Stringify + 'static {
     /// As any for dynamic casting
     fn as_any(&self) -> &dyn std::any::Any;
