@@ -37,6 +37,7 @@ use std::time::Duration;
 use self::hash_table::{probing_swiss_table, Element, HashTable, HashTableMetrics};
 use self::serde::{Serde, SerdeKey};
 use crate::common::client_context::ClientContext;
+use crate::common::profiler::ScopedTimerGuard;
 use crate::common::types::HashValue;
 use crate::exec::physical_expr::field_ref::FieldRef;
 use crate::exec::physical_expr::function::aggregate::{
@@ -45,7 +46,7 @@ use crate::exec::physical_expr::function::aggregate::{
 use crate::exec::physical_expr::utils::compact_display_expressions;
 use crate::exec::physical_expr::PhysicalExpr;
 use crate::exec::physical_operator::ext_traits::{SinkOperatorExt, SourceOperatorExt};
-use crate::exec::physical_operator::metric::{Count, ScopedTimerGuard, Time};
+use crate::exec::physical_operator::metric::{Count, MetricsSet, Time};
 use crate::exec::physical_operator::{
     impl_regular_for_non_regular, use_types_for_impl_regular_for_non_regular, FinalizeSinkSnafu,
     GlobalSinkState, GlobalSourceState, LocalSinkState, LocalSourceState, OperatorResult,
@@ -55,6 +56,7 @@ use crate::exec::physical_operator::{
 
 use crate::exec::physical_operator::utils::downcast_mut_local_state;
 use crate::STANDARD_VECTOR_SIZE;
+use curvature_procedural_macro::MetricsSetBuilder;
 
 use super::Arena;
 
@@ -177,22 +179,29 @@ impl<K: Debug + SerdeKey> Debug for ThreadLocalTables<K> {
 }
 
 /// Metrics for the hash aggregate
-#[derive(Debug, Default)]
+#[derive(Debug, Default, MetricsSetBuilder)]
 pub struct HashAggregateMetics {
+    // Sink
     /// The number of rows written to the operator
-    pub num_rows: Count,
+    num_rows: Count,
     /// Time spent in serialization
-    pub serialize_time: Time,
+    serialize_time: Time,
     /// Time spent in hash the serde key
-    pub hash_time: Time,
+    hash_time: Time,
     /// Time spent in probing the hash table
-    pub probing_time: Time,
+    probing_time: Time,
     /// Time spent in update the aggregation states
-    pub update_states_time: Time,
+    update_states_time: Time,
+
+    // Source
+    /// Time spent in deserialization
+    deserialize_time: Time,
+    /// Time spent in take the states into arrays
+    take_states_time: Time,
 }
 
 impl HashAggregateMetics {
-    fn combine(&self, local_metics: &HashTableMetrics) {
+    fn combine_sink_metrics(&self, local_metics: &HashTableMetrics) {
         self.num_rows.add(local_metics.num_rows);
         self.serialize_time
             .add_duration(local_metics.serialize_time);
@@ -200,6 +209,13 @@ impl HashAggregateMetics {
         self.probing_time.add_duration(local_metics.probing_time);
         self.update_states_time
             .add_duration(local_metics.update_states_time);
+    }
+
+    fn combine_source_metrics(&self, local_metrics: &LocalSourceMetrics) {
+        self.deserialize_time
+            .add_duration(local_metrics.deserialize_time);
+        self.take_states_time
+            .add_duration(local_metrics.take_states_time);
     }
 }
 
@@ -369,6 +385,7 @@ impl<K: Send + Sync + 'static + Debug + SerdeKey> GlobalSourceState
 /// Local source state for [`HashAggregate`]
 ///
 /// FIXME: Can we move partial of the swiss table into the local state?
+#[allow(missing_debug_implementations)]
 pub struct HashAggregateLocalSourceState<S: Serde> {
     table_into_iter: RawIntoIter<Element<S::SerdeKey>>,
     read_count: Arc<AtomicUsize>,
@@ -376,14 +393,19 @@ pub struct HashAggregateLocalSourceState<S: Serde> {
     _arena: Arena,
     agg_func_list: Arc<AggregationFunctionList>,
 
+    // Auxiliary memory used across the data blocks
     serde_keys: Vec<S::SerdeKey>,
     state_ptrs: Vec<AggregationStatesPtr>,
+
+    metrics: LocalSourceMetrics,
 }
 
-impl<S: Serde> Debug for HashAggregateLocalSourceState<S> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "HashAggregateLocalSourceState")
-    }
+#[derive(Debug, Default)]
+struct LocalSourceMetrics {
+    /// Time spent in deserialization
+    deserialize_time: Duration,
+    /// Time spent in take the states into arrays
+    take_states_time: Duration,
 }
 
 /// Drop the elements that have not been consumed. It happens in many cases, for example
@@ -406,11 +428,19 @@ impl<S: Serde> StateStringify for HashAggregateLocalSourceState<S> {
     }
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+        write!(
+            f,
+            "HashAggregateLocalSourceState<{}>",
+            std::any::type_name::<S>()
+        )
     }
 }
 
 impl<S: Serde + 'static> LocalSourceState for HashAggregateLocalSourceState<S> {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     fn as_mut_any(&mut self) -> &mut dyn std::any::Any {
         self
     }
@@ -549,6 +579,10 @@ impl<S: Serde> PhysicalOperator for HashAggregate<S> {
         &self.children
     }
 
+    fn metrics(&self) -> MetricsSet {
+        self.global_state.metrics.metrics_set()
+    }
+
     impl_regular_for_non_regular!();
 
     // Source
@@ -612,7 +646,21 @@ impl<S: Serde> PhysicalOperator for HashAggregate<S> {
             _arena: arena,
             serde_keys: Vec::new(),
             state_ptrs: Vec::new(),
+            metrics: LocalSourceMetrics::default(),
         })
+    }
+
+    fn merge_local_source_metrics(&self, local_state: &dyn LocalSourceState) {
+        let local_state = self.downcast_ref_local_source_state(local_state);
+        tracing::debug!(
+            "Deserialize time: `{:?}`, take_states_time: `{:?}`",
+            local_state.metrics.deserialize_time,
+            local_state.metrics.take_states_time
+        );
+
+        self.global_state
+            .metrics
+            .combine_source_metrics(&local_state.metrics);
     }
 
     fn progress(&self, global_state: &dyn GlobalSourceState) -> f64 {
@@ -692,7 +740,7 @@ impl<S: Serde> PhysicalOperator for HashAggregate<S> {
         Ok(SinkExecStatus::NeedMoreInput)
     }
 
-    fn finish_local_sink(
+    fn merge_sink(
         &self,
         global_state: &dyn GlobalSinkState,
         local_state: &mut dyn LocalSinkState,
@@ -706,18 +754,18 @@ impl<S: Serde> PhysicalOperator for HashAggregate<S> {
         );
 
         tracing::debug!(
-            "HashAggregator: aggregate {} rows local data into {} entries in  {} ms. Serialize time: {} ms. Hash time: {}ms, Probing time: {} ms. Update states time: {} ms",
+            "HashAggregator: aggregate {} rows local data into {} entries in  `{:?}`. Serialize time: `{:?}`. Hash time: `{:?}`, Probing time: `{:?}`. Update states time: `{:?}`",
             local_state.hash_table.metrics.num_rows,
             local_state.hash_table.len(),
-            local_state.write_data_time.as_millis(),
-            local_state.hash_table.metrics.serialize_time.as_millis(),
-            local_state.hash_table.metrics.hash_time.as_millis(),
-            local_state.hash_table.metrics.probing_time.as_millis(),
-            local_state.hash_table.metrics.update_states_time.as_millis(),
+            local_state.write_data_time,
+            local_state.hash_table.metrics.serialize_time,
+            local_state.hash_table.metrics.hash_time,
+            local_state.hash_table.metrics.probing_time,
+            local_state.hash_table.metrics.update_states_time,
         );
         self.global_state
             .metrics
-            .combine(&local_state.hash_table.metrics);
+            .combine_sink_metrics(&local_state.hash_table.metrics);
 
         let now = crate::common::profiler::Instant::now();
         match &global_state.partitioning {
@@ -733,8 +781,8 @@ impl<S: Serde> PhysicalOperator for HashAggregate<S> {
             _ => local_state.combine_into(global_state),
         }
         tracing::debug!(
-            "HashAggregator: combine local sink state into global sink state takes {} ms",
-            now.elapsed().as_millis()
+            "HashAggregator: combine local sink state into global sink state takes `{:?}`",
+            now.elapsed()
         );
 
         Ok(())
@@ -883,12 +931,18 @@ impl<S: Serde> SourceOperatorExt for HashAggregate<S> {
                 .arrays
                 .split_at_mut(self.group_by_keys_indexes.len());
 
-            S::deserialize(group_by_arrays, &local_state.serde_keys);
+            {
+                let _guard = ScopedTimerGuard::new(&mut local_state.metrics.deserialize_time);
+                S::deserialize(group_by_arrays, &local_state.serde_keys);
+            }
 
-            self.agg_func_list
-                .take_states(&local_state.state_ptrs, agg_output_arrays)
-                .boxed()
-                .context(ReadDataSnafu {})?;
+            {
+                let _guard = ScopedTimerGuard::new(&mut local_state.metrics.take_states_time);
+                self.agg_func_list
+                    .take_states(&local_state.state_ptrs, agg_output_arrays)
+                    .boxed()
+                    .context(ReadDataSnafu {})?;
+            }
 
             // Calibrate the length manually
             *mutate_guard.length = local_state.state_ptrs.len();
@@ -1392,7 +1446,7 @@ mod tests {
                 agg.write_data(&block, &*global_sink_state, &mut *local_sink_state)
                     .unwrap();
 
-                agg.finish_local_sink(&*global_sink_state, &mut *local_sink_state)
+                agg.merge_sink(&*global_sink_state, &mut *local_sink_state)
                     .unwrap();
             };
 

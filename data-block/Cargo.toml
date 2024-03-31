@@ -9,12 +9,13 @@ keywords = ["arrow"]
 
 [dependencies]
 strength_reduce = { workspace = true }
-either = { workspace = true }
 regex = { workspace = true }
 paste = { workspace = true }
 libc = { workspace = true }
 snafu = { workspace = true }
 tabled = { workspace = true, features = ["std"] }
+# Either is used in ping-pong
+# either = { workspace = true }
 
 [dev-dependencies]
 num-traits = { workspace = true }

@@ -3,12 +3,18 @@
 use data_block::block::DataBlock;
 use data_block::types::LogicalType;
 use snafu::Snafu;
+use std::collections::HashMap;
+use std::fmt::Write;
 use std::sync::Arc;
+use std::time::Duration;
 
 use crate::common::client_context::ClientContext;
-use crate::exec::physical_expr::utils::compact_display_expressions;
+use crate::exec::physical_expr::utils::{compact_display_expressions, CompactExprDisplayWrapper};
 use crate::exec::physical_expr::{ExprError, ExprExecutor, PhysicalExpr};
+use crate::exec::physical_operator::metric::MetricsSet;
 
+use super::ext_traits::RegularOperatorExt;
+use super::metric::{MetricValue, Time};
 use super::utils::downcast_mut_local_state;
 use super::{
     impl_sink_for_non_sink, impl_source_for_non_source, use_types_for_impl_sink_for_non_sink,
@@ -30,12 +36,17 @@ struct ProjectionError {
 #[derive(Debug)]
 /// Projection operator, it selects the expression from input
 pub struct Projection {
-    /// Input of the projection, it can only have single input!
+    /// Input of the projection, it can only have single input
     input: Vec<Arc<dyn PhysicalOperator>>,
-    output_types: Vec<LogicalType>,
     /// Projection expression
     exprs: Vec<Arc<dyn PhysicalExpr>>,
+    output_types: Vec<LogicalType>,
+    /// Metrics
+    metrics: ProjectionMetrics,
 }
+
+#[derive(Debug)]
+struct ProjectionMetrics(Vec<Time>);
 
 impl Projection {
     /// Create a new [`Projection`]
@@ -46,13 +57,15 @@ impl Projection {
                 .iter()
                 .map(|expr| expr.output_type().clone())
                 .collect(),
+            metrics: ProjectionMetrics((0..exprs.len()).map(|_| Time::default()).collect()),
             exprs,
         }
     }
 }
 
+/// Local state of the projection
 #[derive(Debug)]
-struct ProjectionLocalState(ExprExecutor);
+pub struct ProjectionLocalState(ExprExecutor);
 
 impl StateStringify for ProjectionLocalState {
     fn name(&self) -> &'static str {
@@ -65,6 +78,9 @@ impl StateStringify for ProjectionLocalState {
 }
 
 impl LocalOperatorState for ProjectionLocalState {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
     fn as_mut_any(&mut self) -> &mut dyn std::any::Any {
         self
     }
@@ -96,6 +112,24 @@ impl PhysicalOperator for Projection {
 
     fn children(&self) -> &[Arc<dyn PhysicalOperator>] {
         &self.input
+    }
+
+    fn metrics(&self) -> MetricsSet {
+        let mut metrics_set = HashMap::new();
+        self.exprs
+            .iter()
+            .zip(&self.metrics.0)
+            .for_each(|(expr, time)| {
+                metrics_set.insert(
+                    expr.to_string().into(),
+                    MetricValue::Time(time.nanoseconds()),
+                );
+            });
+
+        MetricsSet {
+            name: "Projection",
+            metrics: metrics_set,
+        }
     }
 
     // Regular Operator
@@ -138,7 +172,42 @@ impl PhysicalOperator for Projection {
         Box::new(ProjectionLocalState(ExprExecutor::new(&self.exprs)))
     }
 
+    fn merge_local_operator_metrics(&self, local_state: &dyn LocalOperatorState) {
+        let local_state = self.downcast_ref_local_source_state(local_state);
+        let mut local_exec_time = Duration::default();
+        let metrics_string = self
+            .exprs
+            .iter()
+            .zip(&self.metrics.0)
+            .zip(local_state.0.execution_times())
+            .fold(
+                String::new(),
+                |mut output, ((expr, global_exec_time), exec_time)| {
+                    local_exec_time += exec_time;
+                    global_exec_time.add_duration(exec_time);
+                    let _ = write!(
+                        output,
+                        "expr `{}` takes `{:?}`. ",
+                        CompactExprDisplayWrapper::new(&**expr),
+                        exec_time
+                    );
+                    output
+                },
+            );
+
+        tracing::debug!(
+            "Total projection time `{:?}`. {}",
+            local_exec_time,
+            metrics_string
+        )
+    }
+
     impl_source_for_non_source!();
 
     impl_sink_for_non_sink!();
+}
+
+impl RegularOperatorExt for Projection {
+    type GlobalOperatorState = DummyGlobalOperatorState;
+    type LocalOperatorState = ProjectionLocalState;
 }

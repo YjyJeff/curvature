@@ -87,8 +87,8 @@ fn main() {
             ],
             vec![
                 // Arc::new(Sum::<UInt64Array>::try_new(Arc::clone(&field_ref)).unwrap()),
-                // Arc::new(Max::<UInt64Array>::try_new(Arc::clone(&field_ref)).unwrap()),
-                Arc::new(Avg::<UInt64Array>::try_new(Arc::clone(&field_ref)).unwrap()),
+                Arc::new(Max::<UInt64Array>::try_new(Arc::clone(&field_ref)).unwrap()),
+                // Arc::new(Avg::<UInt64Array>::try_new(Arc::clone(&field_ref)).unwrap()),
             ],
         )
         .unwrap(),

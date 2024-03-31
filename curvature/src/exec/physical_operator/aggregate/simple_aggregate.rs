@@ -9,6 +9,7 @@ use crate::common::client_context::ClientContext;
 use crate::exec::physical_expr::function::aggregate::{
     AggregationFunction, AggregationFunctionList,
 };
+use crate::exec::physical_operator::metric::MetricsSet;
 use crate::exec::physical_operator::utils::{
     impl_regular_for_non_regular, use_types_for_impl_regular_for_non_regular,
 };
@@ -86,6 +87,10 @@ impl StateStringify for SimpleAggregateLocalSourceState {
 }
 
 impl LocalSourceState for SimpleAggregateLocalSourceState {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     fn as_mut_any(&mut self) -> &mut dyn std::any::Any {
         self
     }
@@ -159,6 +164,10 @@ impl PhysicalOperator for SimpleAggregate {
         &self.input
     }
 
+    fn metrics(&self) -> MetricsSet {
+        todo!()
+    }
+
     impl_regular_for_non_regular!();
 
     // Source
@@ -194,6 +203,10 @@ impl PhysicalOperator for SimpleAggregate {
         todo!()
     }
 
+    fn merge_local_source_metrics(&self, local_state: &dyn LocalSourceState) {
+        todo!()
+    }
+
     fn progress(&self, _global_state: &dyn GlobalSourceState) -> f64 {
         todo!()
     }
@@ -213,7 +226,7 @@ impl PhysicalOperator for SimpleAggregate {
         todo!()
     }
 
-    fn finish_local_sink(
+    fn merge_sink(
         &self,
         _global_state: &dyn GlobalSinkState,
         _local_state: &mut dyn LocalSinkState,

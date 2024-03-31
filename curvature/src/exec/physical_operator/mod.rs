@@ -13,6 +13,7 @@ pub mod union;
 pub mod utils;
 
 use self::ext_traits::SourceOperatorExt;
+use self::metric::MetricsSet;
 use self::utils::{
     impl_regular_for_non_regular, impl_sink_for_non_sink, impl_source_for_non_source,
     use_types_for_impl_regular_for_non_regular, use_types_for_impl_sink_for_non_sink,
@@ -42,8 +43,8 @@ pub enum OperatorError {
     ReadData { source: SendableError },
     #[snafu(display("Failed to write data to the sink operator"))]
     WriteData { source: SendableError },
-    #[snafu(display("Failed to call the `finish_local_sink` on the sink operator"))]
-    FinishLocalSink { source: SendableError },
+    #[snafu(display("Failed to call the `merge_sink` on the sink operator"))]
+    MergeSink { source: SendableError },
     #[snafu(display("Failed to call `finalize_sink` on the sink operator"))]
     FinalizeSink { source: SendableError },
 }
@@ -60,7 +61,8 @@ pub trait Stringify {
     /// Debug message
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
 
-    /// Display the operator without the children info
+    /// Display the operator without the children info. We will use this function
+    /// to implement the `Display` trait for the `dyn PhysicalOperator`
     fn display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
 }
 
@@ -70,8 +72,6 @@ pub trait Stringify {
 /// Note that we do not provide default implementation. Because we want to avoid the case
 /// that compiler compiles but user forget to implement the method that should implement.
 /// You can use some macros defined in the [utils] to avoid repeated code
-///
-/// TODO: add metics
 pub trait PhysicalOperator: Send + Sync + Stringify + 'static {
     /// As any for dynamic casting
     fn as_any(&self) -> &dyn std::any::Any;
@@ -81,6 +81,10 @@ pub trait PhysicalOperator: Send + Sync + Stringify + 'static {
 
     /// Get children of this operator.
     fn children(&self) -> &[Arc<dyn PhysicalOperator>];
+
+    /// Get the metrics of this operator. Caller should call it after the operator
+    /// has finished the execution. Otherwise, all of the metrics are zeros
+    fn metrics(&self) -> MetricsSet;
 
     // Regular operator(not source and sink) methods
 
@@ -124,6 +128,15 @@ pub trait PhysicalOperator: Send + Sync + Stringify + 'static {
     ///
     /// [PipelineExecutor]: crate::exec::pipeline::PipelineExecutor
     fn local_operator_state(&self) -> Box<dyn LocalOperatorState>;
+
+    /// Merge the local operator metrics into the global metrics in self. This function
+    /// should be called when the pipeline executor has finished the execution
+    ///
+    /// # Panics
+    ///
+    /// The local state should be created with [`Self::local_operator_state()`] method,
+    /// otherwise panic
+    fn merge_local_operator_metrics(&self, local_state: &dyn LocalOperatorState);
 
     // Source operator methods
 
@@ -169,6 +182,15 @@ pub trait PhysicalOperator: Send + Sync + Stringify + 'static {
     fn local_source_state(&self, global_state: &dyn GlobalSourceState)
         -> Box<dyn LocalSourceState>;
 
+    /// Merge the local source metrics into the global metrics in self. This function
+    /// should be called when the pipeline executor has finished the execution
+    ///
+    /// # Panics
+    ///
+    /// The local state should be created with [`Self::local_source_state()`] method,
+    /// otherwise panic
+    fn merge_local_source_metrics(&self, local_state: &dyn LocalSourceState);
+
     /// Get progress of the source: [0.0 - 1.0]
     ///
     /// # Notes
@@ -205,15 +227,16 @@ pub trait PhysicalOperator: Send + Sync + Stringify + 'static {
         local_state: &mut dyn LocalSinkState,
     ) -> Result<SinkExecStatus>;
 
-    /// The `finish_local_sink` is called when a single thread has completed execution
-    /// of its part of the pipeline, it is the final time that a specific [`LocalSinkState`]
+    /// The `merge_sink` is called when a single thread has completed the execution
+    /// of its part for the pipeline, it is the final time that a specific [`LocalSinkState`]
     /// is accessible. This method can be called in parallel while other `write_data` or
-    /// `finish_local_sink` calls are active on the same [`GlobalSinkState`].
+    /// `merge_sink` calls are active on the same [`GlobalSinkState`].
     ///
     /// The implementation should combine the [`LocalSinkState`] into the [`GlobalState`]
     /// that under the [`GlobalSinkState`]. Such that when the operator is used as the
     /// regular/source operator in the parent pipeline, it can access the data produced
-    /// by the sink
+    /// by the sink. What's more, the implementation should also combine the local
+    /// metric into the global metric
     ///
     /// # Panics
     ///
@@ -221,7 +244,7 @@ pub trait PhysicalOperator: Send + Sync + Stringify + 'static {
     /// [`Self::local_sink_state()`] methods.
     ///
     /// FIXME: Async
-    fn finish_local_sink(
+    fn merge_sink(
         &self,
         global_state: &dyn GlobalSinkState,
         local_state: &mut dyn LocalSinkState,
@@ -246,17 +269,19 @@ pub trait PhysicalOperator: Send + Sync + Stringify + 'static {
     unsafe fn finalize_sink(&self, global_state: &dyn GlobalSinkState) -> Result<()>;
 
     /// Create a global sink state for the physical operator. [`PipelineExecutor`] calls it and
-    /// passes it to the [`Self::write_data`]/[`Self::finish_local_sink`]/[`Self::finalize_sink`]
+    /// passes it to the [`Self::write_data()`]/[`Self::merge_sink()`]/[`Self::finalize_sink()`]
     /// functions
     ///
     /// [`PipelineExecutor`]: crate::exec::pipeline::PipelineExecutor
     fn global_sink_state(&self, client_ctx: &ClientContext) -> Arc<dyn GlobalSinkState>;
 
     /// Create a local sink state for the physical operator. [`PipelineExecutor`] calls it and
-    /// passes it to the [`Self::write_data`]/[`Self::finish_local_sink`] functions
+    /// passes it to the [`Self::write_data()`]/[`Self::merge_sink()`] functions
     ///
     /// [`PipelineExecutor`]: crate::exec::pipeline::PipelineExecutor
     fn local_sink_state(&self, global_state: &dyn GlobalSinkState) -> Box<dyn LocalSinkState>;
+
+    // Metrics
 }
 
 /// Global state associated with the [`PhysicalOperator`]. It will be shared across
@@ -296,13 +321,16 @@ pub trait GlobalOperatorState: Send + Sync + StateStringify + 'static {
 /// the physical operator and reuse it across different [`DataBlock`]s.
 pub trait LocalOperatorState: StateStringify + 'static {
     /// As any such that we can perform dynamic cast
+    fn as_any(&self) -> &dyn std::any::Any;
+
+    /// As any such that we can perform dynamic cast
     fn as_mut_any(&mut self) -> &mut dyn std::any::Any;
 }
 
 #[derive(Debug)]
 /// A dummy global operator state, operators do not have global state will use this state as
 /// its global state
-struct DummyGlobalOperatorState;
+pub struct DummyGlobalOperatorState;
 
 impl StateStringify for DummyGlobalOperatorState {
     fn name(&self) -> &'static str {
@@ -369,6 +397,9 @@ pub trait GlobalSourceState: Send + Sync + StateStringify + 'static {
 /// The purpose of the local source state is storing some states that are needed to
 /// read the data from the source operator and reuse it across different [`DataBlock`]s.
 pub trait LocalSourceState: StateStringify + 'static {
+    /// As any such that we can perform dynamic cast
+    fn as_any(&self) -> &dyn std::any::Any;
+
     /// As any such that we can perform dynamic cast
     fn as_mut_any(&mut self) -> &mut dyn std::any::Any;
 }

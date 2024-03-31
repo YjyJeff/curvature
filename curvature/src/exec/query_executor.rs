@@ -2,7 +2,7 @@
 
 use data_block::block::DataBlock;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
-use snafu::{OptionExt, ResultExt, Snafu};
+use snafu::{ResultExt, Snafu};
 
 use super::physical_operator::{OperatorError, PhysicalOperator};
 use super::pipeline::{
@@ -10,6 +10,7 @@ use super::pipeline::{
     Pipelines, Sink,
 };
 use crate::common::client_context::ClientContext;
+use crate::common::profiler::Instant;
 use crate::common::types::ParallelismDegree;
 use std::fmt::Display;
 use std::sync::Arc;
@@ -19,26 +20,6 @@ use std::sync::Arc;
 pub enum QueryExecutorError {
     #[snafu(display("Failed to create a `QueryExecutor`"))]
     Create { source: BuildPipelineError },
-    #[snafu(display(
-        "The pipeline index: `{index}` is out of range, the query only has `{}` pipelines.
-         It should never happens, pipeline builder should guarantee the dependency in pipelines
-         is always valid, it has fatal bug 😭",
-        pipelines_count
-    ))]
-    PipelineIndexOutOfRange {
-        index: PipelineIndex,
-        pipelines_count: usize,
-    },
-    #[snafu(display(
-        "Failed to get the `source_parallelism_degree` from the pipeline: `{pipeline}`.
-         It can appear in following cases: \n  1. The pipeline builder has bug, it place the
-         non-source operator in the source. \n    2. The sink operator forget to implement the
-         source methods.\n Tracking the operator for details"
-    ))]
-    SourceParallelismDegree {
-        pipeline: String,
-        source: OperatorError,
-    },
     #[snafu(display("Failed to create pipeline executor for pipeline: `{pipeline}`"))]
     CreatePipelineExecutor {
         pipeline: String,
@@ -82,6 +63,7 @@ impl QueryExecutor {
 
     /// Execute the query. This function takes a handler function that take the [`DataBlock`]
     /// as input. A typic handler function is the print function that prints the query result
+    #[tracing::instrument(skip_all, name = "QueryExecutor::execute")]
     pub fn execute<F>(&self, handler: F) -> Result<()>
     where
         F: Fn(&DataBlock) + Send + Sync,
@@ -96,14 +78,21 @@ impl QueryExecutor {
 
             // We can execute the root pipeline now
             let parallelism =
-                parallelism_degree(root_pipeline, self.client_ctx.exec_args.parallelism)?;
+                parallelism_degree(root_pipeline, self.client_ctx.exec_args.parallelism);
 
             if parallelism > ParallelismDegree::MIN {
                 // FIXME: remove rayon, use monoio instead?
-                (0..parallelism.get())
-                    .into_par_iter()
-                    .try_for_each(|_| execute_root_pipeline(root_pipeline, &handler))?;
+                let current_span = tracing::span::Span::current();
+                (0..parallelism.get()).into_par_iter().try_for_each(|_| {
+                    let span =
+                        tracing::info_span!(parent: &current_span, "execute_root_pipeline", root_pipeline = %root_pipeline);
+                    let _guard = span.enter();
+                    execute_root_pipeline(root_pipeline, &handler)
+                })?;
             } else {
+                let span =
+                    tracing::info_span!("execute_root_pipeline", root_pipeline = %root_pipeline);
+                let _guard = span.enter();
                 execute_root_pipeline(root_pipeline, &handler)?;
             }
         }
@@ -113,15 +102,7 @@ impl QueryExecutor {
 
     /// Execute the pipeline in the given index
     fn execute_pipeline(&self, index: PipelineIndex) -> Result<()> {
-        let pipeline =
-            self.pipelines
-                .pipelines
-                .get(index)
-                .context(PipelineIndexOutOfRangeSnafu {
-                    index,
-                    pipelines_count: self.pipelines.pipelines.len(),
-                })?;
-
+        let pipeline = &self.pipelines.pipelines[index];
         pipeline
             .children
             .iter()
@@ -129,14 +110,19 @@ impl QueryExecutor {
 
         // We can execute this pipeline now
 
-        let parallelism = parallelism_degree(pipeline, self.client_ctx.exec_args.parallelism)?;
+        let parallelism = parallelism_degree(pipeline, self.client_ctx.exec_args.parallelism);
 
         if parallelism > ParallelismDegree::MIN {
             // FIXME: remove rayon, use monoio instead?
-            (0..parallelism.get())
-                .into_par_iter()
-                .try_for_each(|_| execute_pipeline(pipeline))?;
+            let current_span = tracing::span::Span::current();
+            (0..parallelism.get()).into_par_iter().try_for_each(|_| {
+                let span = tracing::info_span!(parent: &current_span, "execute_pipeline", pipeline = %pipeline);
+                let _guard = span.enter();
+                execute_pipeline(pipeline)
+            })?;
         } else {
+            let span = tracing::info_span!("execute_pipeline", pipeline = %pipeline);
+            let _guard = span.enter();
             execute_pipeline(pipeline)?;
         }
 
@@ -157,7 +143,7 @@ impl QueryExecutor {
 
 #[inline]
 fn execute_pipeline(pipeline: &Pipeline<Sink>) -> Result<()> {
-    let now = crate::common::profiler::Instant::now();
+    let now = Instant::now();
     PipelineExecutor::try_new(pipeline)
         .with_context(|_| CreatePipelineExecutorSnafu {
             pipeline: format!("{}", pipeline),
@@ -168,9 +154,9 @@ fn execute_pipeline(pipeline: &Pipeline<Sink>) -> Result<()> {
         })?;
 
     tracing::debug!(
-        "Execute pipeline `{}` elapsed: {} ms",
+        "Execute pipeline `{}` elapsed: `{:?}`",
         pipeline,
-        now.elapsed().as_millis()
+        now.elapsed()
     );
     Ok(())
 }
@@ -180,7 +166,7 @@ fn execute_root_pipeline<F>(root_pipeline: &Pipeline<()>, handler: F) -> Result<
 where
     F: Fn(&DataBlock),
 {
-    let now = crate::common::profiler::Instant::now();
+    let now = Instant::now();
 
     let mut pipeline_executor =
         PipelineExecutor::try_new(root_pipeline).with_context(|_| CreatePipelineExecutorSnafu {
@@ -198,20 +184,22 @@ where
     }
 
     tracing::debug!(
-        "Execute root pipeline `{}` elapsed: {} ms",
+        "Execute root pipeline `{}` elapsed: `{:?}`",
         root_pipeline,
-        now.elapsed().as_millis()
+        now.elapsed()
     );
 
     Ok(())
 }
 
 /// FIXME: Take care of the intermediate operator and sink operator
+///
+/// Compute the parallelism degree of the pipeline
 #[inline]
 fn parallelism_degree<S>(
     pipeline: &Pipeline<S>,
     parallelism: ParallelismDegree,
-) -> Result<ParallelismDegree>
+) -> ParallelismDegree
 where
     Pipeline<S>: Display,
 {
@@ -220,7 +208,7 @@ where
         .op
         .source_parallelism_degree(&*pipeline.source.global_state);
 
-    Ok(std::cmp::min(source_parallelism_degree, parallelism))
+    std::cmp::min(source_parallelism_degree, parallelism)
 }
 
 #[cfg(test)]

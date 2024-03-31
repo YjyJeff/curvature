@@ -4,9 +4,55 @@ use data_block::block::DataBlock;
 
 use super::utils::downcast_mut_local_state;
 use super::{
-    GlobalSinkState, GlobalSourceState, LocalSinkState, LocalSourceState, OperatorResult,
-    PhysicalOperator, SourceExecStatus,
+    GlobalOperatorState, GlobalSinkState, GlobalSourceState, LocalOperatorState, LocalSinkState,
+    LocalSourceState, OperatorResult, PhysicalOperator, SourceExecStatus,
 };
+
+/// Extension of the regular operator
+pub trait RegularOperatorExt: PhysicalOperator {
+    /// Global operator state of the regular operator
+    type GlobalOperatorState: GlobalOperatorState;
+    /// Local operator state of the regular operator
+    type LocalOperatorState: LocalOperatorState;
+
+    #[inline]
+    fn downcast_ref_global_operator_state<'a>(
+        &self,
+        global_state: &'a dyn GlobalOperatorState,
+    ) -> &'a Self::GlobalOperatorState {
+        if let Some(global_state) = global_state
+            .as_any()
+            .downcast_ref::<Self::GlobalOperatorState>()
+        {
+            global_state
+        } else {
+            panic!(
+                "Regular operator: `{}` accepts invalid GlobalOperatorState: `{}`. PipelineExecutor should guarantee it never happens, it has fatal bug 😭",
+                self.name(),
+                global_state.name()
+            )
+        }
+    }
+
+    #[inline]
+    fn downcast_ref_local_source_state<'a>(
+        &self,
+        local_state: &'a dyn LocalOperatorState,
+    ) -> &'a Self::LocalOperatorState {
+        if let Some(local_state) = local_state
+            .as_any()
+            .downcast_ref::<Self::LocalOperatorState>()
+        {
+            local_state
+        } else {
+            panic!(
+                "Regular operator: `{}` accepts invalid LocalOperatorState: `{}`. PipelineExecutor should guarantee it never happens, it has fatal bug 😭",
+                self.name(),
+                local_state.name()
+            )
+        }
+    }
+}
 
 /// Extension of the source operator
 pub trait SourceOperatorExt: PhysicalOperator {
@@ -30,6 +76,25 @@ pub trait SourceOperatorExt: PhysicalOperator {
                 "Source operator: `{}` accepts invalid GlobalSourceState: `{}`. PipelineExecutor should guarantee it never happens, it has fatal bug 😭",
                 self.name(),
                 global_state.name()
+            )
+        }
+    }
+
+    #[inline]
+    fn downcast_ref_local_source_state<'a>(
+        &self,
+        local_state: &'a dyn LocalSourceState,
+    ) -> &'a Self::LocalSourceState {
+        if let Some(local_state) = local_state
+            .as_any()
+            .downcast_ref::<Self::LocalSourceState>()
+        {
+            local_state
+        } else {
+            panic!(
+                "Source operator: `{}` accepts invalid LocalSourceState: `{}`. PipelineExecutor should guarantee it never happens, it has fatal bug 😭",
+                self.name(),
+                local_state.name()
             )
         }
     }
@@ -108,7 +173,7 @@ pub trait SinkOperatorExt: PhysicalOperator {
             global_state
         } else {
             panic!(
-                "`{}` operator accepts invalid GlobalSinkState: `{}`. PipelineExecutor should guarantee it never happens, it has fatal bug 😭",
+                "Sink `{}` operator accepts invalid GlobalSinkState: `{}`. PipelineExecutor should guarantee it never happens, it has fatal bug 😭",
                 self.name(),
                 global_state.name()
             )

@@ -1,12 +1,13 @@
 //! Executor that execute the physical expression
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use data_block::array::ArrayImpl;
 use data_block::block::DataBlock;
 
 use super::{ExprResult, PhysicalExpr};
-use crate::common::profiler::Profiler;
+use crate::common::profiler::ScopedTimerGuard;
 
 /// Executor that executes set of expressions
 ///
@@ -15,14 +16,18 @@ use crate::common::profiler::Profiler;
 /// it. However, it will cause the self-referential structure
 #[derive(Debug)]
 pub struct ExprExecutor {
-    ctx: Vec<ExprExecCtx>,
+    /// Expression context and its total execution time
+    ctx: Vec<(ExprExecCtx, Duration)>,
 }
 
 impl ExprExecutor {
     /// Create a new [`ExprExecutor`] that can execute the input exprs
     pub fn new(exprs: &[Arc<dyn PhysicalExpr>]) -> Self {
         Self {
-            ctx: exprs.iter().map(|expr| ExprExecCtx::new(&**expr)).collect(),
+            ctx: exprs
+                .iter()
+                .map(|expr| (ExprExecCtx::new(&**expr), Duration::default()))
+                .collect(),
         }
     }
 
@@ -43,11 +48,19 @@ impl ExprExecutor {
                 .iter()
                 .zip(self.ctx.iter_mut())
                 .zip(output)
-                .try_for_each(|((expr, exec_ctx), output)| expr.execute(input, exec_ctx, output))
+                .try_for_each(|((expr, (exec_ctx, duration)), output)| {
+                    let _guard = ScopedTimerGuard::new(duration);
+                    expr.execute(input, exec_ctx, output)
+                })
         };
 
         // SAFETY: expressions process arrays with same length will produce arrays with same length
         unsafe { guard.mutate(mutate_func) }
+    }
+
+    /// Get the execution times for each expression
+    pub fn execution_times(&self) -> impl Iterator<Item = Duration> + '_ {
+        self.ctx.iter().map(|(_, duration)| *duration)
     }
 }
 
@@ -61,7 +74,6 @@ impl ExprExecutor {
 /// use the instance with the the expression that create it!
 ///
 /// FIXME: Check we should profile or not dynamically
-#[cfg_attr(not(feature = "profile"), allow(dead_code))]
 #[derive(Debug)]
 pub struct ExprExecCtx {
     /// The data block that **children** of this expression will
@@ -69,8 +81,6 @@ pub struct ExprExecCtx {
     pub intermediate_block: DataBlock,
     /// Children contexts
     pub children: Vec<ExprExecCtx>,
-    /// Profiler for profiling the cpu time used in the expression
-    pub profiler: Profiler,
 }
 
 impl ExprExecCtx {
@@ -92,7 +102,6 @@ impl ExprExecCtx {
         Self {
             intermediate_block: unsafe { DataBlock::new_unchecked(arrays, 0) },
             children,
-            profiler: Profiler::new(),
         }
     }
 }

@@ -3,12 +3,13 @@ name = "curvature"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
-keywords.workspace = true
+keywords = ["query engine"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 data-block = { workspace = true }
+curvature-procedural-macro = { workspace = true }
 bumpalo = { workspace = true }
 ahash = { workspace = true }
 hashbrown = { workspace = true, features = ["inline-more", "raw"] }
@@ -21,7 +22,7 @@ num-traits = { workspace = true }
 parking_lot = { workspace = true }
 # TODO: Remove the rayon, use monoio instead?
 rayon = { workspace = true }
-tracing = { workspace = true }
+tracing = { workspace = true, features = ["log"] }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 
 
@@ -32,7 +33,6 @@ rand = { version = "0.8.5", features = ["std_rng"] }
 
 [features]
 default = []
-profile = []
 nightly = ["hashbrown/nightly"]
 portable_simd = ["data-block/portable_simd"]
 # Check overflow in arithmetic

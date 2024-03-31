@@ -6,8 +6,8 @@ use crate::exec::physical_expr::function::aggregate::{
     AggregationFunctionList, AggregationStatesPtr, Result as AggregationResult,
 };
 
+use crate::common::profiler::ScopedTimerGuard;
 use crate::exec::physical_operator::aggregate::Arena;
-use crate::exec::physical_operator::metric::ScopedTimerGuard;
 use data_block::array::ArrayImpl;
 use hashbrown::raw::RawTable as SwissTable;
 use std::time::Duration;

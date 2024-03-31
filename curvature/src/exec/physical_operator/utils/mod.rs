@@ -73,6 +73,13 @@ macro_rules! impl_regular_for_non_regular {
                 self.name()
             )
         }
+
+        fn merge_local_operator_metrics(&self, _local_state: &dyn LocalOperatorState){
+            panic!(
+                "`{}` is not a regular operator, can not call the `merge_local_operator_metrics` method on it",
+                self.name()
+            )
+        }
     };
 }
 
@@ -131,6 +138,13 @@ macro_rules! impl_source_for_non_source {
             )
         }
 
+        fn merge_local_source_metrics(&self, _local_state: &dyn LocalSourceState){
+            panic!(
+                "`{}` is not a source operator, can not call the `merge_local_source_metrics` method on it",
+                self.name()
+            )
+        }
+
         fn progress(&self, _global_state: &dyn GlobalSourceState) -> f64 {
             panic!(
                 "`{}` is not a source operator, can not call the `progress` method on it",
@@ -166,13 +180,13 @@ macro_rules! impl_sink_for_non_sink {
             )
         }
 
-        fn finish_local_sink(
+        fn merge_sink(
             &self,
             _global_state: &dyn GlobalSinkState,
             _local_state: &mut dyn LocalSinkState,
         ) -> OperatorResult<()> {
             panic!(
-                "`{}` is not a sink operator, can not call the `finish_local_sink` method on it",
+                "`{}` is not a sink operator, can not call the `merge_sink` method on it",
                 self.name()
             )
         }

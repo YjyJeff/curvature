@@ -2,7 +2,7 @@
 
 use data_block::block::{DataBlock, SendableDataBlock};
 use data_block::types::LogicalType;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::fmt::Debug;
 use std::mem::ManuallyDrop;
 use std::sync::atomic::{AtomicIsize, Ordering};
@@ -15,6 +15,7 @@ use super::{
     SourceExecStatus, SourceOperatorExt, StateStringify, Stringify, MAX_PARALLELISM_DEGREE,
 };
 use crate::common::client_context::ClientContext;
+use crate::exec::physical_operator::metric::MetricsSet;
 
 use snafu::{ensure, Snafu};
 
@@ -195,6 +196,10 @@ impl LocalSourceState for MemoryTableScanLocalSourceState {
     fn as_mut_any(&mut self) -> &mut dyn std::any::Any {
         self
     }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 impl Stringify for MemoryTableScan {
@@ -222,6 +227,13 @@ impl PhysicalOperator for MemoryTableScan {
 
     fn children(&self) -> &[std::sync::Arc<dyn PhysicalOperator>] {
         &self._children
+    }
+
+    fn metrics(&self) -> MetricsSet {
+        MetricsSet {
+            name: "MemoryTableScanMetrics",
+            metrics: HashMap::default(),
+        }
     }
 
     impl_regular_for_non_regular!();
@@ -266,6 +278,8 @@ impl PhysicalOperator for MemoryTableScan {
         self.queue.dispatch(&mut queue);
         Box::new(MemoryTableScanLocalSourceState(queue))
     }
+
+    fn merge_local_source_metrics(&self, _local_state: &dyn LocalSourceState) {}
 
     fn progress(&self, _global_state: &dyn GlobalSourceState) -> f64 {
         let idx = self.queue.idx.load(Ordering::Relaxed);

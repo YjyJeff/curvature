@@ -21,8 +21,8 @@ pub enum PipelineExecutorError {
     ExecuteOperator { source: OperatorError },
     #[snafu(display("Failed to write_data to Sink"))]
     ExecuteSink { source: OperatorError },
-    #[snafu(display("Failed to execute finish_local_sink"))]
-    FinishLocalSink { source: OperatorError },
+    #[snafu(display("Failed to execute merge_sink"))]
+    MergeSink { source: OperatorError },
     #[snafu(display(
         "Regular operator `{op}` returns `HaveMoreOutput` but the output is empty.
          It breaks the contract: \"When `HaveMoreOutput` is returned, output can not be empty\""
@@ -171,6 +171,21 @@ impl<'a, S: SinkTrait> PipelineExecutor<'a, S> {
             OperatorExecStatus::HaveMoreOutput
         })
     }
+
+    fn merge_local_metrics(&self) {
+        self.pipeline
+            .source
+            .op
+            .merge_local_source_metrics(&*self.local_source_state);
+
+        self.pipeline
+            .operators
+            .iter()
+            .zip(self.local_operator_states.iter())
+            .for_each(|(operator, local_state)| {
+                operator.op.merge_local_operator_metrics(&**local_state);
+            });
+    }
 }
 
 impl<'a> PipelineExecutor<'a, Sink> {
@@ -216,8 +231,13 @@ impl<'a> PipelineExecutor<'a, Sink> {
 
         let sink = &self.pipeline.sink;
         sink.op
-            .finish_local_sink(&*sink.global_state, &mut *self.local_sink_state)
-            .context(FinishLocalSinkSnafu)
+            .merge_sink(&*sink.global_state, &mut *self.local_sink_state)
+            .context(MergeSinkSnafu)?;
+
+        // Merge the metrics
+        self.merge_local_metrics();
+
+        Ok(())
     }
 
     /// Note that call this function should guarantee the sink input is not empty
@@ -242,7 +262,10 @@ impl<'a> PipelineExecutor<'a, ()> {
         if self.local_operator_states.is_empty() {
             // The pipeline only contains source, read data from source
             match self.execute_source()? {
-                SourceExecStatus::Finished => Ok(None),
+                SourceExecStatus::Finished => {
+                    self.merge_local_metrics();
+                    Ok(None)
+                }
                 SourceExecStatus::HaveMoreOutput => Ok(self.intermediate_blocks.last()),
             }
         } else {
@@ -250,13 +273,17 @@ impl<'a> PipelineExecutor<'a, ()> {
                 // Read data from source
                 let exec_status = self.execute_source()?;
                 if matches!(exec_status, SourceExecStatus::Finished) {
+                    self.merge_local_metrics();
                     return Ok(None);
                 }
             }
             // Execute regular operators
             let exec_status = self.execute_regular_operators()?;
             match exec_status {
-                OperatorExecStatus::Finished => Ok(None),
+                OperatorExecStatus::Finished => {
+                    self.merge_local_metrics();
+                    Ok(None)
+                }
                 OperatorExecStatus::HaveMoreOutput | OperatorExecStatus::NeedMoreInput => {
                     Ok(self.intermediate_blocks.last())
                 }

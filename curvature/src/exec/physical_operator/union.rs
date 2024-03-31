@@ -104,6 +104,10 @@ impl PhysicalOperator for Union {
         &self.children
     }
 
+    fn metrics(&self) -> super::metric::MetricsSet {
+        panic!("UnionExec is not executable, it does not have metric")
+    }
+
     impl_regular_for_non_regular!();
     impl_source_for_non_source!();
     impl_sink_for_non_sink!();

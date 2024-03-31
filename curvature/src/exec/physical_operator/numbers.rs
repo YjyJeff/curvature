@@ -10,6 +10,7 @@ use std::ops::DerefMut;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
+use std::time::Duration;
 
 use super::{
     impl_regular_for_non_regular, impl_sink_for_non_sink,
@@ -22,7 +23,10 @@ use_types_for_impl_regular_for_non_regular!();
 use_types_for_impl_sink_for_non_sink!();
 
 use crate::common::client_context::ClientContext;
+use crate::common::profiler::ScopedTimerGuard;
+use crate::exec::physical_operator::metric::{MetricsSet, Time};
 use crate::STANDARD_VECTOR_SIZE;
+use curvature_procedural_macro::MetricsSetBuilder;
 use data_block::array::ArrayImpl;
 use data_block::block::DataBlock;
 use data_block::compute::sequence::sequence;
@@ -38,6 +42,15 @@ pub struct Numbers {
     end: u64,
     output_types: Vec<LogicalType>,
     _children: Vec<Arc<dyn PhysicalOperator>>,
+    //// Metrics
+    metrics: NumbersMetrics,
+}
+
+/// Metrics for the numbers operator
+#[derive(Debug, Default, MetricsSetBuilder)]
+pub struct NumbersMetrics {
+    /// Time spent in sequence
+    sequence_time: Time,
 }
 
 impl Numbers {
@@ -61,6 +74,7 @@ impl Numbers {
             end: start.saturating_add(count.get()),
             output_types: vec![LogicalType::UnsignedBigInt],
             _children: vec![],
+            metrics: NumbersMetrics::default(),
         }
     }
 }
@@ -92,6 +106,14 @@ pub struct NumbersLocalSourceState {
     current: u64,
     /// End number of this morsel. If current >= end, the morsel is ended
     morsel_end: u64,
+
+    /// Local metrics
+    metrics: LocalMetrics,
+}
+
+#[derive(Default, Debug)]
+struct LocalMetrics {
+    sequence_time: Duration,
 }
 
 impl StateStringify for NumbersLocalSourceState {
@@ -106,6 +128,10 @@ impl StateStringify for NumbersLocalSourceState {
 
 impl LocalSourceState for NumbersLocalSourceState {
     fn as_mut_any(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
         self
     }
 }
@@ -139,6 +165,10 @@ impl PhysicalOperator for Numbers {
 
     fn children(&self) -> &[std::sync::Arc<dyn PhysicalOperator>] {
         &self._children
+    }
+
+    fn metrics(&self) -> MetricsSet {
+        self.metrics.metrics_set()
     }
 
     impl_regular_for_non_regular!();
@@ -190,13 +220,24 @@ impl PhysicalOperator for Numbers {
             Box::new(NumbersLocalSourceState {
                 current: morsel_start,
                 morsel_end,
+                metrics: LocalMetrics::default(),
             })
         } else {
             Box::new(NumbersLocalSourceState {
                 current: self.end,
                 morsel_end: self.end,
+                metrics: LocalMetrics::default(),
             })
         }
+    }
+
+    fn merge_local_source_metrics(&self, local_state: &dyn LocalSourceState) {
+        let local_state = self.downcast_ref_local_source_state(local_state);
+        tracing::debug!("Sequence time {:?}", local_state.metrics.sequence_time);
+
+        self.metrics
+            .sequence_time
+            .add_duration(local_state.metrics.sequence_time);
     }
 
     fn progress(&self, global_state: &dyn GlobalSourceState) -> f64 {
@@ -226,10 +267,8 @@ impl SourceOperatorExt for Numbers {
         let has_next = morsel_start < self.end;
         if has_next {
             let morsel_end = min(morsel_start + Self::MORSEL_SIZE, self.end);
-            *local_state = NumbersLocalSourceState {
-                current: morsel_start,
-                morsel_end,
-            };
+            local_state.current = morsel_start;
+            local_state.morsel_end = morsel_end;
         }
         has_next
     }
@@ -258,8 +297,11 @@ impl SourceOperatorExt for Numbers {
             )
         };
 
-        unsafe {
-            sequence(array, start, end);
+        {
+            let _guard = ScopedTimerGuard::new(&mut local_state.metrics.sequence_time);
+            unsafe {
+                sequence(array, start, end);
+            }
         }
         Ok(SourceExecStatus::HaveMoreOutput)
     }
@@ -279,6 +321,7 @@ mod tests {
             let mut local_state = NumbersLocalSourceState {
                 current: 0,
                 morsel_end: STANDARD_VECTOR_SIZE as u64,
+                metrics: LocalMetrics::default(),
             };
 
             let numbers = Numbers::new(0, NonZeroU64::new(STANDARD_VECTOR_SIZE as u64).unwrap());

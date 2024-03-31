@@ -1,6 +1,6 @@
 //! A table scan operator that does not have any data
 
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use crate::common::client_context::ClientContext;
 use data_block::block::DataBlock;
@@ -12,6 +12,7 @@ use super::{
     GlobalSourceState, LocalSourceState, OperatorResult, ParallelismDegree, PhysicalOperator,
     SourceExecStatus, StateStringify, Stringify,
 };
+use crate::exec::physical_operator::metric::MetricsSet;
 
 use_types_for_impl_regular_for_non_regular!();
 use_types_for_impl_sink_for_non_sink!();
@@ -68,6 +69,10 @@ impl StateStringify for EmptyTableScanLocalState {
 }
 
 impl LocalSourceState for EmptyTableScanLocalState {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     fn as_mut_any(&mut self) -> &mut dyn std::any::Any {
         self
     }
@@ -98,6 +103,13 @@ impl PhysicalOperator for EmptyTableScan {
 
     fn children(&self) -> &[Arc<dyn PhysicalOperator>] {
         &self._children
+    }
+
+    fn metrics(&self) -> MetricsSet {
+        MetricsSet {
+            name: "EmptyTableScanMetrics",
+            metrics: HashMap::new(),
+        }
     }
 
     impl_regular_for_non_regular!();
@@ -132,6 +144,8 @@ impl PhysicalOperator for EmptyTableScan {
     ) -> Box<dyn LocalSourceState> {
         Box::new(EmptyTableScanLocalState)
     }
+
+    fn merge_local_source_metrics(&self, _local_state: &dyn LocalSourceState) {}
 
     fn progress(&self, _global_state: &dyn GlobalSourceState) -> f64 {
         1.0
