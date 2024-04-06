@@ -233,7 +233,6 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::exec::physical_expr::field_ref::FieldRef;
     use crate::exec::physical_expr::function::aggregate::count::CountStart;
     use crate::exec::physical_expr::function::aggregate::sum::Sum;
     use crate::exec::physical_expr::function::aggregate::{AggregationError, AggregationFunction};
@@ -246,11 +245,7 @@ mod tests {
             let mut table = HashTable::<FixedSizedSerdeKeySerializer<u16>>::new();
             let agg_funcs: Vec<Arc<dyn AggregationFunction>> = vec![
                 Arc::new(CountStart::new()),
-                Arc::new(Sum::<Int64Array>::try_new(Arc::new(FieldRef::new(
-                    2,
-                    LogicalType::BigInt,
-                    "Wtf".to_string(),
-                )))?),
+                Arc::new(Sum::<Int64Array>::try_new(LogicalType::BigInt)?),
             ];
             let agg_func_list = AggregationFunctionList::new(agg_funcs);
 

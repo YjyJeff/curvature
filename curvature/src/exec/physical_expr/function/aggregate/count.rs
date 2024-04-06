@@ -1,14 +1,11 @@
 //! Count function
 
+use crate::exec::physical_expr::function::Function;
 use data_block::array::{ArrayImpl, ScalarArray, UInt64Array};
 use data_block::types::{Array, LogicalType};
-use snafu::ensure;
+use std::alloc::Layout;
 
-use crate::exec::physical_expr::field_ref::FieldRef;
-use crate::exec::physical_expr::{function::Function, PhysicalExpr};
-use std::{alloc::Layout, sync::Arc};
-
-use super::{AggregationFunction, AggregationStatesPtr, NotFieldRefArgsSnafu, Result, Stringify};
+use super::{AggregationFunction, AggregationStatesPtr, Result, Stringify};
 
 /// Count(*) function
 pub type CountStart = Count<true>;
@@ -23,7 +20,7 @@ pub struct CountState(u64);
 /// If the `STAR` generic is true, the count will take `NULL` into consideration
 #[derive(Debug)]
 pub struct Count<const STAR: bool> {
-    args: Vec<Arc<dyn PhysicalExpr>>,
+    args: Vec<LogicalType>,
 }
 
 impl<const STAR: bool> Stringify for Count<STAR> {
@@ -41,17 +38,15 @@ impl<const STAR: bool> Stringify for Count<STAR> {
 
     fn display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if STAR {
-            write!(f, "CountStar()")
+            write!(f, "fn CountStar() -> u64")
         } else {
-            write!(f, "Count(")?;
-            self.args[0].compact_display(f)?;
-            write!(f, ")")
+            write!(f, "fn Count({:?}) -> u64", self.args[0])
         }
     }
 }
 
 impl<const STAR: bool> Function for Count<STAR> {
-    fn arguments(&self) -> &[Arc<dyn PhysicalExpr>] {
+    fn arguments(&self) -> &[LogicalType] {
         &self.args
     }
 
@@ -170,15 +165,7 @@ impl Default for CountStart {
 impl Count<false> {
     /// Create a new `Count(expr)` function
     #[inline]
-    pub fn try_new(arg: Arc<dyn PhysicalExpr>) -> Result<Self> {
-        ensure!(
-            arg.as_any().downcast_ref::<FieldRef>().is_some(),
-            NotFieldRefArgsSnafu {
-                func: "Count",
-                args: vec![arg]
-            }
-        );
-
-        Ok(Self { args: vec![arg] })
+    pub fn new(arg: LogicalType) -> Self {
+        Self { args: vec![arg] }
     }
 }

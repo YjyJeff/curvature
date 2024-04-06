@@ -87,13 +87,13 @@ impl QueryExecutor {
                     let span =
                         tracing::info_span!(parent: &current_span, "execute_root_pipeline", root_pipeline = %root_pipeline);
                     let _guard = span.enter();
-                    execute_root_pipeline(root_pipeline, &handler)
+                    execute_root_pipeline(root_pipeline, &handler, &self.client_ctx)
                 })?;
             } else {
                 let span =
                     tracing::info_span!("execute_root_pipeline", root_pipeline = %root_pipeline);
                 let _guard = span.enter();
-                execute_root_pipeline(root_pipeline, &handler)?;
+                execute_root_pipeline(root_pipeline, &handler, &self.client_ctx)?;
             }
         }
 
@@ -118,12 +118,12 @@ impl QueryExecutor {
             (0..parallelism.get()).into_par_iter().try_for_each(|_| {
                 let span = tracing::info_span!(parent: &current_span, "execute_pipeline", pipeline = %pipeline);
                 let _guard = span.enter();
-                execute_pipeline(pipeline)
+                execute_pipeline(pipeline, &self.client_ctx)
             })?;
         } else {
             let span = tracing::info_span!("execute_pipeline", pipeline = %pipeline);
             let _guard = span.enter();
-            execute_pipeline(pipeline)?;
+            execute_pipeline(pipeline, &self.client_ctx)?;
         }
 
         // SAFETY: Main thread here, finalize_sink is only called here
@@ -142,9 +142,9 @@ impl QueryExecutor {
 }
 
 #[inline]
-fn execute_pipeline(pipeline: &Pipeline<Sink>) -> Result<()> {
+fn execute_pipeline(pipeline: &Pipeline<Sink>, client_ctx: &ClientContext) -> Result<()> {
     let now = Instant::now();
-    PipelineExecutor::try_new(pipeline)
+    PipelineExecutor::try_new(pipeline, client_ctx)
         .with_context(|_| CreatePipelineExecutorSnafu {
             pipeline: format!("{}", pipeline),
         })?
@@ -162,15 +162,21 @@ fn execute_pipeline(pipeline: &Pipeline<Sink>) -> Result<()> {
 }
 
 #[inline]
-fn execute_root_pipeline<F>(root_pipeline: &Pipeline<()>, handler: F) -> Result<()>
+fn execute_root_pipeline<F>(
+    root_pipeline: &Pipeline<()>,
+    handler: F,
+    client_ctx: &ClientContext,
+) -> Result<()>
 where
     F: Fn(&DataBlock),
 {
     let now = Instant::now();
 
     let mut pipeline_executor =
-        PipelineExecutor::try_new(root_pipeline).with_context(|_| CreatePipelineExecutorSnafu {
-            pipeline: format!("{}", root_pipeline),
+        PipelineExecutor::try_new(root_pipeline, client_ctx).with_context(|_| {
+            CreatePipelineExecutorSnafu {
+                pipeline: format!("{}", root_pipeline),
+            }
         })?;
 
     while let Some(block) =
@@ -246,12 +252,12 @@ mod tests {
         Report::capture(|| {
             let count = Numbers::MORSEL_SIZE * 3;
             let root: Arc<dyn PhysicalOperator> = projection(numbers(count));
-            let client_ctx = Arc::new(ClientContext {
-                query_id: QueryId::from_u128(0),
-                exec_args: ExecArgs {
+            let client_ctx = Arc::new(ClientContext::new(
+                QueryId::from_u128(0),
+                ExecArgs {
                     parallelism: ParallelismDegree::new(2).unwrap(),
                 },
-            });
+            ));
 
             let query_executor = QueryExecutor::try_new(&root, client_ctx)?;
             let sum = std::sync::atomic::AtomicU64::new(0);

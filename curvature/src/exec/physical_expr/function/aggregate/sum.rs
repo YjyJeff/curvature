@@ -9,21 +9,17 @@ use std::alloc::Layout;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 
-use std::sync::Arc;
-
 use data_block::array::{ArrayError, ArrayImpl, PrimitiveArray, PrimitiveType, ScalarArray};
 use data_block::element::interval::DayTime;
 use data_block::types::LogicalType;
 use snafu::{ensure, Snafu};
 
-use crate::exec::physical_expr::field_ref::FieldRef;
 use crate::exec::physical_expr::function::aggregate::ArgTypeMismatchSnafu;
 use crate::exec::physical_expr::function::Function;
-use crate::exec::physical_expr::PhysicalExpr;
 
 use super::{
     unary_combine_states, unary_take_states, unary_update_states, AggregationFunction,
-    AggregationStatesPtr, NotFieldRefArgsSnafu, Result, Stringify, UnaryAggregationState,
+    AggregationStatesPtr, Result, Stringify, UnaryAggregationState,
 };
 
 #[cfg(feature = "overflow_checks")]
@@ -123,7 +119,7 @@ pub struct SumState<S: SumType> {
 ///
 /// - `PayloadArray`: The type of the numeric array that need to be summed
 pub struct Sum<PayloadArray> {
-    args: Vec<Arc<dyn PhysicalExpr>>,
+    args: Vec<LogicalType>,
     _phantom: PhantomData<PayloadArray>,
 }
 
@@ -137,7 +133,11 @@ impl<PayloadArray> Debug for Sum<PayloadArray> {
     }
 }
 
-impl<PayloadArray> Stringify for Sum<PayloadArray> {
+impl<PayloadArray> Stringify for Sum<PayloadArray>
+where
+    PayloadArray: SumPayloadArray,
+    PayloadArray::Element: PayloadCast,
+{
     /// FIXME: contains the numeric type info
     fn name(&self) -> &'static str {
         "Sum"
@@ -148,9 +148,7 @@ impl<PayloadArray> Stringify for Sum<PayloadArray> {
     }
 
     fn display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Sum(")?;
-        self.args[0].compact_display(f)?;
-        write!(f, ")")
+        write!(f, "fn Sum({:?}) -> {:?}", self.args[0], self.return_type())
     }
 }
 
@@ -159,7 +157,7 @@ where
     PayloadArray: SumPayloadArray,
     PayloadArray::Element: PayloadCast,
 {
-    fn arguments(&self) -> &[Arc<dyn PhysicalExpr>] {
+    fn arguments(&self) -> &[LogicalType] {
         &self.args
     }
 
@@ -321,20 +319,13 @@ where
     PayloadArray::Element: PayloadCast,
 {
     /// Create a new Sum function
-    pub fn try_new(arg: Arc<dyn PhysicalExpr>) -> Result<Self> {
+    pub fn try_new(arg: LogicalType) -> Result<Self> {
         ensure!(
-            arg.as_any().downcast_ref::<FieldRef>().is_some(),
-            NotFieldRefArgsSnafu {
-                func: "Sum",
-                args: vec![arg]
-            }
-        );
-        ensure!(
-            arg.output_type().physical_type() == PayloadArray::PHYSCIAL_TYPE,
+            arg.physical_type() == PayloadArray::PHYSCIAL_TYPE,
             ArgTypeMismatchSnafu {
                 func: "Sum",
                 expect_physical_type: PayloadArray::PHYSCIAL_TYPE,
-                arg_type: arg.output_type().to_owned(),
+                arg
             }
         );
 

@@ -6,20 +6,16 @@ use std::alloc::Layout;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 
-use std::sync::Arc;
-
 use data_block::array::{ArrayError, ArrayImpl, PrimitiveArray};
 use data_block::types::LogicalType;
 use snafu::{ensure, Snafu};
 
-use crate::exec::physical_expr::field_ref::FieldRef;
 use crate::exec::physical_expr::function::aggregate::ArgTypeMismatchSnafu;
 use crate::exec::physical_expr::function::Function;
-use crate::exec::physical_expr::PhysicalExpr;
 
 use super::{
     unary_combine_states, unary_take_states, unary_update_states, AggregationFunction,
-    AggregationStatesPtr, NotFieldRefArgsSnafu, Result, Stringify, UnaryAggregationState,
+    AggregationStatesPtr, Result, Stringify, UnaryAggregationState,
 };
 
 #[cfg(feature = "overflow_checks")]
@@ -66,7 +62,7 @@ pub struct AvgState<S: AvgSumType> {
 ///
 /// - `PayloadArray`: The type of the numeric array that need to be summed
 pub struct Avg<PayloadArray> {
-    args: Vec<Arc<dyn PhysicalExpr>>,
+    args: Vec<LogicalType>,
     _phantom: PhantomData<PayloadArray>,
 }
 
@@ -91,9 +87,7 @@ impl<PayloadArray> Stringify for Avg<PayloadArray> {
     }
 
     fn display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Avg(")?;
-        self.args[0].compact_display(f)?;
-        write!(f, ")")
+        write!(f, "fn Avg({:?}) -> f64", self.args[0])
     }
 }
 
@@ -102,7 +96,7 @@ where
     PayloadArray: SumPayloadArray,
     PayloadArray::Element: PayloadCast,
 {
-    fn arguments(&self) -> &[Arc<dyn PhysicalExpr>] {
+    fn arguments(&self) -> &[LogicalType] {
         &self.args
     }
 
@@ -273,20 +267,13 @@ where
     <PayloadArray::Element as PayloadCast>::SumType: AvgSumType,
 {
     /// Create a new Sum function
-    pub fn try_new(arg: Arc<dyn PhysicalExpr>) -> Result<Self> {
+    pub fn try_new(arg: LogicalType) -> Result<Self> {
         ensure!(
-            arg.as_any().downcast_ref::<FieldRef>().is_some(),
-            NotFieldRefArgsSnafu {
-                func: "Avg",
-                args: vec![arg]
-            }
-        );
-        ensure!(
-            arg.output_type().physical_type() == PayloadArray::PHYSCIAL_TYPE,
+            arg.physical_type() == PayloadArray::PHYSCIAL_TYPE,
             ArgTypeMismatchSnafu {
                 func: "Avg",
                 expect_physical_type: PayloadArray::PHYSCIAL_TYPE,
-                arg_type: arg.output_type().to_owned(),
+                arg
             }
         );
 

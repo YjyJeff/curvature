@@ -72,6 +72,21 @@ pub trait Stringify {
 /// Note that we do not provide default implementation. Because we want to avoid the case
 /// that compiler compiles but user forget to implement the method that should implement.
 /// You can use some macros defined in the [utils] to avoid repeated code
+///
+/// # Hacks
+///
+/// All of the local states must bounded by the `'static` lifetime, because the
+/// [`std::any::Any`] trait requires it and the reason can be found [here]. However,
+/// in the execution model, the [`PhysicalOperator`]s will always out-live its local
+/// states, see [`PipelineExecutor`] for details. So when the local states need some
+/// fields in the [`PhysicalOperator`] to make it self-contained, a simple solution
+/// would be wrapping them into [`Arc`]. Pretty annoying 😂... Instead of using [`Arc`],
+/// I would recommend to use `*const T`. The consequence is that we may run into the
+/// undefined behavior if we use it incorrectly 🙃. Anyway, I know what I am doing now
+/// and I will take responsibility for this hack!
+///
+/// [here]: https://internals.rust-lang.org/t/would-non-static-typeid-be-at-all-possible/14258
+/// [`PipelineExecutor`]: crate::exec::pipeline::PipelineExecutor
 pub trait PhysicalOperator: Send + Sync + Stringify + 'static {
     /// As any for dynamic casting
     fn as_any(&self) -> &dyn std::any::Any;
@@ -352,19 +367,11 @@ impl GlobalOperatorState for DummyGlobalOperatorState {
 /// OperatorExecStatus indicates the status of the  operator for the `execute` call.
 /// Executor should check this status and decide how to execute the pipeline
 pub enum OperatorExecStatus {
-    /// Operator is done with the current input, it produce empty result and
-    /// can consume more input if available.
-    ///
-    /// If there is more input the operator will be called with more input, otherwise
-    /// the operator will not be called again. When this status is returned, the output
-    /// should be empty
-    OutputEmptyAndNeedMoreInput,
     /// Operator is done with the current input, it produce non empty result and
     /// can consume more input if available
     ///
     /// If there is more input the operator will be called with more input, otherwise
-    /// the operator will not be called again. When this status is returned, the output
-    /// should **not** be empty
+    /// the operator will not be called again
     NeedMoreInput,
     /// Operator is not finished yet with the current input. Executor should call the
     /// `execute` method on this executor again with the same input. When this status

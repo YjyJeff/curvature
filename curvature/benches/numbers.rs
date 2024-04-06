@@ -31,12 +31,12 @@ fn bench_read_numbers(c: &mut Criterion) {
         b.iter(|| {
             let executor = QueryExecutor::try_new(
                 &physical_plan,
-                Arc::new(ClientContext {
-                    query_id: QueryId::from_u128(4),
-                    exec_args: ExecArgs {
+                Arc::new(ClientContext::new(
+                    QueryId::from_u128(4),
+                    ExecArgs {
                         parallelism: PARALLELISM,
                     },
-                }),
+                )),
             )
             .unwrap();
 

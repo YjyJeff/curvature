@@ -9,6 +9,7 @@ use curvature::exec::physical_expr::field_ref::FieldRef;
 use curvature::exec::physical_expr::function::aggregate::avg::Avg;
 use curvature::exec::physical_expr::function::aggregate::min_max::Max;
 use curvature::exec::physical_expr::function::aggregate::sum::Sum;
+use curvature::exec::physical_expr::function::aggregate::AggregationFunctionExpr;
 use curvature::exec::physical_expr::PhysicalExpr;
 use curvature::exec::physical_operator::aggregate::hash_aggregate::serde::{
     FixedSizedSerdeKeySerializer, NonNullableFixedSizedSerdeKeySerializer,
@@ -27,7 +28,10 @@ use tracing_subscriber::util::SubscriberInitExt;
 const COUNT: NonZeroU64 = unsafe { NonZeroU64::new_unchecked(10000000000) };
 const PARALLELISM: ParallelismDegree = unsafe { ParallelismDegree::new_unchecked(10) };
 
-/// TBD: is u32 much faster than [u8; 32]?
+#[cfg(not(target_env = "msvc"))]
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 fn main() {
     tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer())
@@ -65,30 +69,35 @@ fn main() {
         ],
     ));
 
+    let field_ref = [FieldRef::new(
+        0,
+        LogicalType::UnsignedBigInt,
+        "number".to_string(),
+    )];
     let physical_plan: Arc<dyn PhysicalOperator> = Arc::new(
         HashAggregate::<NonNullableFixedSizedSerdeKeySerializer<u32>>::try_new(
             physical_plan,
-            vec![
-                Arc::new(FieldRef::new(
-                    1,
-                    LogicalType::UnsignedTinyInt,
-                    "number % 3".to_string(),
-                )),
-                Arc::new(FieldRef::new(
-                    2,
-                    LogicalType::UnsignedTinyInt,
-                    "number % 4".to_string(),
-                )),
-                Arc::new(FieldRef::new(
-                    3,
-                    LogicalType::UnsignedTinyInt,
-                    "number % 5".to_string(),
-                )),
+            &[
+                FieldRef::new(1, LogicalType::UnsignedTinyInt, "number % 3".to_string()),
+                FieldRef::new(2, LogicalType::UnsignedTinyInt, "number % 4".to_string()),
+                FieldRef::new(3, LogicalType::UnsignedTinyInt, "number % 5".to_string()),
             ],
             vec![
-                // Arc::new(Sum::<UInt64Array>::try_new(Arc::clone(&field_ref)).unwrap()),
-                Arc::new(Max::<UInt64Array>::try_new(Arc::clone(&field_ref)).unwrap()),
-                // Arc::new(Avg::<UInt64Array>::try_new(Arc::clone(&field_ref)).unwrap()),
+                AggregationFunctionExpr::try_new(
+                    &field_ref,
+                    Arc::new(Max::<UInt64Array>::try_new(LogicalType::UnsignedBigInt).unwrap()),
+                )
+                .unwrap(),
+                // AggregationFunctionExpr::try_new(
+                //     &field_ref,
+                //     Arc::new(Sum::<UInt64Array>::try_new(LogicalType::UnsignedBigInt).unwrap()),
+                // )
+                // .unwrap(),
+                // AggregationFunctionExpr::try_new(
+                //     &field_ref,
+                //     Arc::new(Avg::<UInt64Array>::try_new(LogicalType::UnsignedBigInt).unwrap()),
+                // )
+                // .unwrap(),
             ],
         )
         .unwrap(),
@@ -96,18 +105,20 @@ fn main() {
 
     tracing::info!("{}", IndentDisplayWrapper::new(&*physical_plan));
 
-    let executor = QueryExecutor::try_new(
-        &physical_plan,
-        Arc::new(ClientContext {
-            query_id: QueryId::from_u128(7),
-            exec_args: ExecArgs {
-                parallelism: PARALLELISM,
-            },
-        }),
-    )
-    .unwrap();
+    let client_ctx = Arc::new(ClientContext::new(
+        QueryId::from_u128(7),
+        ExecArgs {
+            parallelism: PARALLELISM,
+        },
+    ));
 
-    executor.execute(|block| println!("{}", block)).unwrap();
+    let executor = QueryExecutor::try_new(&physical_plan, Arc::clone(&client_ctx)).unwrap();
+
+    ctrlc::set_handler(move || client_ctx.cancel()).expect("Setting Ctrl-C handler should succeed");
+
+    if let Err(e) = executor.execute(|block| println!("{}", block)) {
+        tracing::error!("{}", snafu::Report::from_error(e))
+    }
     // executor.execute(|block| {}).unwrap();
 
     tracing::info!("Elapsed {} sec", now.elapsed().as_millis() as f64 / 1000.0);

@@ -10,7 +10,8 @@
 //! planner/optimizer! It is the planner/optimizer's responsibility to extract the common
 //! expressions, sounds make sense 😄
 //!
-//! - `GroupByKeys`: expressions after the `group by` keywords
+//! - `GroupByKeys`: expressions after the `group by` keywords. Same with the `Payloads`,
+//! it requires that all of them must be [`FieldRef`].
 //!
 //! [`AggregationFunction`]: crate::exec::physical_expr::function::aggregate::AggregationFunction
 //! [`FieldRef`]: crate::exec::physical_expr::field_ref::FieldRef
@@ -41,10 +42,8 @@ use crate::common::profiler::ScopedTimerGuard;
 use crate::common::types::HashValue;
 use crate::exec::physical_expr::field_ref::FieldRef;
 use crate::exec::physical_expr::function::aggregate::{
-    AggregationFunction, AggregationFunctionList, AggregationStatesPtr,
+    AggregationFunctionExpr, AggregationFunctionList, AggregationStatesPtr,
 };
-use crate::exec::physical_expr::utils::compact_display_expressions;
-use crate::exec::physical_expr::PhysicalExpr;
 use crate::exec::physical_operator::ext_traits::{SinkOperatorExt, SourceOperatorExt};
 use crate::exec::physical_operator::metric::{Count, MetricsSet, Time};
 use crate::exec::physical_operator::{
@@ -69,11 +68,6 @@ pub enum HashAggregateError {
         "Group by keys passed to HashAggregate is empty, use `SimpleAggregate` instead "
     ))]
     EmptyGroupByKeys,
-    #[snafu(display(
-        "Group by keys passed to hash aggregate should be `FieldRef` such that we can avoid redundant computation, found group by key: {}",
-        group_by_key
-    ))]
-    NotFieldRefGroupByKeys { group_by_key: String },
     #[snafu(display("`FieldRef` with index `{ref_index}` is out or range, the input only has `{input_size}` fields"))]
     FieldRefOutOfRange { ref_index: usize, input_size: usize },
     #[snafu(display(
@@ -93,10 +87,8 @@ pub enum HashAggregateError {
     ))]
     SerdeKeySmallerThanGroupByKeys {
         serde_key: &'static str,
-        group_by_keys: Vec<Arc<dyn PhysicalExpr>>,
+        group_by_keys: Vec<LogicalType>,
     },
-    #[snafu(display("All of the payloads/args_of_aggregation_function should be `FieldRef` such that we can avoid redundant computation, found payload: {}", payload))]
-    NotFieldRefPayloads { payload: String },
     #[snafu(display("Aggregation functions passed to HashAggregate is empty. HashAggregate needs at least one aggregation function"))]
     EmptyAggregationFuncs,
 }
@@ -115,9 +107,8 @@ const PARTITION_THRESHOLD: usize = 8192;
 pub struct HashAggregate<S: Serde> {
     output_types: Vec<LogicalType>,
     children: Vec<Arc<dyn PhysicalOperator>>,
-    _group_by_keys: Vec<Arc<dyn PhysicalExpr>>,
     group_by_keys_indexes: Vec<usize>,
-    agg_func_list: Arc<AggregationFunctionList>,
+    agg_func_list: AggregationFunctionList,
     payloads_indexes: Vec<usize>,
     global_state: Arc<GlobalState<S::SerdeKey>>,
 }
@@ -223,8 +214,8 @@ impl<S: Serde> HashAggregate<S> {
     /// Try to create a HashAggregate
     pub fn try_new(
         input: Arc<dyn PhysicalOperator>,
-        group_by_keys: Vec<Arc<dyn PhysicalExpr>>,
-        agg_funcs: Vec<Arc<dyn AggregationFunction>>,
+        group_by_keys: &[FieldRef],
+        agg_funcs: Vec<AggregationFunctionExpr<'_>>,
     ) -> Result<Self> {
         let input_logical_types = input.output_types();
         let input_size = input_logical_types.len();
@@ -236,10 +227,10 @@ impl<S: Serde> HashAggregate<S> {
 
         ensure!(!group_by_keys.is_empty(), EmptyGroupByKeysSnafu);
 
-        let total_size = group_by_keys
-            .iter()
-            .try_fold(PhysicalSize::Fixed(0), |acc, expr| {
-                if let Some(field_ref) = expr.as_any().downcast_ref::<FieldRef>() {
+        let total_size =
+            group_by_keys
+                .iter()
+                .try_fold(PhysicalSize::Fixed(0), |acc, field_ref| {
                     ensure!(
                         field_ref.field_index < input_size,
                         FieldRefOutOfRangeSnafu {
@@ -261,65 +252,59 @@ impl<S: Serde> HashAggregate<S> {
                     group_by_keys_indexes.push(field_ref.field_index);
 
                     Ok(acc + field_ref.output_type.physical_type().size())
-                } else {
-                    NotFieldRefGroupByKeysSnafu {
-                        group_by_key: format!("{:?}", expr),
-                    }
-                    .fail()
-                }
-            })?;
+                })?;
 
         // Make sure the group by keys can be serde into the serde key
         ensure!(
             total_size <= S::SerdeKey::PHYSICAL_SIZE,
             SerdeKeySmallerThanGroupByKeysSnafu {
                 serde_key: std::any::type_name::<S::SerdeKey>(),
-                group_by_keys
+                group_by_keys: group_by_keys
+                    .iter()
+                    .map(|field_ref| field_ref.output_type.clone())
+                    .collect::<Vec<_>>()
             }
         );
 
         ensure!(!agg_funcs.is_empty(), EmptyAggregationFuncsSnafu {});
 
         agg_funcs.iter().try_for_each(|agg_func| {
-            agg_func.arguments().iter().try_for_each(|arg| {
-                if let Some(field_ref) = arg.as_any().downcast_ref::<FieldRef>() {
-                    ensure!(
-                        field_ref.field_index < input_size,
-                        FieldRefOutOfRangeSnafu {
-                            ref_index: field_ref.field_index,
-                            input_size
-                        }
-                    );
-
-                    ensure!(
-                        field_ref.output_type == input_logical_types[field_ref.field_index],
-                        FieldRefTypeMismatchSnafu {
-                            ref_index: field_ref.field_index,
-                            ref_type: field_ref.output_type.clone(),
-                            input_type: input_logical_types[field_ref.field_index].clone()
-                        }
-                    );
-
-                    payloads_indexes.push(field_ref.field_index);
-                    Ok(())
-                } else {
-                    NotFieldRefPayloadsSnafu {
-                        payload: format!("{:?}", arg),
+            agg_func.payloads.iter().try_for_each(|field_ref| {
+                ensure!(
+                    field_ref.field_index < input_size,
+                    FieldRefOutOfRangeSnafu {
+                        ref_index: field_ref.field_index,
+                        input_size
                     }
-                    .fail()
-                }
+                );
+
+                ensure!(
+                    field_ref.output_type == input_logical_types[field_ref.field_index],
+                    FieldRefTypeMismatchSnafu {
+                        ref_index: field_ref.field_index,
+                        ref_type: field_ref.output_type.clone(),
+                        input_type: input_logical_types[field_ref.field_index].clone()
+                    }
+                );
+
+                payloads_indexes.push(field_ref.field_index);
+                Ok::<_, HashAggregateError>(())
             })?;
 
-            output_types.push(agg_func.return_type());
+            output_types.push(agg_func.func.return_type());
             Ok(())
         })?;
 
-        let agg_func_list = Arc::new(AggregationFunctionList::new(agg_funcs));
+        let agg_func_list = AggregationFunctionList::new(
+            agg_funcs
+                .into_iter()
+                .map(|agg_func| agg_func.func)
+                .collect(),
+        );
 
         Ok(Self {
             output_types,
             children: vec![input],
-            _group_by_keys: group_by_keys,
             group_by_keys_indexes,
             agg_func_list,
             payloads_indexes,
@@ -346,9 +331,7 @@ impl<S: Serde> Drop for HashAggregate<S> {
             // May drop the table in the sink phase, we need to pop all tables
             while let Some(table) = thread_local_tables.tables.pop() {
                 state_ptrs.clear();
-                for element in table {
-                    state_ptrs.push(element.agg_states_ptr);
-                }
+                state_ptrs.extend(table.into_iter().map(|element| element.agg_states_ptr));
                 // SAFETY: the elements are allocated in the `thread_local_tables.arena`
                 unsafe { self.agg_func_list.drop_states(&state_ptrs) }
             }
@@ -391,7 +374,11 @@ pub struct HashAggregateLocalSourceState<S: Serde> {
     read_count: Arc<AtomicUsize>,
     /// Arena the table allocated in
     _arena: Arena,
-    agg_func_list: Arc<AggregationFunctionList>,
+
+    /// Used for drop. The lifetime of the agg_func_list is the lifetime of the
+    /// physical operator that create this local sink state, which guarantees out-lives
+    /// this state
+    agg_func_list: *const AggregationFunctionList,
 
     // Auxiliary memory used across the data blocks
     serde_keys: Vec<S::SerdeKey>,
@@ -413,12 +400,19 @@ struct LocalSourceMetrics {
 impl<S: Serde> Drop for HashAggregateLocalSourceState<S> {
     fn drop(&mut self) {
         self.state_ptrs.clear();
-        for element in &mut self.table_into_iter {
-            self.state_ptrs.push(element.agg_states_ptr)
-        }
+        self.state_ptrs
+            .extend((&mut self.table_into_iter).map(|element| element.agg_states_ptr));
 
-        // SAFETY: the elements are allocated in the `self._arena`
-        unsafe { self.agg_func_list.drop_states(&self.state_ptrs) }
+        // SAFETY:
+        // - the elements are allocated in the `self._arena`
+        // - hash aggregate operator outlive self
+        unsafe {
+            let agg_func_list = self
+                .agg_func_list
+                .as_ref()
+                .expect("HashAggregate operator must outlive its local source state");
+            agg_func_list.drop_states(&self.state_ptrs)
+        }
     }
 }
 
@@ -485,9 +479,17 @@ impl<K: SerdeKey> HashAggregateGlobalSinkState<K> {
 }
 
 /// Local sink state for [`HashAggregate`]
+///
+/// FIXME: Memory leak when the query is cancelled in the sink phase
 #[derive(Debug)]
 pub struct HashAggregateLocalSinkState<S: Serde> {
     hash_table: HashTable<S>,
+
+    /// Used for drop. The lifetime of the agg_func_list is the lifetime of the
+    /// physical operator that create this local sink state, which guarantees out-lives
+    /// this state
+    agg_func_list: *const AggregationFunctionList,
+
     /// Note: The 'static lifetime is fake.....
     /// The group_by_keys is used in the `write_data` method, it reference the input and will be cleared
     /// immediately after the `write_data` is finished. The LocalState requires a 'static
@@ -545,6 +547,31 @@ impl<S: Serde> HashAggregateLocalSinkState<S> {
     }
 }
 
+/// Drop the local state. We need to implement it because the query may cancelled in the
+/// sink phase.
+impl<S: Serde> Drop for HashAggregateLocalSinkState<S> {
+    fn drop(&mut self) {
+        let (swiss_table, _arena) = self.hash_table.finalize();
+        if !swiss_table.is_empty() {
+            let state_ptrs = swiss_table
+                .into_iter()
+                .map(|element| element.agg_states_ptr)
+                .collect::<Vec<_>>();
+
+            // SAFETY:
+            // - the elements are allocated in the `_arena`
+            // - hash aggregate operator outlive self
+            unsafe {
+                let agg_func_list = self
+                    .agg_func_list
+                    .as_ref()
+                    .expect("HashAggregate operator must outlive its local sink state");
+                agg_func_list.drop_states(&state_ptrs)
+            }
+        }
+    }
+}
+
 impl<S: Serde> Stringify for HashAggregate<S> {
     fn name(&self) -> &'static str {
         "HashAggregate"
@@ -556,8 +583,11 @@ impl<S: Serde> Stringify for HashAggregate<S> {
     }
 
     fn display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "HashAggregate: group_by_keys=")?;
-        compact_display_expressions(f, &self._group_by_keys)?;
+        write!(
+            f,
+            "HashAggregate: group_by_keys={:?}",
+            self.group_by_keys_indexes
+        )?;
         write!(
             f,
             " aggregation_functions={}, output_types={:?}",
@@ -641,7 +671,7 @@ impl<S: Serde> PhysicalOperator for HashAggregate<S> {
 
         Box::new(HashAggregateLocalSourceState::<S> {
             table_into_iter,
-            agg_func_list: Arc::clone(&self.agg_func_list),
+            agg_func_list: &self.agg_func_list as _,
             read_count: Arc::clone(&global_state.read_count),
             _arena: arena,
             serde_keys: Vec::new(),
@@ -868,6 +898,7 @@ impl<S: Serde> PhysicalOperator for HashAggregate<S> {
     fn local_sink_state(&self, _global_state: &dyn GlobalSinkState) -> Box<dyn LocalSinkState> {
         Box::new(HashAggregateLocalSinkState::<S> {
             hash_table: HashTable::new(),
+            agg_func_list: &self.agg_func_list as _,
             group_by_keys: Vec::new(),
             payloads: Vec::new(),
             write_data_time: Duration::default(),
@@ -960,7 +991,8 @@ impl<S: Serde> SinkOperatorExt for HashAggregate<S> {
     type LocalSinkState = HashAggregateLocalSinkState<S>;
 }
 
-/// FIXME: Reuse the arena and hash table
+/// FIXME: Reuse the arena and hash table. The following method may fail for multi-threading
+///
 /// Yeah, we can do it in this way: reuse the arena in the thread_index as combined
 /// arena and create new arena if `parallelism > partition`. Combine all of the hash tables
 /// into the hash table produced by the first thread! This method sounds queer: elements
@@ -1176,6 +1208,7 @@ mod tests {
 
     use super::*;
     use crate::exec::physical_expr::function::aggregate::min_max::Min;
+    use crate::exec::physical_expr::function::aggregate::AggregationFunction;
     use crate::exec::physical_expr::function::aggregate::{count::CountStart, sum::Sum};
     use crate::exec::physical_operator::empty_table_scan::EmptyTableScan;
     use data_block::array::{Float32Array, Int32Array, Int64Array};
@@ -1183,14 +1216,7 @@ mod tests {
     fn mock_agg_funcs_list() -> AggregationFunctionList {
         let agg_funcs: Vec<Arc<dyn AggregationFunction>> = vec![
             Arc::new(CountStart::new()),
-            Arc::new(
-                Min::<Int64Array>::try_new(Arc::new(FieldRef::new(
-                    2,
-                    LogicalType::BigInt,
-                    "Wtf".to_string(),
-                )))
-                .unwrap(),
-            ),
+            Arc::new(Min::<Int64Array>::try_new(LogicalType::BigInt).unwrap()),
         ];
 
         AggregationFunctionList::new(agg_funcs)
@@ -1414,25 +1440,25 @@ mod tests {
             LogicalType::Float,
             LogicalType::BigInt,
         ]));
-        let group_by_keys: Vec<Arc<dyn PhysicalExpr>> = vec![
-            Arc::new(FieldRef::new(0, LogicalType::Integer, "f0".to_string())),
-            Arc::new(FieldRef::new(1, LogicalType::Float, "f1".to_string())),
+        let group_by_keys = [
+            FieldRef::new(0, LogicalType::Integer, "f0".to_string()),
+            FieldRef::new(1, LogicalType::Float, "f1".to_string()),
         ];
-        let agg_funcs: Vec<Arc<dyn AggregationFunction>> = vec![
-            Arc::new(CountStart::new()),
-            Arc::new(
-                Sum::<Int64Array>::try_new(Arc::new(FieldRef::new(
-                    2,
-                    LogicalType::BigInt,
-                    "f2".to_string(),
-                )))
-                .unwrap(),
-            ),
+
+        let count_payloads = [];
+        let sum_payloads = [FieldRef::new(2, LogicalType::BigInt, "f2".to_string())];
+        let agg_funcs = vec![
+            AggregationFunctionExpr::try_new(&count_payloads, Arc::new(CountStart::new())).unwrap(),
+            AggregationFunctionExpr::try_new(
+                &sum_payloads,
+                Arc::new(Sum::<Int64Array>::try_new(LogicalType::BigInt).unwrap()),
+            )
+            .unwrap(),
         ];
 
         let agg = HashAggregate::<FixedSizedSerdeKeySerializer<u64>>::try_new(
             input,
-            group_by_keys,
+            &group_by_keys,
             agg_funcs,
         )
         .unwrap();

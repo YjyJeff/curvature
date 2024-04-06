@@ -3,7 +3,6 @@
 use std::alloc::Layout;
 use std::fmt::Debug;
 use std::marker::PhantomData;
-use std::sync::Arc;
 
 use data_block::array::{Array, ArrayError, ArrayImpl, ScalarArray};
 use data_block::types::{Element, ElementRef, LogicalType};
@@ -11,11 +10,9 @@ use snafu::ensure;
 
 use super::{
     unary_combine_states, unary_take_states, unary_update_states, AggregationFunction,
-    AggregationStatesPtr, Function, NotFieldRefArgsSnafu, Result, Stringify, UnaryAggregationState,
+    AggregationStatesPtr, Function, Result, Stringify, UnaryAggregationState,
 };
-use crate::exec::physical_expr::field_ref::FieldRef;
 use crate::exec::physical_expr::function::aggregate::ArgTypeMismatchSnafu;
-use crate::exec::physical_expr::PhysicalExpr;
 
 /// Trait for constrain the payload array of the min/max function
 ///
@@ -51,7 +48,7 @@ pub struct MinMaxState<const IS_MIN: bool, S> {
 /// - `PayloadArray`: The type of the payload array that need to calculate min/max
 /// - `IS_MIN`: If it is true, it will be min aggregation function
 pub struct MinMax<const IS_MIN: bool, PayloadArray> {
-    args: Vec<Arc<dyn PhysicalExpr>>,
+    args: Vec<LogicalType>,
     _phantom: PhantomData<PayloadArray>,
 }
 
@@ -92,9 +89,13 @@ impl<const IS_MIN: bool, PayloadArray> Stringify for MinMax<IS_MIN, PayloadArray
     }
 
     fn display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}(", self.name())?;
-        self.args[0].compact_display(f)?;
-        write!(f, ")")
+        write!(
+            f,
+            "fn {}({:?}) -> {:?}",
+            self.name(),
+            self.args[0],
+            self.args[0]
+        )
     }
 }
 
@@ -102,12 +103,12 @@ impl<const IS_MIN: bool, PayloadArray> Function for MinMax<IS_MIN, PayloadArray>
 where
     PayloadArray: Array,
 {
-    fn arguments(&self) -> &[Arc<dyn PhysicalExpr>] {
+    fn arguments(&self) -> &[LogicalType] {
         &self.args
     }
 
     fn return_type(&self) -> LogicalType {
-        self.args[0].output_type().to_owned()
+        self.args[0].clone()
     }
 }
 
@@ -247,21 +248,13 @@ where
     for<'a> <PayloadArray::Element as Element>::ElementRef<'a>: PartialOrd,
 {
     /// Create a new MinMax function
-    pub fn try_new(arg: Arc<dyn PhysicalExpr>) -> Result<Self> {
+    pub fn try_new(arg: LogicalType) -> Result<Self> {
         ensure!(
-            arg.as_any().downcast_ref::<FieldRef>().is_some(),
-            NotFieldRefArgsSnafu {
-                func: Self::name_(),
-                args: vec![arg]
-            }
-        );
-
-        ensure!(
-            arg.output_type().physical_type() == PayloadArray::PHYSCIAL_TYPE,
+            arg.physical_type() == PayloadArray::PHYSCIAL_TYPE,
             ArgTypeMismatchSnafu {
                 func: Self::name_(),
                 expect_physical_type: PayloadArray::PHYSCIAL_TYPE,
-                arg_type: arg.output_type().to_owned()
+                arg
             }
         );
 

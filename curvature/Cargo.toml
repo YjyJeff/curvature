@@ -23,13 +23,17 @@ parking_lot = { workspace = true }
 # TODO: Remove the rayon, use monoio instead?
 rayon = { workspace = true }
 tracing = { workspace = true, features = ["log"] }
-tracing-subscriber = { workspace = true, features = ["env-filter"] }
 
 
 [dev-dependencies]
 expect-test = "1.4"
 criterion = "0.5"
 rand = { version = "0.8.5", features = ["std_rng"] }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+ctrlc = "3.4.4"
+
+[target.'cfg(not(target_env = "msvc"))'.dev-dependencies]
+tikv-jemallocator = "0.5"
 
 [features]
 default = []

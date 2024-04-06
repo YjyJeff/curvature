@@ -5,6 +5,7 @@ use snafu::{ensure, ResultExt, Snafu};
 use std::convert::identity;
 
 use super::{Pipeline, Sink, SinkTrait};
+use crate::common::client_context::ClientContext;
 use crate::exec::physical_operator::{
     LocalOperatorState, LocalSourceState, OperatorError, OperatorExecStatus, SinkExecStatus,
     SourceExecStatus,
@@ -15,6 +16,8 @@ type OperatorIndex = usize;
 #[allow(missing_docs)]
 #[derive(Debug, Snafu)]
 pub enum PipelineExecutorError {
+    #[snafu(display("Query is cancelled"))]
+    Cancelled,
     #[snafu(display("Failed to read_data from Source"))]
     ExecuteSource { source: OperatorError },
     #[snafu(display("Failed to execute the regular operator"))]
@@ -54,11 +57,36 @@ pub struct PipelineExecutor<'a, S: SinkTrait> {
     /// it as source and fetch more result from it. If the stack of in_process_operators is
     /// empty, we fetch from the source instead
     in_process_operators: Vec<OperatorIndex>,
+
+    /// Client context of the query execution
+    client_ctx: &'a ClientContext,
+}
+
+macro_rules! ensure_not_cancelled {
+    ($self:ident) => {
+        ensure!(!$self.client_ctx.is_cancelled(), CancelledSnafu);
+    };
+}
+
+/// Returned by the execute_regular_operators function to control how to execute
+/// the pipeline after executing the regular operators
+enum RegularOperatorsExecutionControl {
+    /// The entire pipeline is finished
+    Finished,
+    /// Execute the sink operator and then read data from source. Which means that
+    /// the regular operators do not have more outputs
+    SinkThenSource,
+    /// Execute the sink operator and then execute the regular operator. Which means
+    /// that the regular operators have more outputs
+    SinkThenRegular,
+    /// Read from the source operator, which means that the regular operators have
+    /// empty output and do not have more outputs
+    Source,
 }
 
 impl<'a, S: SinkTrait> PipelineExecutor<'a, S> {
     /// Try to create a new [`PipelineExecutor`]
-    pub fn try_new(pipeline: &'a Pipeline<S>) -> Result<Self> {
+    pub fn try_new(pipeline: &'a Pipeline<S>, client_ctx: &'a ClientContext) -> Result<Self> {
         let source = &pipeline.source;
         let operators = &pipeline.operators;
         let sink = &pipeline.sink;
@@ -86,11 +114,14 @@ impl<'a, S: SinkTrait> PipelineExecutor<'a, S> {
             local_operator_states,
             local_sink_state,
             in_process_operators: Vec::new(),
+            client_ctx,
         })
     }
 
     #[inline]
     fn execute_source(&mut self) -> Result<SourceExecStatus> {
+        ensure_not_cancelled!(self);
+
         // SAFETY: intermediate_blocks has at least one block
         let source_output_block =
             unsafe { self.intermediate_blocks.first_mut().unwrap_unchecked() };
@@ -105,7 +136,7 @@ impl<'a, S: SinkTrait> PipelineExecutor<'a, S> {
             .context(ExecuteSourceSnafu)
     }
 
-    fn execute_regular_operators(&mut self) -> Result<OperatorExecStatus> {
+    fn execute_regular_operators(&mut self) -> Result<RegularOperatorsExecutionControl> {
         let operators = &self.pipeline.operators;
         let local_operator_states = &mut self.local_operator_states;
         let blocks = &mut self.intermediate_blocks;
@@ -128,7 +159,10 @@ impl<'a, S: SinkTrait> PipelineExecutor<'a, S> {
                 .peekable()
         };
 
+        // Execute the regular operator in sequence
         for (i, (operator, local_state)) in iter {
+            ensure_not_cancelled!(self);
+
             let input = unsafe { blocks_iter.next().unwrap_unchecked() };
             let output = unsafe { blocks_iter.peek_mut().unwrap_unchecked() };
 
@@ -138,7 +172,9 @@ impl<'a, S: SinkTrait> PipelineExecutor<'a, S> {
                 .context(ExecuteOperatorSnafu)?;
 
             match exec_status {
-                OperatorExecStatus::Finished => return Ok(OperatorExecStatus::Finished),
+                OperatorExecStatus::Finished => {
+                    return Ok(RegularOperatorsExecutionControl::Finished)
+                }
                 OperatorExecStatus::HaveMoreOutput => {
                     // Push current operator to in process operator
                     self.in_process_operators.push(i + current_index);
@@ -149,26 +185,28 @@ impl<'a, S: SinkTrait> PipelineExecutor<'a, S> {
                         }
                     );
                 }
-                OperatorExecStatus::OutputEmptyAndNeedMoreInput => {
-                    // Output is empty, filter may cause this
-                    if self.in_process_operators.is_empty() {
-                        // No more in process operators, early return
-                        return Ok(OperatorExecStatus::OutputEmptyAndNeedMoreInput);
-                    } else {
-                        // Recursive call, execute the in process operators
-                        return self.execute_regular_operators();
+                OperatorExecStatus::NeedMoreInput => {
+                    if output.is_empty() {
+                        // Output is empty, operator like filter may cause this
+                        if self.in_process_operators.is_empty() {
+                            // No more in process operators, early return and read
+                            // from source
+                            return Ok(RegularOperatorsExecutionControl::Source);
+                        } else {
+                            // Recursive call, execute the in process operators
+                            return self.execute_regular_operators();
+                        }
                     }
                 }
-                OperatorExecStatus::NeedMoreInput => (),
             }
         }
 
         // Till now, we have executed all of the regular operators.
         // What's more, the output can not be empty 😊
         Ok(if self.in_process_operators.is_empty() {
-            OperatorExecStatus::NeedMoreInput
+            RegularOperatorsExecutionControl::SinkThenSource
         } else {
-            OperatorExecStatus::HaveMoreOutput
+            RegularOperatorsExecutionControl::SinkThenRegular
         })
     }
 
@@ -200,9 +238,9 @@ impl<'a> PipelineExecutor<'a, Sink> {
             // Inner loop here, because single input may produce multiple output
             'inner: loop {
                 // Execute regular
-                let exec_status = self.execute_regular_operators()?;
-                match exec_status {
-                    OperatorExecStatus::NeedMoreInput => {
+                let control_flow = self.execute_regular_operators()?;
+                match control_flow {
+                    RegularOperatorsExecutionControl::SinkThenSource => {
                         let exec_status = self.execute_sink()?;
                         if matches!(exec_status, SinkExecStatus::Finished) {
                             break 'outer;
@@ -210,11 +248,11 @@ impl<'a> PipelineExecutor<'a, Sink> {
                         // Need more input from the source
                         break 'inner;
                     }
-                    OperatorExecStatus::OutputEmptyAndNeedMoreInput => {
+                    RegularOperatorsExecutionControl::Source => {
                         // Need more input from the source
                         break 'inner;
                     }
-                    OperatorExecStatus::HaveMoreOutput => {
+                    RegularOperatorsExecutionControl::SinkThenRegular => {
                         let exec_status = self.execute_sink()?;
                         if matches!(exec_status, SinkExecStatus::Finished) {
                             break 'outer;
@@ -222,7 +260,8 @@ impl<'a> PipelineExecutor<'a, Sink> {
                         // Continue the inner loop, we need to execute the in_process_operators
                         // instead of read from source
                     }
-                    OperatorExecStatus::Finished => {
+                    RegularOperatorsExecutionControl::Finished => {
+                        // Break the entire outer loop
                         break 'outer;
                     }
                 }
@@ -243,6 +282,7 @@ impl<'a> PipelineExecutor<'a, Sink> {
     /// Note that call this function should guarantee the sink input is not empty
     #[inline]
     fn execute_sink(&mut self) -> Result<SinkExecStatus> {
+        ensure_not_cancelled!(self);
         let sink_input = unsafe { self.intermediate_blocks.last().unwrap_unchecked() };
         let sink = &self.pipeline.sink;
         sink.op
@@ -280,14 +320,15 @@ impl<'a> PipelineExecutor<'a, ()> {
             // Execute regular operators
             let exec_status = self.execute_regular_operators()?;
             match exec_status {
-                OperatorExecStatus::Finished => {
+                RegularOperatorsExecutionControl::Finished => {
                     self.merge_local_metrics();
                     Ok(None)
                 }
-                OperatorExecStatus::HaveMoreOutput | OperatorExecStatus::NeedMoreInput => {
+                RegularOperatorsExecutionControl::SinkThenRegular
+                | RegularOperatorsExecutionControl::SinkThenSource => {
                     Ok(self.intermediate_blocks.last())
                 }
-                OperatorExecStatus::OutputEmptyAndNeedMoreInput => self.execute_once(),
+                RegularOperatorsExecutionControl::Source => self.execute_once(),
             }
         }
     }
@@ -324,9 +365,9 @@ mod tests {
 
     #[test]
     fn test_execute_root_pipeline() {
-        fn sum_numbers(pipelines: Arc<Pipelines>) -> u64 {
+        fn sum_numbers(pipelines: Arc<Pipelines>, client_ctx: &ClientContext) -> u64 {
             let mut pipeline_executor =
-                PipelineExecutor::try_new(&pipelines.root_pipelines[0]).unwrap();
+                PipelineExecutor::try_new(&pipelines.root_pipelines[0], client_ctx).unwrap();
 
             let mut sum = 0;
             while let Some(block) = pipeline_executor.execute_once().unwrap() {
@@ -347,8 +388,8 @@ mod tests {
 
         let sum = std::thread::scope(|s| {
             let pipelines_ = Arc::clone(&pipelines);
-            let jh_0 = s.spawn(move || sum_numbers(pipelines_));
-            let jh_1 = s.spawn(move || sum_numbers(pipelines));
+            let jh_0 = s.spawn(|| sum_numbers(pipelines_, &client_ctx));
+            let jh_1 = s.spawn(|| sum_numbers(pipelines, &client_ctx));
             let mut sum = jh_0.join().unwrap();
             sum += jh_1.join().unwrap();
             sum

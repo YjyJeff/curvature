@@ -103,3 +103,9 @@ impl TreeNode for dyn PhysicalExpr {
         Ok(TreeNodeRecursion::Continue)
     }
 }
+
+impl<'a> AsRef<dyn PhysicalExpr + 'a> for dyn PhysicalExpr + 'a {
+    fn as_ref(&self) -> &(dyn PhysicalExpr + 'a) {
+        self
+    }
+}

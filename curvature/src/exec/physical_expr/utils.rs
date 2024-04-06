@@ -30,19 +30,20 @@ impl<'a> Display for CompactExprDisplayWrapper<'a> {
 }
 
 /// Compact display array fo expressions
-pub fn compact_display_expressions(
+pub fn compact_display_expressions<E: AsRef<dyn PhysicalExpr>, I: IntoIterator<Item = E>>(
     f: &mut std::fmt::Formatter<'_>,
-    exprs: &[Arc<dyn PhysicalExpr>],
+    exprs: I,
 ) -> std::fmt::Result {
-    write!(f, "[")?;
-    let mut iter = exprs.iter();
+    let mut iter = exprs.into_iter();
+
     let Some(expr) = iter.next() else {
-        return write!(f, "]");
+        return Ok(());
     };
-    expr.compact_display(f)?;
+    write!(f, "[")?;
+    expr.as_ref().compact_display(f)?;
     iter.try_for_each(|expr| {
         write!(f, ", ")?;
-        expr.compact_display(f)
+        expr.as_ref().compact_display(f)
     })?;
     write!(f, "]")
 }

@@ -12,33 +12,48 @@ use std::sync::Arc;
 
 use data_block::array::{Array, ArrayError, ArrayImpl, ScalarArray};
 use data_block::types::{Element, LogicalType, PhysicalType};
-use snafu::Snafu;
+use snafu::{ensure, Snafu};
 
 use super::Function;
 use crate::common::utils::memory::next_multiple_of_align;
 use crate::error::SendableError;
+use crate::exec::physical_expr::field_ref::FieldRef;
 use crate::exec::physical_expr::utils::display_agg_funcs;
-use crate::exec::physical_expr::PhysicalExpr;
 use crate::exec::physical_operator::aggregate::Arena;
 
 #[allow(missing_docs)]
 #[derive(Debug, Snafu)]
 pub enum AggregationError {
-    #[snafu(display("All of the arguments passed to the `{func}` aggregation function should be `FieldRef`, found arguments `{:?}`", args))]
-    NotFieldRefArgs {
+    #[snafu(display(
+        "`{func}` aggregation function expect `{}` payloads, however, `{}` payloads are accepted",
+        expect_payloads_size,
+        payloads_size,
+    ))]
+    PayloadsSizeMismatch {
         func: &'static str,
-        args: Vec<Arc<dyn PhysicalExpr>>,
+        expect_payloads_size: usize,
+        payloads_size: usize,
+    },
+    #[snafu(display(
+        "`{func}` aggregation function expect the payloads type: `{:?}`, however, `{:?}` payloads are accepted",
+        expect_payloads_types,
+        payloads_types
+    ))]
+    PayloadsTypeMismatch {
+        func: &'static str,
+        expect_payloads_types: Vec<LogicalType>,
+        payloads_types: Vec<LogicalType>,
     },
     #[snafu(display(
         "`{func}` aggregation function expect `{}`, however the arg has logical type `{:?}` with `{}`",
         expect_physical_type,
-        arg_type,
-        arg_type.physical_type()
+        arg,
+        arg.physical_type()
     ))]
     ArgTypeMismatch {
         func: &'static str,
         expect_physical_type: PhysicalType,
-        arg_type: LogicalType,
+        arg: LogicalType,
     },
     #[snafu(display("Failed to update the aggregation states"))]
     UpdateStates { source: SendableError },
@@ -48,6 +63,57 @@ pub enum AggregationError {
 
 /// Aggregation result
 pub type Result<T> = std::result::Result<T, AggregationError>;
+
+/// Expression for aggregation function
+///
+/// We enforce the payloads to be [`FieldRef`], such that different aggregation functions
+/// do not need to do redundant expression computation. We enforce the optimizer/planner
+/// to identify the redundant expression.
+#[derive(Debug)]
+pub struct AggregationFunctionExpr<'a> {
+    /// payloads of the aggregation function
+    pub(crate) payloads: &'a [FieldRef],
+    /// aggregation function
+    pub(crate) func: Arc<dyn AggregationFunction>,
+    /// Private field used to avoid constructing the struct literally
+    _private: (),
+}
+
+impl<'a> AggregationFunctionExpr<'a> {
+    /// Try to create an aggregation function expression
+    pub fn try_new(payloads: &'a [FieldRef], func: Arc<dyn AggregationFunction>) -> Result<Self> {
+        let arguments = func.arguments();
+        ensure!(
+            payloads.len() == arguments.len(),
+            PayloadsSizeMismatchSnafu {
+                func: func.name(),
+                expect_payloads_size: arguments.len(),
+                payloads_size: payloads.len()
+            }
+        );
+
+        ensure!(
+            payloads
+                .iter()
+                .zip(arguments)
+                .all(|(payload, arg)| payload.output_type.eq(arg)),
+            PayloadsTypeMismatchSnafu {
+                func: func.name(),
+                expect_payloads_types: arguments.to_vec(),
+                payloads_types: payloads
+                    .iter()
+                    .map(|p| p.output_type.clone())
+                    .collect::<Vec<_>>()
+            }
+        );
+
+        Ok(Self {
+            payloads,
+            func,
+            _private: (),
+        })
+    }
+}
 
 /// Pointer that points to the `AggregationStates`
 ///
@@ -283,22 +349,14 @@ pub trait Stringify {
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
 
     /// Display message
-    ///
-    /// If `compact` is true, use one line representation for each expression.
-    /// Otherwise, prints a tree of expressions one node per line
     fn display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
 }
 
 /// Trait for all of the aggregation functions
 ///
-/// # Note
+/// # TODO
 ///
-/// All of the arguments passed to `AggregationFunction` should be [`FieldRef`]!
-/// Through this way, we guarantee different aggregation functions do not need to do
-/// redundant expression computation. We enforce the optimizer/planner to identify the
-/// redundant expression.
-///
-/// [`FieldRef`]: crate::exec::physical_expr::field_ref::FieldRef
+/// Put the variable length states into an individual arena?
 pub trait AggregationFunction: Function + Stringify {
     /// Layout of the aggregation state, used to compute the dynamic `AggregationStates`
     fn state_layout(&self) -> Layout;
