@@ -36,6 +36,7 @@ tabled = "0.15"
 tracing-subscriber = "0.3.18"
 data-block = { path = "data-block" }
 curvature-procedural-macro = { path = "curvature-procedural-macro" }
+crossbeam-utils = "0.8"
 
 # Either is used in ping-pong
 # either = "1.10"

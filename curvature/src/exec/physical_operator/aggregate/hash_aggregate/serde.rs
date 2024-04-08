@@ -119,6 +119,9 @@ macro_rules! impl_fixed_sized_serde_key_serializer {
 
                 unsafe fn serialize(arrays: &[&ArrayImpl], keys: &mut [Self::SerdeKey]) {
                     let mut offset_in_byte = 0;
+                    // Clear the keys
+                    keys.iter_mut().for_each(|serde_key| *serde_key= Default::default());
+
                     for (index, array) in arrays.iter().enumerate() {
                         match array {
                             ArrayImpl::Boolean(array) => {
@@ -280,10 +283,9 @@ unsafe fn serialize_scalar_fixed_sized_array<A, T, K, F>(
     debug_assert!(offset_in_byte + mem::size_of::<T>() <= mem::size_of::<K>());
 
     let set_mask = 1 << index;
-    let clear_mask = !set_mask;
 
     let validity = array.validity();
-    if validity.is_empty() {
+    if validity.all_valid() {
         array.values_iter().zip(keys).for_each(|(val, serde_key)| {
             let val = func(val);
             let src = (&val) as *const _ as *const u8;
@@ -295,28 +297,16 @@ unsafe fn serialize_scalar_fixed_sized_array<A, T, K, F>(
             serde_key.validity |= set_mask;
         });
     } else {
-        array
-            .values_iter()
-            .zip(array.validity().iter())
-            .zip(keys)
-            .for_each(|((val, is_valid), serde_key)| {
-                if is_valid {
-                    let val = func(val);
-                    let src = (&val) as *const _ as *const u8;
-                    let dst = (&mut serde_key.key) as *mut _ as *mut u8;
-                    // mem::size_of::<T> is important, it is a constant, give compiler lots of
-                    // optimization info
-                    std::ptr::copy_nonoverlapping(
-                        src,
-                        dst.add(offset_in_byte),
-                        mem::size_of::<T>(),
-                    );
-
-                    serde_key.validity |= set_mask;
-                } else {
-                    serde_key.validity &= clear_mask;
-                }
-            });
+        validity.iter_ones().for_each(|index| unsafe {
+            let val = func(array.get_value_unchecked(index));
+            let serde_key = keys.get_unchecked_mut(index);
+            let src = (&val) as *const _ as *const u8;
+            let dst = (&mut serde_key.key) as *mut _ as *mut u8;
+            // mem::size_of::<T> is important, it is a constant, give compiler lots of
+            // optimization info
+            std::ptr::copy_nonoverlapping(src, dst.add(offset_in_byte), mem::size_of::<T>());
+            serde_key.validity |= set_mask;
+        });
     }
 }
 

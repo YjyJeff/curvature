@@ -326,6 +326,7 @@ mod tests {
     use super::*;
     use crate::exec::physical_expr::field_ref::FieldRef;
     use crate::exec::physical_expr::function::aggregate::count::CountStart;
+    use crate::exec::physical_expr::function::aggregate::AggregationFunctionExpr;
     use crate::exec::physical_operator::aggregate::simple_aggregate::SimpleAggregate;
     use crate::exec::physical_operator::numbers::Numbers;
     use crate::exec::physical_operator::projection::Projection;
@@ -354,7 +355,13 @@ mod tests {
     }
 
     fn aggregate(input: Arc<dyn PhysicalOperator>) -> Arc<dyn PhysicalOperator> {
-        Arc::new(SimpleAggregate::try_new(input, vec![Arc::new(CountStart::new())]).unwrap())
+        Arc::new(
+            SimpleAggregate::try_new(
+                input,
+                vec![AggregationFunctionExpr::try_new(&[], Arc::new(CountStart::new())).unwrap()],
+            )
+            .unwrap(),
+        )
     }
 
     fn build_pipelines(

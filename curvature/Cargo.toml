@@ -23,6 +23,7 @@ parking_lot = { workspace = true }
 # TODO: Remove the rayon, use monoio instead?
 rayon = { workspace = true }
 tracing = { workspace = true, features = ["log"] }
+crossbeam-utils = { workspace = true }
 
 
 [dev-dependencies]

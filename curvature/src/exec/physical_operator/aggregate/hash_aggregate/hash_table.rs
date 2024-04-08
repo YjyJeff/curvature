@@ -205,7 +205,7 @@ pub(super) fn probing_swiss_table<K: SerdeKey>(
         None => {
             // The group by keys do not in the hash table, we need to create a new
             // aggregation states to store its result
-            let agg_states_ptr = agg_func_list.alloc_states(arena);
+            let agg_states_ptr = agg_func_list.alloc_states_in_arena(arena);
             // Insert it into the raw table
             swiss_table.insert(
                 hash_value,

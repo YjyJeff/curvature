@@ -229,8 +229,10 @@ pub trait PhysicalOperator: Send + Sync + Stringify + 'static {
     ///
     /// [PipelineExecutor] should guarantee following invariants, otherwise implementation will panic:
     ///
-    /// The global and local state should be created with [`Self::global_sink_state()`]/
+    /// - The global and local state should be created with [`Self::global_sink_state()`]/
     /// [`Self::local_sink_state()`] methods.
+    ///
+    /// - The input should not be empty
     ///
     /// [PipelineExecutor]: crate::exec::pipeline::PipelineExecutor
     ///
@@ -411,6 +413,27 @@ pub trait LocalSourceState: StateStringify + 'static {
     fn as_mut_any(&mut self) -> &mut dyn std::any::Any;
 }
 
+#[derive(Debug)]
+/// A dummy global sink state, operators do not have global sink state will use this state as
+/// its global sink state
+pub struct DummyGlobalSourceState;
+
+impl StateStringify for DummyGlobalSourceState {
+    fn name(&self) -> &'static str {
+        "DummyGlobalSourceState"
+    }
+
+    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "DummyGlobalSourceState")
+    }
+}
+
+impl GlobalSourceState for DummyGlobalSourceState {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// SourceExecStatus indicates the status of the  operator for the `read_data` call.
 /// Executor should check this status and decide how to execute the pipeline
@@ -442,6 +465,27 @@ pub trait GlobalSinkState: Send + Sync + StateStringify + 'static {
 pub trait LocalSinkState: StateStringify + 'static {
     /// As any such that we can perform dynamic cast
     fn as_mut_any(&mut self) -> &mut dyn std::any::Any;
+}
+
+#[derive(Debug)]
+/// A dummy global sink state, operators do not have global sink state will use this state as
+/// its global sink state
+pub struct DummyGlobalSinkState;
+
+impl StateStringify for DummyGlobalSinkState {
+    fn name(&self) -> &'static str {
+        "DummyGlobalSinkState"
+    }
+
+    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "DummyGlobalSinkState")
+    }
+}
+
+impl GlobalSinkState for DummyGlobalSinkState {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

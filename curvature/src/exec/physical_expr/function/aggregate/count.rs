@@ -4,6 +4,7 @@ use crate::exec::physical_expr::function::Function;
 use data_block::array::{ArrayImpl, ScalarArray, UInt64Array};
 use data_block::types::{Array, LogicalType};
 use std::alloc::Layout;
+use std::num::NonZeroUsize;
 
 use super::{AggregationFunction, AggregationStatesPtr, Result, Stringify};
 
@@ -75,11 +76,10 @@ impl<const STAR: bool> AggregationFunction for Count<STAR> {
                 let state = ptr.offset_as_mut::<CountState>(state_offset);
                 state.0 += 1;
             });
-            Ok(())
         } else {
             let payload = payloads[0];
             let validity = payload.validity();
-            if validity.is_empty() {
+            if validity.all_valid() {
                 // All of the elements in the array is not null
                 state_ptrs.iter().for_each(|ptr| unsafe {
                     let state = ptr.offset_as_mut::<CountState>(state_offset);
@@ -88,18 +88,38 @@ impl<const STAR: bool> AggregationFunction for Count<STAR> {
             } else {
                 // Some elements in the array are null, we need to iterate the bitmap and
                 // only take the non-null into consideration
-                state_ptrs
-                    .iter()
-                    .zip(validity.iter())
-                    .for_each(|(ptr, not_null)| unsafe {
-                        if not_null {
-                            let state = ptr.offset_as_mut::<CountState>(state_offset);
-                            state.0 += 1;
-                        }
-                    });
+                validity.iter_ones().for_each(|index| unsafe {
+                    let ptr = *state_ptrs.get_unchecked(index);
+                    let state = ptr.offset_as_mut::<CountState>(state_offset);
+                    state.0 += 1;
+                });
             }
-            Ok(())
         }
+
+        Ok(())
+    }
+
+    unsafe fn batch_update_states(
+        &self,
+        len: NonZeroUsize,
+        payloads: &[&ArrayImpl],
+        states_ptr: AggregationStatesPtr,
+        state_offset: usize,
+    ) -> Result<()> {
+        let len = if STAR {
+            len.get() as u64
+        } else {
+            let validity = payloads[0].validity();
+            if validity.is_empty() {
+                len.get() as u64
+            } else {
+                validity.count_ones() as u64
+            }
+        };
+        let state = states_ptr.offset_as_mut::<CountState>(state_offset);
+        state.0 += len;
+
+        Ok(())
     }
 
     unsafe fn combine_states(

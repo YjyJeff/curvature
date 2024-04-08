@@ -205,7 +205,7 @@ impl<T> ScalarArray for PrimitiveArray<T>
 where
     T: for<'a> PrimitiveType<ElementRef<'a> = T>,
 {
-    const PHYSCIAL_TYPE: PhysicalType = T::PHYSICAL_TYPE;
+    const PHYSICAL_TYPE: PhysicalType = T::PHYSICAL_TYPE;
 
     #[inline]
     unsafe fn replace_with_trusted_len_values_iterator(

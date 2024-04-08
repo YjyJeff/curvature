@@ -34,17 +34,17 @@ unsafe fn combine_validities(
     rhs: &SwarPtr<Bitmap>,
     dst: &mut SwarPtr<Bitmap>,
 ) {
-    match (lhs.is_empty(), rhs.is_empty()) {
+    match (lhs.all_valid(), rhs.all_valid()) {
         (true, true) => {
-            // Both of them are empty
+            // Both of them are all valid
             dst.as_mut().clear();
         }
         (true, false) => {
-            // left is empty, reference right
+            // left is all valid, reference right
             dst.reference(rhs);
         }
         (false, true) => {
-            // right is empty, reference left
+            // right is all valid, reference left
             dst.reference(lhs)
         }
         (false, false) => {

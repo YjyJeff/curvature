@@ -1,5 +1,7 @@
 //! Iterator of the bitmap
 
+use std::iter::FusedIterator;
+
 use super::{get_bit_unchecked, BitStore, Bitmap, BIT_STORE_BITS};
 use crate::aligned_vec::AlignedVec;
 
@@ -73,6 +75,8 @@ impl<'a> ExactSizeIterator for BitmapIter<'a> {
     }
 }
 
+impl<'a> FusedIterator for BitmapIter<'a> {}
+
 /// Iterator of the index that is set in the bitmap
 #[derive(Debug)]
 pub struct BitmapOnesIter<'a> {
@@ -128,3 +132,5 @@ impl<'a> Iterator for BitmapOnesIter<'a> {
         Some(index)
     }
 }
+
+impl<'a> FusedIterator for BitmapOnesIter<'a> {}

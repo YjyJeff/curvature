@@ -12,6 +12,18 @@ pub fn next_multiple_of_align(size: usize, align: usize) -> usize {
         // size is the multiple of align
         size
     } else {
-        (size + align) & mask
+        (size + mask) & !mask
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_next_multiple_of_align() {
+        assert_eq!(next_multiple_of_align(56, 16), 64);
+        assert_eq!(next_multiple_of_align(7, 16), 16);
+        assert_eq!(next_multiple_of_align(48, 16), 48);
     }
 }

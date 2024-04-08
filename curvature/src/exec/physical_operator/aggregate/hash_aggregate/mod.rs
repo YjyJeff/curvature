@@ -19,6 +19,7 @@
 mod hash_table;
 pub mod serde;
 
+use curvature_procedural_macro::MetricsSetBuilder;
 use data_block::array::ArrayImpl;
 use data_block::block::DataBlock;
 use data_block::types::{LogicalType, PhysicalSize};
@@ -55,7 +56,6 @@ use crate::exec::physical_operator::{
 
 use crate::exec::physical_operator::utils::downcast_mut_local_state;
 use crate::STANDARD_VECTOR_SIZE;
-use curvature_procedural_macro::MetricsSetBuilder;
 
 use super::Arena;
 
@@ -110,7 +110,7 @@ pub struct HashAggregate<S: Serde> {
     group_by_keys_indexes: Vec<usize>,
     agg_func_list: AggregationFunctionList,
     payloads_indexes: Vec<usize>,
-    global_state: Arc<GlobalState<S::SerdeKey>>,
+    global_state: GlobalState<S::SerdeKey>,
 }
 
 #[derive(Debug)]
@@ -127,16 +127,6 @@ struct GlobalState<K: SerdeKey> {
     /// in the `finalize_sink` call with multi-threading
     collected_swiss_tables: Mutex<Vec<ThreadLocalTables<K>>>,
 
-    //Sink
-    /// Until now, does any thread has partitioned the swiss table? The `finish_local_sink`
-    /// method should check it. If it is true, the method should partition the swiss
-    /// table before insert into `self.collected_swiss_tables`. The `finalize_sink` method should also
-    /// check it. If it is true, the method should partition the swiss table that
-    /// is not partitioned. All of the memory ordering used to access this variable
-    /// is `Relaxed`!
-    any_partitioned: AtomicBool,
-
-    // Source
     /// The total number of elements in the combined tables. It is set by the `finalize_sink`
     /// method and read in the `source` phase. Other methods should never use it! Actually,
     /// it do not need to be atomic, only single thread write it and many threads read it.
@@ -308,13 +298,20 @@ impl<S: Serde> HashAggregate<S> {
             group_by_keys_indexes,
             agg_func_list,
             payloads_indexes,
-            global_state: Arc::new(GlobalState {
+            global_state: GlobalState {
                 collected_swiss_tables: Mutex::new(Vec::new()),
-                any_partitioned: AtomicBool::new(false),
                 total_elements_count: AtomicUsize::new(0),
                 metrics: HashAggregateMetics::default(),
-            }),
+            },
         })
+    }
+
+    /// Combine the thread local swiss tables into the global state
+    fn combine_thread_local_tables(&self, thread_local_tables: ThreadLocalTables<S::SerdeKey>) {
+        self.global_state
+            .collected_swiss_tables
+            .lock()
+            .push(thread_local_tables)
     }
 }
 
@@ -322,11 +319,7 @@ impl<S: Serde> Drop for HashAggregate<S> {
     /// Drop the elements that have not been consumed
     fn drop(&mut self) {
         let mut state_ptrs = Vec::new();
-        let mut tables = self
-            .global_state
-            .collected_swiss_tables
-            .try_lock()
-            .expect("Drop the `HashAggregate`, no one can hold the lock");
+        let mut tables = self.global_state.collected_swiss_tables.lock();
         while let Some(mut thread_local_tables) = tables.pop() {
             // May drop the table in the sink phase, we need to pop all tables
             while let Some(table) = thread_local_tables.tables.pop() {
@@ -341,13 +334,12 @@ impl<S: Serde> Drop for HashAggregate<S> {
 
 /// Global source state for [`HashAggregate`]
 #[derive(Debug)]
-pub struct HashAggregateGlobalSourceState<K: SerdeKey> {
-    state: Arc<GlobalState<K>>,
+pub struct HashAggregateGlobalSourceState {
     /// Until now, how many elements have been read
-    read_count: Arc<AtomicUsize>,
+    read_count: AtomicUsize,
 }
 
-impl<K: Debug + SerdeKey> StateStringify for HashAggregateGlobalSourceState<K> {
+impl StateStringify for HashAggregateGlobalSourceState {
     fn name(&self) -> &'static str {
         "HashAggregateGlobalSourceState"
     }
@@ -357,9 +349,7 @@ impl<K: Debug + SerdeKey> StateStringify for HashAggregateGlobalSourceState<K> {
     }
 }
 
-impl<K: Send + Sync + 'static + Debug + SerdeKey> GlobalSourceState
-    for HashAggregateGlobalSourceState<K>
-{
+impl GlobalSourceState for HashAggregateGlobalSourceState {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
@@ -371,7 +361,7 @@ impl<K: Send + Sync + 'static + Debug + SerdeKey> GlobalSourceState
 #[allow(missing_debug_implementations)]
 pub struct HashAggregateLocalSourceState<S: Serde> {
     table_into_iter: RawIntoIter<Element<S::SerdeKey>>,
-    read_count: Arc<AtomicUsize>,
+    read_count: *const AtomicUsize,
     /// Arena the table allocated in
     _arena: Arena,
 
@@ -406,13 +396,7 @@ impl<S: Serde> Drop for HashAggregateLocalSourceState<S> {
         // SAFETY:
         // - the elements are allocated in the `self._arena`
         // - hash aggregate operator outlive self
-        unsafe {
-            let agg_func_list = self
-                .agg_func_list
-                .as_ref()
-                .expect("HashAggregate operator must outlive its local source state");
-            agg_func_list.drop_states(&self.state_ptrs)
-        }
+        unsafe { (*self.agg_func_list).drop_states(&self.state_ptrs) }
     }
 }
 
@@ -444,12 +428,19 @@ impl<S: Serde + 'static> LocalSourceState for HashAggregateLocalSourceState<S> {
 ///
 /// TBD: Advantage of radix partitioning?
 #[derive(Debug)]
-pub struct HashAggregateGlobalSinkState<K: SerdeKey> {
-    state: Arc<GlobalState<K>>,
+pub struct HashAggregateGlobalSinkState {
     partitioning: Option<ModuloPartitioning>,
+
+    /// Until now, does any thread has partitioned the swiss table? The `finish_local_sink`
+    /// method should check it. If it is true, the method should partition the swiss
+    /// table before insert into `self.collected_swiss_tables`. The `finalize_sink` method should also
+    /// check it. If it is true, the method should partition the swiss table that
+    /// is not partitioned. All of the memory ordering used to access this variable
+    /// is `Relaxed`!
+    any_partitioned: AtomicBool,
 }
 
-impl<K: Debug + SerdeKey> StateStringify for HashAggregateGlobalSinkState<K> {
+impl StateStringify for HashAggregateGlobalSinkState {
     /// FIXME: Include generic info
     fn name(&self) -> &'static str {
         "HashAggregateGlobalSinkState"
@@ -460,27 +451,13 @@ impl<K: Debug + SerdeKey> StateStringify for HashAggregateGlobalSinkState<K> {
     }
 }
 
-impl<K: Send + Sync + 'static + Debug + SerdeKey> GlobalSinkState
-    for HashAggregateGlobalSinkState<K>
-{
+impl GlobalSinkState for HashAggregateGlobalSinkState {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
 }
 
-impl<K: SerdeKey> HashAggregateGlobalSinkState<K> {
-    /// Combine the thread local swiss tables into self
-    fn combine(&self, thread_local_tables: ThreadLocalTables<K>) {
-        self.state
-            .collected_swiss_tables
-            .lock()
-            .push(thread_local_tables)
-    }
-}
-
 /// Local sink state for [`HashAggregate`]
-///
-/// FIXME: Memory leak when the query is cancelled in the sink phase
 #[derive(Debug)]
 pub struct HashAggregateLocalSinkState<S: Serde> {
     hash_table: HashTable<S>,
@@ -525,22 +502,22 @@ impl<S: Serde> HashAggregateLocalSinkState<S> {
     #[inline]
     fn partition_then_combine_into<P: Partitioning>(
         &mut self,
-        global_state: &HashAggregateGlobalSinkState<S::SerdeKey>,
+        op: &HashAggregate<S>,
         partitioning: &P,
     ) {
         let (swiss_table, arena) = self.hash_table.finalize();
         let mut local_partitioned_tables = Vec::new();
         partition::<S, _>(swiss_table, &mut local_partitioned_tables, partitioning);
-        global_state.combine(ThreadLocalTables {
+        op.combine_thread_local_tables(ThreadLocalTables {
             tables: local_partitioned_tables,
             arena,
         });
     }
 
     #[inline]
-    fn combine_into(&mut self, global_state: &HashAggregateGlobalSinkState<S::SerdeKey>) {
+    fn combine_into(&mut self, op: &HashAggregate<S>) {
         let (swiss_table, arena) = self.hash_table.finalize();
-        global_state.combine(ThreadLocalTables {
+        op.combine_thread_local_tables(ThreadLocalTables {
             tables: vec![swiss_table],
             arena,
         });
@@ -561,13 +538,7 @@ impl<S: Serde> Drop for HashAggregateLocalSinkState<S> {
             // SAFETY:
             // - the elements are allocated in the `_arena`
             // - hash aggregate operator outlive self
-            unsafe {
-                let agg_func_list = self
-                    .agg_func_list
-                    .as_ref()
-                    .expect("HashAggregate operator must outlive its local sink state");
-                agg_func_list.drop_states(&state_ptrs)
-            }
+            unsafe { (*self.agg_func_list).drop_states(&state_ptrs) }
         }
     }
 }
@@ -585,13 +556,8 @@ impl<S: Serde> Stringify for HashAggregate<S> {
     fn display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "HashAggregate: group_by_keys={:?}",
-            self.group_by_keys_indexes
-        )?;
-        write!(
-            f,
-            " aggregation_functions={}, output_types={:?}",
-            self.agg_func_list, self.output_types
+            "HashAggregate: group_by_keys={:?}, aggregation_functions={}, output_types={:?}",
+            self.group_by_keys_indexes, self.agg_func_list, self.output_types
         )
     }
 }
@@ -644,8 +610,7 @@ impl<S: Serde> PhysicalOperator for HashAggregate<S> {
 
     fn global_source_state(&self, _client_ctx: &ClientContext) -> Arc<dyn GlobalSourceState> {
         Arc::new(HashAggregateGlobalSourceState {
-            state: Arc::clone(&self.global_state),
-            read_count: Arc::new(AtomicUsize::new(0)),
+            read_count: AtomicUsize::new(0),
         })
     }
 
@@ -655,7 +620,7 @@ impl<S: Serde> PhysicalOperator for HashAggregate<S> {
     ) -> Box<dyn LocalSourceState> {
         let global_state = self.downcast_ref_global_source_state(global_state);
 
-        let combined_table = global_state.state.collected_swiss_tables.lock().pop();
+        let combined_table = self.global_state.collected_swiss_tables.lock().pop();
         let (table_into_iter, arena) = if let Some(mut combined_table) = combined_table {
             (
                 combined_table
@@ -672,7 +637,7 @@ impl<S: Serde> PhysicalOperator for HashAggregate<S> {
         Box::new(HashAggregateLocalSourceState::<S> {
             table_into_iter,
             agg_func_list: &self.agg_func_list as _,
-            read_count: Arc::clone(&global_state.read_count),
+            read_count: &global_state.read_count,
             _arena: arena,
             serde_keys: Vec::new(),
             state_ptrs: Vec::new(),
@@ -802,13 +767,13 @@ impl<S: Serde> PhysicalOperator for HashAggregate<S> {
             Some(partitioning) if local_state.hash_table.len() > PARTITION_THRESHOLD => {
                 // We need to partition the hash table
                 // Info some local threads have many keys, we need to partition to support multi-threads
-                global_state.state.any_partitioned.store(true, Relaxed);
-                local_state.partition_then_combine_into(global_state, partitioning);
+                global_state.any_partitioned.store(true, Relaxed);
+                local_state.partition_then_combine_into(self, partitioning);
             }
-            Some(partitioning) if global_state.state.any_partitioned.load(Relaxed) => {
-                local_state.partition_then_combine_into(global_state, partitioning);
+            Some(partitioning) if global_state.any_partitioned.load(Relaxed) => {
+                local_state.partition_then_combine_into(self, partitioning);
             }
-            _ => local_state.combine_into(global_state),
+            _ => local_state.combine_into(self),
         }
         tracing::debug!(
             "HashAggregator: combine local sink state into global sink state takes `{:?}`",
@@ -822,7 +787,7 @@ impl<S: Serde> PhysicalOperator for HashAggregate<S> {
         let global_state = self.downcast_ref_global_sink_state(global_state);
 
         let mut collected_swiss_tables =
-            global_state.state.collected_swiss_tables.try_lock().expect(
+            self.global_state.collected_swiss_tables.try_lock().expect(
                 "HashAggregate can not take the lock of the GlobalSinkState in `finalize_sink`, 
                     some threads holding the lock. It should never happens, query executor should 
                     guarantees `finalize_sink` is called exactly once and after all of the sink 
@@ -831,7 +796,7 @@ impl<S: Serde> PhysicalOperator for HashAggregate<S> {
 
         match &global_state.partitioning {
             Some(partitioning) => {
-                if global_state.state.any_partitioned.load(Relaxed) {
+                if global_state.any_partitioned.load(Relaxed) {
                     // Partitioning the tables that have not partitioned yet. Unlikely to happen
 
                     collected_swiss_tables
@@ -886,7 +851,7 @@ impl<S: Serde> PhysicalOperator for HashAggregate<S> {
     fn global_sink_state(&self, client_ctx: &ClientContext) -> Arc<dyn GlobalSinkState> {
         let parallelism = client_ctx.exec_args.parallelism;
         Arc::new(HashAggregateGlobalSinkState {
-            state: Arc::clone(&self.global_state),
+            any_partitioned: AtomicBool::new(false),
             partitioning: if parallelism > ParallelismDegree::MIN {
                 Some(ModuloPartitioning::new(parallelism))
             } else {
@@ -907,16 +872,16 @@ impl<S: Serde> PhysicalOperator for HashAggregate<S> {
 }
 
 impl<S: Serde> SourceOperatorExt for HashAggregate<S> {
-    type GlobalSourceState = HashAggregateGlobalSourceState<S::SerdeKey>;
+    type GlobalSourceState = HashAggregateGlobalSourceState;
     type LocalSourceState = HashAggregateLocalSourceState<S>;
 
     #[inline]
     fn next_morsel(
         &self,
-        global_state: &Self::GlobalSourceState,
+        _global_state: &Self::GlobalSourceState,
         local_state: &mut Self::LocalSourceState,
     ) -> bool {
-        if let Some(mut combined_table) = global_state.state.collected_swiss_tables.lock().pop() {
+        if let Some(mut combined_table) = self.global_state.collected_swiss_tables.lock().pop() {
             local_state._arena = combined_table.arena;
             local_state.table_into_iter = combined_table
                 .tables
@@ -951,9 +916,10 @@ impl<S: Serde> SourceOperatorExt for HashAggregate<S> {
         }
 
         // TBD: will synchronize frequently become bottleneck?
-        local_state
-            .read_count
-            .fetch_add(local_state.state_ptrs.len(), Relaxed);
+        // SAFETY: Global state outlive local state
+        unsafe {
+            (*local_state.read_count).fetch_add(local_state.state_ptrs.len(), Relaxed);
+        }
 
         // SAFETY: I know what I'am doing now
         unsafe {
@@ -987,7 +953,7 @@ impl<S: Serde> SourceOperatorExt for HashAggregate<S> {
 }
 
 impl<S: Serde> SinkOperatorExt for HashAggregate<S> {
-    type GlobalSinkState = HashAggregateGlobalSinkState<S::SerdeKey>;
+    type GlobalSinkState = HashAggregateGlobalSinkState;
     type LocalSinkState = HashAggregateLocalSinkState<S>;
 }
 
@@ -1236,7 +1202,7 @@ mod tests {
             let ptrs_array = (0..2)
                 .map(|i| {
                     (0..4)
-                        .map(|_| agg_func_list.alloc_states(&arenas_array[i]))
+                        .map(|_| agg_func_list.alloc_states_in_arena(&arenas_array[i]))
                         .collect::<Vec<_>>()
                 })
                 .collect::<Vec<_>>();

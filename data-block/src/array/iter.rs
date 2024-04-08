@@ -1,7 +1,7 @@
 //! Iterator of the Array
 
 use super::Array;
-use crate::bitmap::{Bitmap, BitmapIter};
+use crate::bitmap::{Bitmap, BitmapIter, BitmapOnesIter};
 use crate::element::Element;
 use std::fmt::Debug;
 use std::iter::{FusedIterator, Zip};
@@ -66,12 +66,16 @@ impl<'a, A: Array> Iterator for ArrayValuesIter<'a, A> {
     }
 }
 
-impl<'a, A: Array> ExactSizeIterator for ArrayValuesIter<'a, A> {}
+impl<'a, A: Array> ExactSizeIterator for ArrayValuesIter<'a, A> {
+    fn len(&self) -> usize {
+        self.len - self.current
+    }
+}
 impl<'a, A: Array> FusedIterator for ArrayValuesIter<'a, A> {}
 
 /// Iterator of the [`Array`]. Especially useful for [`Debug`]
 pub enum ArrayIter<'a, A: Array> {
-    /// Iterator of values, all of the
+    /// Iterator of values, all of them are some
     Values(A::ValuesIter<'a>),
     /// Iterator of values and validity bitmap
     ValuesAndValidity(Zip<A::ValuesIter<'a>, BitmapIter<'a>>),
@@ -80,7 +84,7 @@ pub enum ArrayIter<'a, A: Array> {
 impl<'a, A: Array> ArrayIter<'a, A> {
     /// Create a new [`ArrayIter`]
     pub fn new(values_iter: A::ValuesIter<'a>, validity: &'a Bitmap) -> Self {
-        if validity.is_empty() {
+        if validity.all_valid() {
             Self::Values(values_iter)
         } else {
             Self::ValuesAndValidity(values_iter.zip(validity.iter()))
@@ -133,3 +137,35 @@ impl<'a, A: Array> Iterator for ArrayIter<'a, A> {
 }
 
 impl<'a, A: Array> ExactSizeIterator for ArrayIter<'a, A> {}
+impl<'a, A: Array> FusedIterator for ArrayIter<'a, A> {}
+
+/// Iterator of the array that produce all of the non-null values in the array
+#[derive(Debug)]
+pub struct ArrayNonNullValuesIter<'a, A> {
+    array: &'a A,
+    ones_iter: BitmapOnesIter<'a>,
+}
+
+impl<'a, A> ArrayNonNullValuesIter<'a, A> {
+    /// Create a new iterator
+    ///
+    /// # Note
+    ///
+    /// Before calling this constructor, caller should guarantee the `bitmap.all_valid = false`
+    pub fn new(array: &'a A, bitmap: &'a Bitmap) -> Self {
+        Self {
+            array,
+            ones_iter: bitmap.iter_ones(),
+        }
+    }
+}
+
+impl<'a, A: Array> Iterator for ArrayNonNullValuesIter<'a, A> {
+    type Item = <<A as Array>::ValuesIter<'a> as Iterator>::Item;
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        self.ones_iter
+            .next()
+            .map(|index| unsafe { self.array.get_value_unchecked(index) })
+    }
+}

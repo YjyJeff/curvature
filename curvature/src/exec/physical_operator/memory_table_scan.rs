@@ -1,5 +1,6 @@
 //! A table scan operator that contains many in memory [`DataBlock`]s
 
+use crossbeam_utils::CachePadded;
 use data_block::block::{DataBlock, SendableDataBlock};
 use data_block::types::LogicalType;
 use std::collections::{HashMap, VecDeque};
@@ -43,9 +44,12 @@ type Result<T> = std::result::Result<T, MemoryTableScanError>;
 /// Task queue, that can only consume
 struct StaticTaskQueue {
     inner: ManuallyDrop<Vec<SendableDataBlock>>,
-    idx: AtomicIsize,
-    // Ptr to start of the inner
+    /// Ptr to start of the inner
     ptr: *const SendableDataBlock,
+
+    /// The next index to fetch, we put it into a separate cache line such that
+    /// updating the idx do not invalid the `ptr`
+    idx: CachePadded<AtomicIsize>,
 }
 
 unsafe impl Send for StaticTaskQueue {}
@@ -53,6 +57,8 @@ unsafe impl Sync for StaticTaskQueue {}
 
 impl Drop for StaticTaskQueue {
     fn drop(&mut self) {
+        // Relaxed is enough, because the whole queue is read only, we only want the
+        // idx to be atomic
         let idx = self.idx.load(Ordering::Relaxed);
         // If `idx < 0`, all of the elements in the queue has been consumed.
         // If `idx >= 0`, the queue remains `idx + 1` elements
@@ -73,14 +79,16 @@ impl StaticTaskQueue {
         let ptr = blocks.as_ptr();
         Self {
             inner: ManuallyDrop::new(blocks),
-            idx: AtomicIsize::new(idx),
             ptr,
+            idx: CachePadded::new(AtomicIsize::new(idx)),
         }
     }
 
     #[inline]
     fn dispatch(&self, dst: &mut VecDeque<DataBlock>) {
         for _ in 0..MORSEL_SIZE {
+            // Relaxed is enough, because the whole queue is read only, we only want the
+            // idx to be atomic
             let idx = self.idx.fetch_sub(1, Ordering::Relaxed);
             // SAFETY: we have guaranteed idx is valid! It decrease in atomic and is greater
             // than or equal to 0
@@ -123,9 +131,7 @@ impl MemoryTableScan {
     pub fn try_new(blocks: Vec<SendableDataBlock>) -> Result<Self> {
         ensure!(!blocks.is_empty(), EmptyDataBlockSnafu);
         let mut iter = blocks.iter();
-        let block = iter
-            .next()
-            .expect("We have checked the blocks is non-empty");
+        let block = iter.next().unwrap();
         let num_arrays = block.as_ref().num_arrays();
         let output_types = block.as_ref().logical_types().cloned().collect::<Vec<_>>();
 

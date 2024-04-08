@@ -23,6 +23,7 @@ pub use list::ListArray;
 pub use primitive::*;
 use snafu::Snafu;
 use std::fmt::Debug;
+use std::iter::FusedIterator;
 pub use string::StringArray;
 
 #[allow(missing_docs)]
@@ -65,7 +66,9 @@ pub trait Array: Sealed + Debug + 'static + Sized {
     type Element: Element;
 
     /// Iterator of the values in the [`Array`], it returns the reference to the element
-    type ValuesIter<'a>: Iterator<Item = <Self::Element as Element>::ElementRef<'a>>;
+    type ValuesIter<'a>: Iterator<Item = <Self::Element as Element>::ElementRef<'a>>
+        + FusedIterator
+        + ExactSizeIterator;
 
     /// Get the iterator of values in the [`Array`]
     fn values_iter(&self) -> Self::ValuesIter<'_>;
@@ -138,7 +141,7 @@ pub trait Array: Sealed + Debug + 'static + Sized {
     fn slice_iter(&self, offset: usize, length: usize) -> ArrayIter<'_, Self> {
         let bitmap = self.validity();
         let values_iter = self.values_slice_iter(offset, length);
-        if bitmap.is_empty() {
+        if bitmap.all_valid() {
             ArrayIter::new_values(values_iter)
         } else {
             ArrayIter::new_values_and_validity(
@@ -162,7 +165,7 @@ pub trait MutateArrayExt: Array {
 /// Trait for arrays that element is scalar type
 pub trait ScalarArray: Array {
     /// Physical type of the scalar array
-    const PHYSCIAL_TYPE: PhysicalType;
+    const PHYSICAL_TYPE: PhysicalType;
 
     /// Replace the array with the trusted_len values iterator that has `len` items
     ///

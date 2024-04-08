@@ -16,6 +16,8 @@ pub use self::iterator::{BitmapIter, BitmapOnesIter};
 /// Bitmap in data-block, each boolean is stored as a single bit
 ///
 /// Note that array all of the elements are not null, the [`Bitmap`] could be empty
+///
+/// FIXME: Cache the `zero_count`
 pub struct Bitmap {
     /// Internal buffer stores the bits
     buffer: AlignedVec<BitStore>,
@@ -52,6 +54,11 @@ impl Bitmap {
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.num_bits == 0
+    }
+
+    /// Returns true if all of the bits in the bitmap are set
+    pub fn all_valid(&self) -> bool {
+        self.is_empty() || self.count_zeros() == 0
     }
 
     /// Get number of bits in the bitmap
