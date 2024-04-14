@@ -173,7 +173,7 @@ impl PhysicalOperator for Projection {
     }
 
     fn merge_local_operator_metrics(&self, local_state: &dyn LocalOperatorState) {
-        let local_state = self.downcast_ref_local_source_state(local_state);
+        let local_state = self.downcast_ref_local_operator_state(local_state);
         let mut local_exec_time = Duration::default();
         let metrics_string = self
             .exprs

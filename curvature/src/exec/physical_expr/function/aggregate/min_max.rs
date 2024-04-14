@@ -1,37 +1,32 @@
 //! Min/Max aggregation function
 
-use std::alloc::Layout;
 use std::fmt::Debug;
 use std::marker::PhantomData;
-use std::num::NonZeroUsize;
-use std::ops::{Deref, DerefMut};
 
-use data_block::array::{Array, ArrayError, ArrayImpl, ScalarArray};
+use data_block::array::{Array, ArrayError, ArrayImpl};
 use data_block::types::{Element, LogicalType};
 use snafu::ensure;
 
 use super::{
-    special_optional_unary_batch_update, special_optional_unary_combine_states,
-    special_optional_unary_take_states, special_optional_unary_update_states, AggregationFunction,
-    AggregationStatesPtr, Function, Result, SpecialOptionalUnaryAggregationState, Stringify,
-    UnaryAggregationState,
+    AggregationError, Function, SpecialOptionalUAFWrapper, SpecialOptionalUnaryAggregationFunction,
+    SpecialOptionalUnaryAggregationState, Stringify,
 };
+use crate::common::utils::bytemuck::TransparentWrapper;
+use crate::error::BangError;
 use crate::exec::physical_expr::function::aggregate::ArgTypeMismatchSnafu;
 
 /// Trait for constrain the payload array of the min/max function
-///
-/// TBD: Can we constrain the array with ScalarArray?
-pub trait MinMaxPayloadArray: ScalarArray
+pub trait MinMaxPayloadArray: Array
 where
-    for<'a> <Self::Element as Element>::ElementRef<'a>: PartialOrd,
+    for<'a> <Self::Element as Element>::ElementRef<'a>: Ord,
 {
 }
 
 /// Blanked implementation for all of the ScalarArray whose element can compare
 impl<T> MinMaxPayloadArray for T
 where
-    T: ScalarArray,
-    for<'a> <T::Element as Element>::ElementRef<'a>: PartialOrd,
+    T: Array,
+    for<'a> <T::Element as Element>::ElementRef<'a>: Ord,
 {
 }
 
@@ -40,26 +35,10 @@ where
 #[repr(transparent)]
 pub struct MinMaxState<const IS_MIN: bool, S>(Option<S>);
 
-impl<const IS_MIN: bool, S> Deref for MinMaxState<IS_MIN, S> {
-    type Target = Option<S>;
-
-    #[inline]
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<const IS_MIN: bool, S> DerefMut for MinMaxState<IS_MIN, S> {
-    #[inline]
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
+/// SAFETY: the `#[repr(transparent)]` is added for MinMaxState
+unsafe impl<const IS_MIN: bool, S> TransparentWrapper<Option<S>> for MinMaxState<IS_MIN, S> {}
 
 /// Min/Max aggregation function
-///
-/// FIXME: If we compute the min/max for the float array that contains `NaN`, the result
-/// will be undetermined
 ///
 /// # Generic
 ///
@@ -130,101 +109,23 @@ where
     }
 }
 
-impl<const IS_MIN: bool, PayloadArray> AggregationFunction for MinMax<IS_MIN, PayloadArray>
+impl<const IS_MIN: bool, PayloadArray>
+    SpecialOptionalUnaryAggregationFunction<PayloadArray, PayloadArray>
+    for MinMax<IS_MIN, PayloadArray>
 where
     PayloadArray: MinMaxPayloadArray,
-    for<'a> <PayloadArray::Element as Element>::ElementRef<'a>: PartialOrd,
+    for<'a> <PayloadArray::Element as Element>::ElementRef<'a>: Ord,
     for<'a> &'a PayloadArray: TryFrom<&'a ArrayImpl, Error = ArrayError>,
     for<'a> &'a mut PayloadArray: TryFrom<&'a mut ArrayImpl, Error = ArrayError>,
 {
-    fn state_layout(&self) -> Layout {
-        Layout::new::<MinMaxState<IS_MIN, PayloadArray::Element>>()
-    }
-
-    unsafe fn init_state(&self, ptr: AggregationStatesPtr, state_offset: usize) {
-        let state = ptr.offset_as_mut::<MinMaxState<IS_MIN, PayloadArray::Element>>(state_offset);
-        // Using write here to avoid drop the uninitiated value, especially for `Vec<u8>`  and `String`
-        std::ptr::write(state, MinMaxState(None));
-    }
-
-    unsafe fn update_states(
-        &self,
-        payloads: &[&data_block::array::ArrayImpl],
-        state_ptrs: &[AggregationStatesPtr],
-        state_offset: usize,
-    ) -> Result<()> {
-        special_optional_unary_update_states::<
-            PayloadArray,
-            MinMaxState<IS_MIN, PayloadArray::Element>,
-        >(payloads, state_ptrs, state_offset)
-    }
-
-    unsafe fn batch_update_states(
-        &self,
-        _len: NonZeroUsize,
-        payloads: &[&ArrayImpl],
-        states_ptr: AggregationStatesPtr,
-        state_offset: usize,
-    ) -> Result<()> {
-        special_optional_unary_batch_update::<
-            PayloadArray,
-            MinMaxState<IS_MIN, PayloadArray::Element>,
-        >(payloads, states_ptr, state_offset)
-    }
-
-    unsafe fn combine_states(
-        &self,
-        partial_state_ptrs: &[AggregationStatesPtr],
-        combined_state_ptrs: &[AggregationStatesPtr],
-        state_offset: usize,
-    ) -> Result<()> {
-        special_optional_unary_combine_states::<
-            PayloadArray,
-            MinMaxState<IS_MIN, PayloadArray::Element>,
-        >(partial_state_ptrs, combined_state_ptrs, state_offset)
-    }
-
-    unsafe fn take_states(
-        &self,
-        state_ptrs: &[AggregationStatesPtr],
-        state_offset: usize,
-        output: &mut ArrayImpl,
-    ) -> Result<()> {
-        special_optional_unary_take_states::<
-            PayloadArray,
-            PayloadArray,
-            MinMaxState<IS_MIN, PayloadArray::Element>,
-        >(state_ptrs, state_offset, output);
-        Ok(())
-    }
-
-    /// Drop the memory contained by the state. For example, string has memory allocation
-    unsafe fn drop_states(&self, state_ptrs: &[AggregationStatesPtr], state_offset: usize) {
-        state_ptrs.iter().for_each(|ptr| {
-            let state =
-                ptr.offset_as_mut::<MinMaxState<IS_MIN, PayloadArray::Element>>(state_offset);
-
-            drop(state.0.take());
-        });
-    }
-}
-
-impl<const IS_MIN: bool, PayloadArray> UnaryAggregationState<PayloadArray>
-    for MinMaxState<IS_MIN, PayloadArray::Element>
-where
-    PayloadArray: MinMaxPayloadArray,
-    for<'a> <PayloadArray::Element as Element>::ElementRef<'a>: PartialOrd,
-    for<'a> &'a PayloadArray: TryFrom<&'a ArrayImpl, Error = ArrayError>,
-    for<'a> &'a mut PayloadArray: TryFrom<&'a mut ArrayImpl, Error = ArrayError>,
-{
-    type Func = MinMax<IS_MIN, PayloadArray>;
+    type State = MinMaxState<IS_MIN, PayloadArray::Element>;
 }
 
 impl<const IS_MIN: bool, PayloadArray> SpecialOptionalUnaryAggregationState<PayloadArray>
     for MinMaxState<IS_MIN, PayloadArray::Element>
 where
     PayloadArray: MinMaxPayloadArray,
-    for<'a> <PayloadArray::Element as Element>::ElementRef<'a>: PartialOrd,
+    for<'a> <PayloadArray::Element as Element>::ElementRef<'a>: Ord,
     for<'a> &'a PayloadArray: TryFrom<&'a ArrayImpl, Error = ArrayError>,
     for<'a> &'a mut PayloadArray: TryFrom<&'a mut ArrayImpl, Error = ArrayError>,
 {
@@ -232,11 +133,13 @@ where
 
     type OutputElement = PayloadArray::Element;
 
+    type Error = BangError;
+
     #[inline]
     fn update_inner_agg_states(
         current: &mut Self::InnerAggStates,
         payload_element: <<PayloadArray as Array>::Element as Element>::ElementRef<'_>,
-    ) -> Result<()> {
+    ) -> Result<(), Self::Error> {
         let current_ = <PayloadArray::Element as Element>::upcast_gat(current.as_ref());
         let payload_element_ = <PayloadArray::Element as Element>::upcast_gat(payload_element);
         if IS_MIN {
@@ -254,7 +157,7 @@ where
     fn combine_inner_agg_states(
         combined: &mut Self::InnerAggStates,
         partial: Self::InnerAggStates,
-    ) -> Result<()> {
+    ) -> Result<(), Self::Error> {
         if IS_MIN {
             if partial.as_ref() < combined.as_ref() {
                 *combined = partial;
@@ -269,10 +172,14 @@ where
 impl<const IS_MIN: bool, PayloadArray> MinMax<IS_MIN, PayloadArray>
 where
     PayloadArray: MinMaxPayloadArray,
-    for<'a> <PayloadArray::Element as Element>::ElementRef<'a>: PartialOrd,
+    for<'a> <PayloadArray::Element as Element>::ElementRef<'a>: Ord,
+    for<'a> &'a PayloadArray: TryFrom<&'a ArrayImpl, Error = ArrayError>,
+    for<'a> &'a mut PayloadArray: TryFrom<&'a mut ArrayImpl, Error = ArrayError>,
 {
     /// Create a new MinMax function
-    pub fn try_new(arg: LogicalType) -> Result<Self> {
+    pub fn try_new(
+        arg: LogicalType,
+    ) -> Result<SpecialOptionalUAFWrapper<Self, PayloadArray, PayloadArray>, AggregationError> {
         ensure!(
             arg.physical_type() == PayloadArray::PHYSICAL_TYPE,
             ArgTypeMismatchSnafu {
@@ -282,26 +189,26 @@ where
             }
         );
 
-        Ok(Self {
+        Ok(SpecialOptionalUAFWrapper::new(Self {
             args: vec![arg],
             _phantom: PhantomData,
-        })
+        }))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::exec::physical_expr::function::aggregate::{
+        AggregationFunction, AggregationStatesPtr,
+    };
     use data_block::array::StringArray;
     use data_block::element::string::{StringElement, StringView};
     use std::ptr::NonNull;
 
     #[test]
     fn test_min_max_func_allocate_and_init_state() {
-        let min_func = MinMax::<true, StringArray> {
-            args: vec![],
-            _phantom: PhantomData,
-        };
+        let min_func = MinMax::<true, StringArray>::try_new(LogicalType::VarChar).unwrap();
 
         unsafe {
             let ptr_ = std::alloc::alloc(min_func.state_layout());
@@ -358,46 +265,44 @@ mod tests {
         ($view_0:expr, $view_1:expr, $view_2:expr, $is_min:expr, $gt0:expr, $gt1:expr) => {{
             let mut s0 = MinMaxState::<$is_min, StringElement>(None);
             let mut s1 = MinMaxState::<$is_min, StringElement>(None);
-            unsafe {
-                <MinMaxState<$is_min, StringElement> as SpecialOptionalUnaryAggregationState<
-                    StringArray,
-                >>::combine(&mut s0, &mut s1)
-                .unwrap();
-                assert!(s0.0.is_none());
+            <MinMaxState<$is_min, StringElement> as SpecialOptionalUnaryAggregationState<
+                StringArray,
+            >>::combine(&mut s0, &mut s1)
+            .unwrap();
+            assert!(s0.0.is_none());
 
-                <MinMaxState<$is_min, StringElement> as SpecialOptionalUnaryAggregationState<
-                    StringArray,
-                >>::update(&mut s0, $view_0)
-                .unwrap();
-                <MinMaxState<$is_min, StringElement> as SpecialOptionalUnaryAggregationState<
-                    StringArray,
-                >>::combine(&mut s0, &mut s1)
-                .unwrap();
-                assert_eq!(s0.0.as_ref().map(|v| v.view()), Some($view_0));
-                assert!(s1.0.is_none());
+            <MinMaxState<$is_min, StringElement> as SpecialOptionalUnaryAggregationState<
+                StringArray,
+            >>::update(&mut s0, $view_0)
+            .unwrap();
+            <MinMaxState<$is_min, StringElement> as SpecialOptionalUnaryAggregationState<
+                StringArray,
+            >>::combine(&mut s0, &mut s1)
+            .unwrap();
+            assert_eq!(s0.0.as_ref().map(|v| v.view()), Some($view_0));
+            assert!(s1.0.is_none());
 
-                <MinMaxState<$is_min, StringElement> as SpecialOptionalUnaryAggregationState<
-                    StringArray,
-                >>::update(&mut s0, $view_1)
-                .unwrap();
-                <MinMaxState<$is_min, StringElement> as SpecialOptionalUnaryAggregationState<
-                    StringArray,
-                >>::combine(&mut s0, &mut s1)
-                .unwrap();
-                assert_eq!(s0.0.as_ref().map(|v| v.view()), Some($gt0));
-                assert!(s1.0.is_none());
+            <MinMaxState<$is_min, StringElement> as SpecialOptionalUnaryAggregationState<
+                StringArray,
+            >>::update(&mut s0, $view_1)
+            .unwrap();
+            <MinMaxState<$is_min, StringElement> as SpecialOptionalUnaryAggregationState<
+                StringArray,
+            >>::combine(&mut s0, &mut s1)
+            .unwrap();
+            assert_eq!(s0.0.as_ref().map(|v| v.view()), Some($gt0));
+            assert!(s1.0.is_none());
 
-                <MinMaxState<$is_min, StringElement> as SpecialOptionalUnaryAggregationState<
-                    StringArray,
-                >>::update(&mut s0, $view_2)
-                .unwrap();
-                <MinMaxState<$is_min, StringElement> as SpecialOptionalUnaryAggregationState<
-                    StringArray,
-                >>::combine(&mut s0, &mut s1)
-                .unwrap();
-                assert_eq!(s0.0.as_ref().map(|v| v.view()), Some($gt1));
-                assert!(s1.0.is_none());
-            }
+            <MinMaxState<$is_min, StringElement> as SpecialOptionalUnaryAggregationState<
+                StringArray,
+            >>::update(&mut s0, $view_2)
+            .unwrap();
+            <MinMaxState<$is_min, StringElement> as SpecialOptionalUnaryAggregationState<
+                StringArray,
+            >>::combine(&mut s0, &mut s1)
+            .unwrap();
+            assert_eq!(s0.0.as_ref().map(|v| v.view()), Some($gt1));
+            assert!(s1.0.is_none());
         }};
     }
 

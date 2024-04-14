@@ -13,7 +13,7 @@ use std::fmt::Debug;
 
 use super::iter::ArrayValuesIter;
 use super::swar::SwarPtr;
-use super::{Array, ArrayImpl, MutateArrayExt, Result};
+use super::{Array, ArrayImpl, Result};
 
 /// [Array of lists](https://facebookincubator.github.io/velox/develop/vectors.html#flat-vectors-complex-types)
 pub struct ListArray {
@@ -100,6 +100,7 @@ impl ListArray {
 impl Sealed for ListArray {}
 
 impl Array for ListArray {
+    const PHYSICAL_TYPE: PhysicalType = PhysicalType::List;
     type Element = ListElement;
 
     type ValuesIter<'a> = ArrayValuesIter<'a, Self>;
@@ -146,15 +147,31 @@ impl Array for ListArray {
     fn logical_type(&self) -> &LogicalType {
         &self.logical_type
     }
-}
 
-impl MutateArrayExt for ListArray {
-    /// TBD: Could we reference the elements directly?
+    // Mutate array
+
+    /// FIXME: Could we reference the elements directly?
     #[inline]
     fn reference(&mut self, other: &Self) {
         self.offsets.reference(&other.offsets);
         self.lengths.reference(&other.lengths);
         self.elements.reference(&other.elements);
         self.validity.reference(&other.validity);
+    }
+
+    unsafe fn replace_with_trusted_len_values_iterator(
+        &mut self,
+        _len: usize,
+        _trusted_len_iterator: impl Iterator<Item = Self::Element>,
+    ) {
+        todo!()
+    }
+
+    unsafe fn replace_with_trusted_len_iterator(
+        &mut self,
+        _len: usize,
+        _trusted_len_iterator: impl Iterator<Item = Option<Self::Element>>,
+    ) {
+        todo!()
     }
 }

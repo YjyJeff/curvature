@@ -5,7 +5,7 @@ use std::fmt::Debug;
 use snafu::ensure;
 
 use super::swar::SwarPtr;
-use super::{Array, InvalidLogicalTypeSnafu, MutateArrayExt, Result, ScalarArray};
+use super::{Array, InvalidLogicalTypeSnafu, Result};
 use crate::bitmap::{Bitmap, BitmapIter};
 use crate::private::Sealed;
 use crate::types::{LogicalType, PhysicalType};
@@ -67,6 +67,7 @@ impl BooleanArray {
 impl Sealed for BooleanArray {}
 
 impl Array for BooleanArray {
+    const PHYSICAL_TYPE: PhysicalType = PhysicalType::Boolean;
     type Element = bool;
     type ValuesIter<'a> = BitmapIter<'a>;
 
@@ -104,18 +105,12 @@ impl Array for BooleanArray {
     fn logical_type(&self) -> &LogicalType {
         &self.logical_type
     }
-}
 
-impl MutateArrayExt for BooleanArray {
     #[inline]
     fn reference(&mut self, other: &Self) {
         self.data.reference(&other.data);
         self.validity.reference(&other.validity);
     }
-}
-
-impl ScalarArray for BooleanArray {
-    const PHYSICAL_TYPE: PhysicalType = PhysicalType::Boolean;
 
     unsafe fn replace_with_trusted_len_values_iterator(
         &mut self,

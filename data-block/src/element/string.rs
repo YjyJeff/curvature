@@ -56,8 +56,8 @@ struct PrefixAndPointer<'a> {
     _phantom: PhantomData<&'a u8>,
 }
 
-unsafe impl<'a> Send for PrefixAndPointer<'a> {}
-unsafe impl<'a> Sync for PrefixAndPointer<'a> {}
+unsafe impl Send for PrefixAndPointer<'_> {}
+unsafe impl Sync for PrefixAndPointer<'_> {}
 
 impl<'a> StringView<'a> {
     /// Create a new inlined string
@@ -218,7 +218,7 @@ impl<'a> StringView<'a> {
     }
 }
 
-impl<'a> Default for StringView<'a> {
+impl Default for StringView<'_> {
     #[inline]
     fn default() -> Self {
         Self {
@@ -230,20 +230,20 @@ impl<'a> Default for StringView<'a> {
     }
 }
 
-impl<'a> Debug for StringView<'a> {
+impl Debug for StringView<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.as_str())
     }
 }
 
-impl<'a> Display for StringView<'a> {
+impl Display for StringView<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.as_str())
     }
 }
 
-impl<'a, 'b> PartialEq<StringView<'b>> for StringView<'a> {
-    fn eq(&self, other: &StringView<'b>) -> bool {
+impl<'a> PartialEq<StringView<'a>> for StringView<'_> {
+    fn eq(&self, other: &StringView<'a>) -> bool {
         if self.size_and_prefix_as_u64() != other.size_and_prefix_as_u64() {
             return false;
         }
@@ -264,15 +264,15 @@ impl<'a, 'b> PartialEq<StringView<'b>> for StringView<'a> {
     }
 }
 
-impl<'a> Eq for StringView<'a> {}
+impl Eq for StringView<'_> {}
 
-impl<'a> PartialOrd for StringView<'a> {
+impl PartialOrd for StringView<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl<'a> Ord for StringView<'a> {
+impl Ord for StringView<'_> {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         if self.prefix_as_u32() != other.prefix_as_u32() {
             // We can decide the result on prefix
@@ -330,7 +330,7 @@ impl<'a> Ord for StringView<'a> {
     }
 }
 
-impl<'a> Sealed for StringView<'a> {}
+impl Sealed for StringView<'_> {}
 impl AllocType for StringView<'static> {}
 
 /// Scala of the String with the StringView, it owns the StringData
@@ -410,6 +410,7 @@ impl Element for StringElement {
         }
     }
 
+    #[allow(single_use_lifetimes)]
     #[inline]
     fn upcast_gat<'short, 'long: 'short>(
         long: Self::ElementRef<'long>,

@@ -66,12 +66,12 @@ impl<'a, A: Array> Iterator for ArrayValuesIter<'a, A> {
     }
 }
 
-impl<'a, A: Array> ExactSizeIterator for ArrayValuesIter<'a, A> {
+impl<A: Array> ExactSizeIterator for ArrayValuesIter<'_, A> {
     fn len(&self) -> usize {
         self.len - self.current
     }
 }
-impl<'a, A: Array> FusedIterator for ArrayValuesIter<'a, A> {}
+impl<A: Array> FusedIterator for ArrayValuesIter<'_, A> {}
 
 /// Iterator of the [`Array`]. Especially useful for [`Debug`]
 pub enum ArrayIter<'a, A: Array> {
@@ -105,7 +105,7 @@ impl<'a, A: Array> ArrayIter<'a, A> {
     }
 }
 
-impl<'a, A: Array> Debug for ArrayIter<'a, A> {
+impl<A: Array> Debug for ArrayIter<'_, A> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "ArrayIter")
     }
@@ -136,8 +136,8 @@ impl<'a, A: Array> Iterator for ArrayIter<'a, A> {
     }
 }
 
-impl<'a, A: Array> ExactSizeIterator for ArrayIter<'a, A> {}
-impl<'a, A: Array> FusedIterator for ArrayIter<'a, A> {}
+impl<A: Array> ExactSizeIterator for ArrayIter<'_, A> {}
+impl<A: Array> FusedIterator for ArrayIter<'_, A> {}
 
 /// Iterator of the array that produce all of the non-null values in the array
 #[derive(Debug)]

@@ -66,7 +66,8 @@ pub enum PipelineBuilderError {
 type Result<T> = std::result::Result<T, PipelineBuilderError>;
 
 /// Builder for building pipelines from the tree of the [`PhysicalOperator`]
-pub struct PipelineBuilder<'p> {
+#[derive(Debug)]
+pub(super) struct PipelineBuilder<'p> {
     pipelines: &'p RefCell<Vec<Pipeline<Sink>>>,
     operators: Vec<Operator>,
     source: Option<Source>,
@@ -85,7 +86,11 @@ pub struct PipelineBuilder<'p> {
 }
 
 impl<'p> PipelineBuilder<'p> {
-    pub fn new(pipelines: &'p RefCell<Vec<Pipeline<Sink>>>, client_ctx: &'p ClientContext) -> Self {
+    /// Create a new pipeline builder
+    pub(super) fn new(
+        pipelines: &'p RefCell<Vec<Pipeline<Sink>>>,
+        client_ctx: &'p ClientContext,
+    ) -> Self {
         Self {
             pipelines,
             operators: vec![],
@@ -122,7 +127,7 @@ impl<'p> PipelineBuilder<'p> {
     ///
     /// FIXME: when the operator has already been visited. a -> b, c-> b. This happens
     /// in CTE
-    pub fn build_pipelines(&mut self, operator: &Arc<dyn PhysicalOperator>) -> Result<()> {
+    pub(super) fn build_pipelines(&mut self, operator: &Arc<dyn PhysicalOperator>) -> Result<()> {
         if self.handle_special_operators(operator)? {
             return Ok(());
         }
@@ -284,7 +289,7 @@ impl<'p> PipelineBuilder<'p> {
     }
 
     /// Finish build pipeline. Flush the temporal states to [`RootPipeline`]s
-    pub fn finish(&mut self) -> Result<Vec<Pipeline<()>>> {
+    pub(super) fn finish(&mut self) -> Result<Vec<Pipeline<()>>> {
         let mut root_pipelines = Vec::with_capacity(2);
         if self.union_builders.is_empty() {
             // Do not have union operator

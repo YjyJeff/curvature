@@ -12,7 +12,7 @@ use crate::types::{LogicalType, PhysicalType};
 
 use super::iter::ArrayValuesIter;
 use super::swar::SwarPtr;
-use super::{Array, InvalidLogicalTypeSnafu, MutateArrayExt, Result};
+use super::{Array, InvalidLogicalTypeSnafu, Result};
 
 /// Offset in the binary array
 ///
@@ -150,6 +150,7 @@ impl Sealed for BinaryArray {}
 
 impl Array for BinaryArray {
     type Element = Vec<u8>;
+    const PHYSICAL_TYPE: PhysicalType = PhysicalType::Binary;
 
     type ValuesIter<'a> = ArrayValuesIter<'a, Self>;
 
@@ -193,14 +194,30 @@ impl Array for BinaryArray {
     fn logical_type(&self) -> &LogicalType {
         &self.logical_type
     }
-}
 
-impl MutateArrayExt for BinaryArray {
+    // Mutate array
+
     #[inline]
     fn reference(&mut self, other: &Self) {
         self.bytes.reference(&other.bytes);
         self.offsets.reference(&other.offsets);
         self.validity.reference(&other.validity);
+    }
+
+    unsafe fn replace_with_trusted_len_values_iterator(
+        &mut self,
+        _len: usize,
+        _trusted_len_iterator: impl Iterator<Item = Self::Element>,
+    ) {
+        todo!()
+    }
+
+    unsafe fn replace_with_trusted_len_iterator(
+        &mut self,
+        _len: usize,
+        _trusted_len_iterator: impl Iterator<Item = Option<Self::Element>>,
+    ) {
+        todo!()
     }
 }
 

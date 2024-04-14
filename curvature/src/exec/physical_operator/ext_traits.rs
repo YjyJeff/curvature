@@ -15,6 +15,7 @@ pub trait RegularOperatorExt: PhysicalOperator {
     /// Local operator state of the regular operator
     type LocalOperatorState: LocalOperatorState;
 
+    /// Downcast the global state to operator's corresponding [`GlobalOperatorState`]`
     #[inline]
     fn downcast_ref_global_operator_state<'a>(
         &self,
@@ -34,8 +35,9 @@ pub trait RegularOperatorExt: PhysicalOperator {
         }
     }
 
+    /// Downcast the local state to operator's corresponding [`LocalOperatorState`]`
     #[inline]
-    fn downcast_ref_local_source_state<'a>(
+    fn downcast_ref_local_operator_state<'a>(
         &self,
         local_state: &'a dyn LocalOperatorState,
     ) -> &'a Self::LocalOperatorState {
@@ -61,6 +63,7 @@ pub trait SourceOperatorExt: PhysicalOperator {
     /// Local source state of the source operator
     type LocalSourceState: LocalSourceState;
 
+    /// Downcast the global state to operator's corresponding [`GlobalSourceState`]`
     #[inline]
     fn downcast_ref_global_source_state<'a>(
         &self,
@@ -80,6 +83,7 @@ pub trait SourceOperatorExt: PhysicalOperator {
         }
     }
 
+    /// Downcast the local state to operator's corresponding [`LocalSourceState`]`
     #[inline]
     fn downcast_ref_local_source_state<'a>(
         &self,
@@ -161,6 +165,7 @@ pub trait SinkOperatorExt: PhysicalOperator {
     /// Local sink state of the sink operator
     type LocalSinkState: LocalSinkState;
 
+    /// Downcast the global state to operator's corresponding [`GlobalSinkState`]`
     #[inline]
     fn downcast_ref_global_sink_state<'a>(
         &self,

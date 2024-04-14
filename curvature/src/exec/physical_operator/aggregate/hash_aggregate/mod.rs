@@ -16,7 +16,7 @@
 //! [`AggregationFunction`]: crate::exec::physical_expr::function::aggregate::AggregationFunction
 //! [`FieldRef`]: crate::exec::physical_expr::field_ref::FieldRef
 
-mod hash_table;
+pub mod hash_table;
 pub mod serde;
 
 use curvature_procedural_macro::MetricsSetBuilder;
@@ -735,7 +735,7 @@ impl<S: Serde> PhysicalOperator for HashAggregate<S> {
         Ok(SinkExecStatus::NeedMoreInput)
     }
 
-    fn merge_sink(
+    fn combine_sink(
         &self,
         global_state: &dyn GlobalSinkState,
         local_state: &mut dyn LocalSinkState,
@@ -1295,7 +1295,7 @@ mod tests {
         );
     }
 
-    pub fn assert_data_block(
+    pub(super) fn assert_data_block(
         data_block: &DataBlock,
         gt_rows: impl IntoIterator<Item = &'static str>,
     ) {
@@ -1438,7 +1438,7 @@ mod tests {
                 agg.write_data(&block, &*global_sink_state, &mut *local_sink_state)
                     .unwrap();
 
-                agg.merge_sink(&*global_sink_state, &mut *local_sink_state)
+                agg.combine_sink(&*global_sink_state, &mut *local_sink_state)
                     .unwrap();
             };
 

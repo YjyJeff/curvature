@@ -35,7 +35,7 @@ impl<'a> BitmapIter<'a> {
     }
 }
 
-impl<'a> Iterator for BitmapIter<'a> {
+impl Iterator for BitmapIter<'_> {
     type Item = bool;
 
     #[inline]
@@ -68,14 +68,14 @@ impl<'a> Iterator for BitmapIter<'a> {
     }
 }
 
-impl<'a> ExactSizeIterator for BitmapIter<'a> {
+impl ExactSizeIterator for BitmapIter<'_> {
     #[inline]
     fn len(&self) -> usize {
         self.end - self.bit_index
     }
 }
 
-impl<'a> FusedIterator for BitmapIter<'a> {}
+impl FusedIterator for BitmapIter<'_> {}
 
 /// Iterator of the index that is set in the bitmap
 #[derive(Debug)]
@@ -106,7 +106,7 @@ impl<'a> BitmapOnesIter<'a> {
     }
 }
 
-impl<'a> Iterator for BitmapOnesIter<'a> {
+impl Iterator for BitmapOnesIter<'_> {
     type Item = usize;
 
     #[inline]
@@ -133,4 +133,4 @@ impl<'a> Iterator for BitmapOnesIter<'a> {
     }
 }
 
-impl<'a> FusedIterator for BitmapOnesIter<'a> {}
+impl FusedIterator for BitmapOnesIter<'_> {}

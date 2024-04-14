@@ -180,7 +180,7 @@ macro_rules! impl_sink_for_non_sink {
             )
         }
 
-        fn merge_sink(
+        fn combine_sink(
             &self,
             _global_state: &dyn GlobalSinkState,
             _local_state: &mut dyn LocalSinkState,

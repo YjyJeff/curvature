@@ -24,8 +24,8 @@ pub enum PipelineExecutorError {
     ExecuteOperator { source: OperatorError },
     #[snafu(display("Failed to write_data to Sink"))]
     ExecuteSink { source: OperatorError },
-    #[snafu(display("Failed to execute merge_sink"))]
-    MergeSink { source: OperatorError },
+    #[snafu(display("Failed to execute combine_sink"))]
+    CombineSink { source: OperatorError },
     #[snafu(display(
         "Regular operator `{op}` returns `HaveMoreOutput` but the output is empty.
          It breaks the contract: \"When `HaveMoreOutput` is returned, output can not be empty\""
@@ -226,7 +226,7 @@ impl<'a, S: SinkTrait> PipelineExecutor<'a, S> {
     }
 }
 
-impl<'a> PipelineExecutor<'a, Sink> {
+impl PipelineExecutor<'_, Sink> {
     /// Fully execute the pipeline until the source is completely exhausted
     pub fn execute(&mut self) -> Result<()> {
         'outer: loop {
@@ -270,8 +270,8 @@ impl<'a> PipelineExecutor<'a, Sink> {
 
         let sink = &self.pipeline.sink;
         sink.op
-            .merge_sink(&*sink.global_state, &mut *self.local_sink_state)
-            .context(MergeSinkSnafu)?;
+            .combine_sink(&*sink.global_state, &mut *self.local_sink_state)
+            .context(CombineSinkSnafu)?;
 
         // Merge the metrics
         self.merge_local_metrics();
@@ -291,7 +291,7 @@ impl<'a> PipelineExecutor<'a, Sink> {
     }
 }
 
-impl<'a> PipelineExecutor<'a, ()> {
+impl PipelineExecutor<'_, ()> {
     /// Execute the pipeline once, return the reference to the data block that match
     /// the query result. If `Some` is returned, the implementation should guarantee
     /// the output block is not empty!

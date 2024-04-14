@@ -1,7 +1,7 @@
 //! [`PrimitiveArray`] that stores fixed byte-width data
 
 use super::swar::SwarPtr;
-use super::{Array, InvalidLogicalTypeSnafu, MutateArrayExt, Result, ScalarArray};
+use super::{Array, InvalidLogicalTypeSnafu, Result};
 use snafu::ensure;
 use std::fmt::Debug;
 use std::iter::Copied;
@@ -147,6 +147,7 @@ impl<T> Array for PrimitiveArray<T>
 where
     T: for<'a> PrimitiveType<ElementRef<'a> = T>,
 {
+    const PHYSICAL_TYPE: PhysicalType = T::PHYSICAL_TYPE;
     type Element = T;
 
     type ValuesIter<'a> = Copied<Iter<'a, T>>;
@@ -187,25 +188,12 @@ where
     fn logical_type(&self) -> &LogicalType {
         &self.logical_type
     }
-}
 
-impl<T> MutateArrayExt for PrimitiveArray<T>
-where
-    T: for<'a> PrimitiveType<ElementRef<'a> = T>,
-    PrimitiveArray<T>: Array<Element = T>,
-{
     #[inline]
     fn reference(&mut self, other: &Self) {
         self.data.reference(&other.data);
         self.validity.reference(&other.validity);
     }
-}
-
-impl<T> ScalarArray for PrimitiveArray<T>
-where
-    T: for<'a> PrimitiveType<ElementRef<'a> = T>,
-{
-    const PHYSICAL_TYPE: PhysicalType = T::PHYSICAL_TYPE;
 
     #[inline]
     unsafe fn replace_with_trusted_len_values_iterator(

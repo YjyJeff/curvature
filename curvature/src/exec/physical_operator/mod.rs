@@ -4,7 +4,7 @@
 
 pub mod aggregate;
 pub mod empty_table_scan;
-mod ext_traits;
+pub mod ext_traits;
 pub mod memory_table_scan;
 pub mod metric;
 pub mod numbers;
@@ -43,8 +43,8 @@ pub enum OperatorError {
     ReadData { source: SendableError },
     #[snafu(display("Failed to write data to the sink operator"))]
     WriteData { source: SendableError },
-    #[snafu(display("Failed to call the `merge_sink` on the sink operator"))]
-    MergeSink { source: SendableError },
+    #[snafu(display("Failed to call the `combine_sink` on the sink operator"))]
+    CombineSink { source: SendableError },
     #[snafu(display("Failed to call `finalize_sink` on the sink operator"))]
     FinalizeSink { source: SendableError },
 }
@@ -232,8 +232,6 @@ pub trait PhysicalOperator: Send + Sync + Stringify + 'static {
     /// - The global and local state should be created with [`Self::global_sink_state()`]/
     /// [`Self::local_sink_state()`] methods.
     ///
-    /// - The input should not be empty
-    ///
     /// [PipelineExecutor]: crate::exec::pipeline::PipelineExecutor
     ///
     /// FIXME: Async
@@ -244,10 +242,10 @@ pub trait PhysicalOperator: Send + Sync + Stringify + 'static {
         local_state: &mut dyn LocalSinkState,
     ) -> Result<SinkExecStatus>;
 
-    /// The `merge_sink` is called when a single thread has completed the execution
+    /// The `combine_sink` is called when a single thread has completed the execution
     /// of its part for the pipeline, it is the final time that a specific [`LocalSinkState`]
     /// is accessible. This method can be called in parallel while other `write_data` or
-    /// `merge_sink` calls are active on the same [`GlobalSinkState`].
+    /// `combine_sink` calls are active on the same [`GlobalSinkState`].
     ///
     /// The implementation should combine the [`LocalSinkState`] into the [`GlobalState`]
     /// that under the [`GlobalSinkState`]. Such that when the operator is used as the
@@ -261,7 +259,7 @@ pub trait PhysicalOperator: Send + Sync + Stringify + 'static {
     /// [`Self::local_sink_state()`] methods.
     ///
     /// FIXME: Async
-    fn merge_sink(
+    fn combine_sink(
         &self,
         global_state: &dyn GlobalSinkState,
         local_state: &mut dyn LocalSinkState,
@@ -286,14 +284,14 @@ pub trait PhysicalOperator: Send + Sync + Stringify + 'static {
     unsafe fn finalize_sink(&self, global_state: &dyn GlobalSinkState) -> Result<()>;
 
     /// Create a global sink state for the physical operator. [`PipelineExecutor`] calls it and
-    /// passes it to the [`Self::write_data()`]/[`Self::merge_sink()`]/[`Self::finalize_sink()`]
+    /// passes it to the [`Self::write_data()`]/[`Self::combine_sink()`]/[`Self::finalize_sink()`]
     /// functions
     ///
     /// [`PipelineExecutor`]: crate::exec::pipeline::PipelineExecutor
     fn global_sink_state(&self, client_ctx: &ClientContext) -> Arc<dyn GlobalSinkState>;
 
     /// Create a local sink state for the physical operator. [`PipelineExecutor`] calls it and
-    /// passes it to the [`Self::write_data()`]/[`Self::merge_sink()`] functions
+    /// passes it to the [`Self::write_data()`]/[`Self::combine_sink()`] functions
     ///
     /// [`PipelineExecutor`]: crate::exec::pipeline::PipelineExecutor
     fn local_sink_state(&self, global_state: &dyn GlobalSinkState) -> Box<dyn LocalSinkState>;

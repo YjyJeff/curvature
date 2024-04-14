@@ -1,5 +1,4 @@
 //! Common utils
 
-pub mod memory;
-
+pub mod bytemuck;
 pub mod hash;

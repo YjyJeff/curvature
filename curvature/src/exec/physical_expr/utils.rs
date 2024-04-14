@@ -17,13 +17,13 @@ impl<'a> CompactExprDisplayWrapper<'a> {
     }
 }
 
-impl<'a> Debug for CompactExprDisplayWrapper<'a> {
+impl Debug for CompactExprDisplayWrapper<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "CompactExprDisplayWrapper")
     }
 }
 
-impl<'a> Display for CompactExprDisplayWrapper<'a> {
+impl Display for CompactExprDisplayWrapper<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.compact_display(f)
     }

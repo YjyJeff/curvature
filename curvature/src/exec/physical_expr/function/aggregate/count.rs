@@ -1,10 +1,9 @@
 //! Count function
 
 use crate::exec::physical_expr::function::Function;
-use data_block::array::{ArrayImpl, ScalarArray, UInt64Array};
-use data_block::types::{Array, LogicalType};
+use data_block::array::{Array, ArrayImpl, UInt64Array};
+use data_block::types::LogicalType;
 use std::alloc::Layout;
-use std::num::NonZeroUsize;
 
 use super::{AggregationFunction, AggregationStatesPtr, Result, Stringify};
 
@@ -101,17 +100,17 @@ impl<const STAR: bool> AggregationFunction for Count<STAR> {
 
     unsafe fn batch_update_states(
         &self,
-        len: NonZeroUsize,
+        len: usize,
         payloads: &[&ArrayImpl],
         states_ptr: AggregationStatesPtr,
         state_offset: usize,
     ) -> Result<()> {
         let len = if STAR {
-            len.get() as u64
+            len as u64
         } else {
             let validity = payloads[0].validity();
             if validity.is_empty() {
-                len.get() as u64
+                len as u64
             } else {
                 validity.count_ones() as u64
             }

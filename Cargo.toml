@@ -27,7 +27,7 @@ tracing = "0.1"
 strength_reduce = "0.2"
 num-traits = "0.2"
 parking_lot = "0.12"
-bumpalo = "3.15"
+bumpalo = "3.16"
 # TBD: Should we specify the ahash to "=version"? Otherwise, different binaries compiled
 # in different time will create different hash value. The distributed engine will have bug
 ahash = "0.8"
@@ -44,3 +44,21 @@ crossbeam-utils = "0.8"
 lto = true
 opt-level = 3
 codegen-units = 1
+debug = true
+
+[workspace.lints.rustdoc]
+broken_intra_doc_links = "deny"
+bare_urls = "deny"
+private_intra_doc_links = "deny"
+
+[workspace.lints.rust]
+rust_2018_idioms = "deny"
+missing_docs = "deny"
+missing_debug_implementations = "deny"
+single_use_lifetimes = "warn"
+unreachable_pub = "warn"
+
+[workspace.lints.clippy]
+todo = "warn"
+needless_borrow = "deny"
+redundant_clone = "deny"

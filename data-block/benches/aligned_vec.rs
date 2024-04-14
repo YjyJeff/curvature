@@ -1,7 +1,10 @@
-use std::ops::Add;
+//! Benchmark aligned vec
+
+#![allow(missing_docs)]
 
 use criterion::{criterion_group, criterion_main, Criterion};
 use data_block::aligned_vec::AlignedVec;
+use std::ops::Add;
 
 const LEN: usize = 1024;
 

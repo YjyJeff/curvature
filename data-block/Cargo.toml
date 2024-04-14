@@ -28,6 +28,9 @@ expect-test = "1.4"
 # best instruction for you based on the target feature
 portable_simd = []
 
+[lints]
+workspace = true
+
 [[bench]]
 name = "aligned_vec"
 harness = false

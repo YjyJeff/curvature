@@ -6,19 +6,24 @@ pub mod min_max;
 pub mod sum;
 
 use std::alloc::{alloc, dealloc, handle_alloc_error, Layout};
+#[cfg(not(feature = "likely"))]
+use std::convert::identity as likely;
 use std::fmt::{Debug, Display};
-use std::num::NonZeroUsize;
-use std::ops::DerefMut;
+#[cfg(feature = "likely")]
+use std::intrinsics::likely;
+
+use std::marker::PhantomData;
 use std::ptr::NonNull;
 use std::sync::Arc;
 
 use data_block::array::iter::ArrayNonNullValuesIter;
-use data_block::array::{Array, ArrayError, ArrayImpl, ScalarArray};
+use data_block::array::{Array, ArrayError, ArrayImpl};
 use data_block::types::{Element, ElementRef, LogicalType, PhysicalType};
-use snafu::{ensure, Snafu};
+use data_block::utils::roundup_to_multiple_of_pow_of_two_base;
+use snafu::{ensure, ResultExt, Snafu};
 
 use super::Function;
-use crate::common::utils::memory::next_multiple_of_align;
+use crate::common::utils::bytemuck::TransparentWrapper;
 use crate::error::SendableError;
 use crate::exec::physical_expr::field_ref::FieldRef;
 use crate::exec::physical_expr::utils::display_agg_funcs;
@@ -190,13 +195,13 @@ impl AggregationStatesLayout {
             let state_align = state_layout.align();
 
             // Start offset of the state is multiple of the alignment
-            size = next_multiple_of_align(size, state_align);
+            size = roundup_to_multiple_of_pow_of_two_base(size, state_align);
             states_offsets.push(size);
             size += state_layout.size();
             align = std::cmp::max(align, state_align);
         });
 
-        size = next_multiple_of_align(size, align);
+        size = roundup_to_multiple_of_pow_of_two_base(size, align);
         // SAFETY: align is power of two
         Self {
             layout: unsafe { Layout::from_size_align_unchecked(size, align) },
@@ -327,7 +332,7 @@ impl AggregationFunctionList {
     /// - `ptr` is a valid pointer
     pub(crate) unsafe fn batch_update_states(
         &self,
-        len: NonZeroUsize,
+        len: usize,
         payloads: &[&ArrayImpl],
         states_ptr: AggregationStatesPtr,
     ) -> Result<()> {
@@ -480,7 +485,7 @@ pub trait AggregationFunction: Function + Stringify {
     /// - `ptr.add(state_offset)` is valid and points to the state of the function
     unsafe fn batch_update_states(
         &self,
-        len: NonZeroUsize,
+        len: usize,
         payloads: &[&ArrayImpl],
         states_ptr: AggregationStatesPtr,
         state_offset: usize,
@@ -550,235 +555,361 @@ impl Debug for dyn AggregationFunction {
     }
 }
 
-/// Trait for the aggregation state that take unary payload. We do no require all of
-/// the unary aggregation state implement this trait. For example, `CountState` does
-/// not implement it because it does not care the concrete payload type
+/// A special optional unary aggregation function that has following features:
 ///
-/// # Generic
+/// - Aggregation state has form `Some(InnerAggState)` and the output has form `Some(Element)`
 ///
-/// - `PayloadArray`: Array of the payload type
-pub trait UnaryAggregationState<PayloadArray: Array>: Sized {
-    /// Aggregation function
-    type Func: AggregationFunction;
+/// - Do not take null into consideration
+pub trait SpecialOptionalUnaryAggregationFunction<PayloadArray: Array, OutputArray: Array>:
+    Stringify + Function
+{
+    /// State
+    type State: SpecialOptionalUnaryAggregationState<
+        PayloadArray,
+        OutputElement = OutputArray::Element,
+    >;
 }
 
-/// A special unary aggregation state that has form `Some(State)` and the output type
-/// is `Some(Element)`
+/// Trait for the state of the special unary aggregation function
+///
+/// Lots of unary aggregation state has this form, for example, `avg`/`sum`/`min`/`max`.
+/// Using this trait, the state does not need to care about the outer `Option` wrapper,
+/// it can focus on implementing how to `update` and `combine` the inner aggregation state
 pub trait SpecialOptionalUnaryAggregationState<PayloadArray: Array>:
-    UnaryAggregationState<PayloadArray> + DerefMut<Target = Option<Self::InnerAggStates>>
+    TransparentWrapper<Option<Self::InnerAggStates>>
 {
-    /// The inner aggregation state of the option
+    /// The inner aggregation state of the option. The [`From`] trait is required because
+    /// we need to turn the first payload_element to the aggregation state
     type InnerAggStates: From<PayloadArray::Element>;
 
-    /// Output element type
+    /// Output element type. The [`From`] trait is required because we need to turn the
+    /// aggregation state to the output element
     type OutputElement: Element + From<Self::InnerAggStates>;
 
-    /// Update the state based on the element in the payload
-    ///
-    /// TBD: likey?
+    /// Error
+    type Error: std::error::Error + Send + Sync + 'static;
+
+    /// Update the state based on a single element in the payload
     #[inline]
     fn update(
         &mut self,
         payload_element: <PayloadArray::Element as Element>::ElementRef<'_>,
     ) -> Result<()> {
-        if let Some(current) = self.deref_mut() {
-            Self::update_inner_agg_states(current, payload_element)
+        let current = self.peel_mut();
+        if likely(current.is_some()) {
+            Self::update_inner_agg_states(current.as_mut().unwrap(), payload_element)
+                .boxed()
+                .context(UpdateStatesSnafu)
         } else {
-            *self.deref_mut() = Some(payload_element.to_owned().into());
+            *current = Some(payload_element.to_owned().into());
             Ok(())
         }
     }
 
-    /// Update the inner aggregation state based on iterators that produce non-null elements
+    /// Batch update the non-null elements in the payload
+    ///
+    /// allow the single_use_lifetimes here because anonymous lifetimes in `impl Trait` are unstable
+    #[allow(single_use_lifetimes)]
     #[inline]
-    fn batch_update_inner_agg_states<'p>(
-        current: &mut Self::InnerAggStates,
+    fn batch_update<'p>(
+        state: &mut Option<Self::InnerAggStates>,
         mut values_iter: impl Iterator<Item = <PayloadArray::Element as Element>::ElementRef<'p>>,
     ) -> Result<()> {
-        // In some case auto-vectorization will be performed here
-        // FIXME: check the cpu dynamically and use the corresponding SIMD
-        values_iter
-            .try_for_each(|payload_element| Self::update_inner_agg_states(current, payload_element))
-    }
-
-    /// Update the inner aggregation state based on payload element
-    fn update_inner_agg_states(
-        current: &mut Self::InnerAggStates,
-        payload_element: <PayloadArray::Element as Element>::ElementRef<'_>,
-    ) -> Result<()>;
-
-    /// Combine the unary aggregation state
-    ///
-    /// # Safety
-    ///
-    /// Implementation should free the memory occupied by the `partial_state` that does not in arena
-    #[inline]
-    unsafe fn combine(&mut self, partial: &mut Self) -> Result<()> {
-        // Take is important, such that the partial state will be dropped
-        if let Some(partial) = partial.deref_mut().take() {
-            match self.deref_mut() {
-                Some(combined) => Self::combine_inner_agg_states(combined, partial)?,
-                None => *self.deref_mut() = Some(partial),
+        match state.take() {
+            Some(inner_state) => {
+                // In some cases, auto-vectorization will be performed here
+                // FIXME: check the cpu dynamically and use the corresponding SIMD
+                let inner_state = values_iter
+                    .try_fold(inner_state, Self::fold_func)
+                    .boxed()
+                    .context(BatchUpdateStatesSnafu)?;
+                *state = Some(inner_state);
+            }
+            None => {
+                let Some(init) = values_iter.next() else {
+                    return Ok(());
+                };
+                let mut inner_state = init.to_owned().into();
+                // In some cases, auto-vectorization will be performed here
+                // FIXME: check the cpu dynamically and use the corresponding SIMD
+                inner_state = values_iter
+                    .try_fold(inner_state, Self::fold_func)
+                    .boxed()
+                    .context(BatchUpdateStatesSnafu)?;
+                *state = Some(inner_state);
             }
         }
 
         Ok(())
     }
 
-    /// Combine partial inner aggregation sates into the combined
+    /// Update the inner aggregation state based on a single payload element
+    fn update_inner_agg_states(
+        current: &mut Self::InnerAggStates,
+        payload_element: <PayloadArray::Element as Element>::ElementRef<'_>,
+    ) -> std::result::Result<(), Self::Error>;
+
+    /// Fold function used to update the state. The reason why we use fold function here instead of
+    /// update the `&mut Self::InnerAggStates` is that, in some cases(like min/max), updating
+    /// the mutable reference can not be auto-vectorized 😂. WTF? The [bug] is reported. What's
+    /// more according to the [comment], the generated assembly of this default implementation
+    /// is not optimal! In order to generate the best code, we need to write the implementation
+    /// manually, however it will cause duplicated code. Currently, we use the default implementation
+    /// to keep the code tidy 😂
+    ///
+    /// [bug]: https://github.com/rust-lang/rust/issues/123837
+    /// [comment]: https://github.com/rust-lang/rust/issues/123837#issuecomment-2051017793
+    #[inline]
+    fn fold_func(
+        mut state: Self::InnerAggStates,
+        payload_element: <PayloadArray::Element as Element>::ElementRef<'_>,
+    ) -> std::result::Result<Self::InnerAggStates, Self::Error> {
+        Self::update_inner_agg_states(&mut state, payload_element).map(|_| state)
+    }
+
+    /// Combine the partial aggregation state into the combined aggregation state
+    #[inline]
+    fn combine(&mut self, partial: &mut Self) -> Result<()> {
+        // Take is important, such that the partial state will be dropped
+        if let Some(partial) = partial.peel_mut().take() {
+            let combined = self.peel_mut();
+            match combined {
+                Some(combined) => Self::combine_inner_agg_states(combined, partial)
+                    .boxed()
+                    .context(CombineStatesSnafu)?,
+                None => *combined = Some(partial),
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Combine partial inner aggregation sates into the combined inner aggregation state
     fn combine_inner_agg_states(
         combined: &mut Self::InnerAggStates,
         partial: Self::InnerAggStates,
-    ) -> Result<()>;
+    ) -> std::result::Result<(), Self::Error>;
 
     /// Consume the aggregation state, return the output of the aggregation state
-    ///
-    /// # Safety
-    ///
-    /// Implementation should free the memory occupied by the state that does not in arena
     #[inline]
-    unsafe fn take(&mut self) -> Option<Self::OutputElement> {
-        self.deref_mut().take().map(|state| state.into())
+    fn take(&mut self) -> Option<Self::OutputElement> {
+        self.peel_mut().take().map(|state| state.into())
     }
 }
 
-/// Update the unary states pointers based on the element in the payload.
+/// Wrapper for special optional unary aggregation function. It is used for blanket
+/// implementation, all of the special optional unary aggregation function wrapped
+/// in this struct will implement [`AggregationFunction`] for it. It is needed because
+/// the rust compiler can not compile the following code:
 ///
-/// Note that we assume the state does not take `NULL` into consideration
+/// ```ignore
+/// trait GenericTrait<A> {}
+/// trait OtherTrait {}
 ///
-/// # Arguments
+/// impl<T, A> OtherTrait for T where T GenericTrait<A> {}
+/// ```
+/// The official doc from [`E0207`] suggest a wrapper here
 ///
-/// - `payload`: payload the function accept. It should have same length with `state_ptrs`
-/// - `state_ptrs`: state pointers that each element in the payload should update
-/// - `state_offset`: offset, in bytes, of this aggregation's state in the `AggregationStates`
-///
-/// # Generic
-///
-/// - `PayloadArray`: Array of the payload type
-/// - `S`: Unary aggregation state type
-#[inline]
-unsafe fn special_optional_unary_update_states<PayloadArray, S>(
-    payloads: &[&ArrayImpl],
-    state_ptrs: &[AggregationStatesPtr],
-    state_offset: usize,
-) -> Result<()>
+/// [`E0207`]: https://doc.rust-lang.org/error_codes/E0207.html
+#[derive(Debug)]
+pub struct SpecialOptionalUAFWrapper<F, PayloadArray, OutputArray>
 where
+    F: SpecialOptionalUnaryAggregationFunction<PayloadArray, OutputArray>,
     PayloadArray: Array,
-    S: SpecialOptionalUnaryAggregationState<PayloadArray>,
-    for<'a> &'a PayloadArray: TryFrom<&'a ArrayImpl, Error = ArrayError>,
+    OutputArray: Array,
 {
-    let payload = payloads[0];
-
-    let payload: &PayloadArray = payload
-        .try_into()
-        .expect("Unary aggregation's payload array should match its signature");
-
-    let validity = payload.validity();
-    if validity.all_valid() {
-        // All of the element in the payload is not null
-        payload
-            .values_iter()
-            .zip(state_ptrs)
-            .try_for_each(|(payload_element, ptr)| {
-                ptr.offset_as_mut::<S>(state_offset).update(payload_element)
-            })
-    } else {
-        // Some elements are null, only update the element that is not null
-        validity.iter_ones().try_for_each(|index| unsafe {
-            let payload_element = payload.get_value_unchecked(index);
-            let ptr = *state_ptrs.get_unchecked(index);
-            ptr.offset_as_mut::<S>(state_offset).update(payload_element)
-        })
-    }
+    inner: F,
+    _phantom: PhantomData<(PayloadArray, OutputArray)>,
 }
 
-#[inline]
-unsafe fn special_optional_unary_batch_update<'p, PayloadArray, S>(
-    payloads: &[&'p ArrayImpl],
-    states_ptr: AggregationStatesPtr,
-    state_offset: usize,
-) -> Result<()>
+impl<F, PayloadArray, OutputArray> SpecialOptionalUAFWrapper<F, PayloadArray, OutputArray>
 where
+    F: SpecialOptionalUnaryAggregationFunction<PayloadArray, OutputArray>,
     PayloadArray: Array,
-    S: SpecialOptionalUnaryAggregationState<PayloadArray>,
-    for<'a> &'a PayloadArray: TryFrom<&'a ArrayImpl, Error = ArrayError>,
+    OutputArray: Array,
 {
-    let payload = payloads[0];
-
-    let payload: &PayloadArray = payload
-        .try_into()
-        .expect("Unary aggregation's payload array should match its signature");
-
-    let validity = payload.validity();
-    let state = states_ptr.offset_as_mut::<S>(state_offset);
-
-    if let Some(current) = state.deref_mut() {
-        if validity.all_valid() {
-            S::batch_update_inner_agg_states(current, payload.values_iter())
-        } else {
-            S::batch_update_inner_agg_states(
-                current,
-                ArrayNonNullValuesIter::new(payload, validity),
-            )
+    /// Create a new wrapper with inner
+    pub fn new(inner: F) -> Self {
+        Self {
+            inner,
+            _phantom: PhantomData,
         }
-    } else if validity.all_valid() {
-        let mut values_iter = payload.values_iter();
-        let current = values_iter.next().expect("payloads can not be empty array");
-        let mut current: S::InnerAggStates = current.to_owned().into();
-        S::batch_update_inner_agg_states(&mut current, values_iter)?;
-        *state.deref_mut() = Some(current);
-        Ok(())
-    } else {
-        // found the first non-null current
-        let mut iter = ArrayNonNullValuesIter::new(payload, validity);
-        if let Some(current) = iter.next() {
-            let mut current: S::InnerAggStates = current.to_owned().into();
-            S::batch_update_inner_agg_states(&mut current, iter)?;
-            *state.deref_mut() = Some(current);
-        }
-        Ok(())
     }
 }
 
-#[inline]
-unsafe fn special_optional_unary_combine_states<PayloadArray, S>(
-    partial_state_ptrs: &[AggregationStatesPtr],
-    combined_state_ptrs: &[AggregationStatesPtr],
-    state_offset: usize,
-) -> Result<()>
+unsafe impl<F, PayloadArray, OutputArray> Send
+    for SpecialOptionalUAFWrapper<F, PayloadArray, OutputArray>
 where
+    F: SpecialOptionalUnaryAggregationFunction<PayloadArray, OutputArray>,
     PayloadArray: Array,
-    S: SpecialOptionalUnaryAggregationState<PayloadArray>,
+    OutputArray: Array,
 {
-    combined_state_ptrs
-        .iter()
-        .zip(partial_state_ptrs)
-        .try_for_each(|(combined, partial)| {
-            let combined = combined.offset_as_mut::<S>(state_offset);
-            let partial = partial.offset_as_mut::<S>(state_offset);
-            combined.combine(partial)
-        })
 }
 
-#[inline]
-unsafe fn special_optional_unary_take_states<PayloadArray, OutputArray, S>(
-    state_ptrs: &[AggregationStatesPtr],
-    state_offset: usize,
-    output: &mut ArrayImpl,
-) where
+unsafe impl<F, PayloadArray, OutputArray> Sync
+    for SpecialOptionalUAFWrapper<F, PayloadArray, OutputArray>
+where
+    F: SpecialOptionalUnaryAggregationFunction<PayloadArray, OutputArray>,
     PayloadArray: Array,
-    OutputArray: ScalarArray,
-    S: SpecialOptionalUnaryAggregationState<PayloadArray, OutputElement = OutputArray::Element>,
+    OutputArray: Array,
+{
+}
+
+impl<F, PayloadArray, OutputArray> Stringify
+    for SpecialOptionalUAFWrapper<F, PayloadArray, OutputArray>
+where
+    F: SpecialOptionalUnaryAggregationFunction<PayloadArray, OutputArray>,
+    PayloadArray: Array,
+    OutputArray: Array,
+{
+    fn name(&self) -> &'static str {
+        self.inner.name()
+    }
+
+    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.inner.debug(f)
+    }
+
+    fn display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.inner.display(f)
+    }
+}
+
+impl<F, PayloadArray, OutputArray> Function
+    for SpecialOptionalUAFWrapper<F, PayloadArray, OutputArray>
+where
+    F: SpecialOptionalUnaryAggregationFunction<PayloadArray, OutputArray>,
+    PayloadArray: Array,
+    OutputArray: Array,
+{
+    fn arguments(&self) -> &[LogicalType] {
+        self.inner.arguments()
+    }
+
+    fn return_type(&self) -> LogicalType {
+        self.inner.return_type()
+    }
+}
+
+/// Blanked implementation
+impl<F, PayloadArray, OutputArray> AggregationFunction
+    for SpecialOptionalUAFWrapper<F, PayloadArray, OutputArray>
+where
+    F: SpecialOptionalUnaryAggregationFunction<PayloadArray, OutputArray>,
+    PayloadArray: Array,
+    for<'a> &'a PayloadArray: TryFrom<&'a ArrayImpl, Error = ArrayError>,
+    OutputArray: Array,
     for<'a> &'a mut OutputArray: TryFrom<&'a mut ArrayImpl, Error = ArrayError>,
 {
-    let output: &mut OutputArray = output
-        .try_into()
-        .expect("Output of the unary aggregation should match its signature");
+    fn state_layout(&self) -> Layout {
+        Layout::new::<F::State>()
+    }
 
-    let trusted_len_iterator = state_ptrs.iter().map(|ptr| {
-        let state = ptr.offset_as_mut::<S>(state_offset);
-        state.take()
-    });
+    unsafe fn init_state(&self, ptr: AggregationStatesPtr, state_offset: usize) {
+        let ptr = ptr.offset_as_mut::<F::State>(state_offset).peel_mut();
 
-    output.replace_with_trusted_len_iterator(state_ptrs.len(), trusted_len_iterator)
+        // Using write here to avoid drop the uninitiated value, especially for `Vec<u8>`  and `String`
+        std::ptr::write(ptr, None);
+    }
+
+    unsafe fn update_states(
+        &self,
+        payloads: &[&ArrayImpl],
+        state_ptrs: &[AggregationStatesPtr],
+        state_offset: usize,
+    ) -> Result<()> {
+        let payload = payloads[0];
+
+        let payload: &PayloadArray = payload
+            .try_into()
+            .expect("Unary aggregation's payload array should match its signature");
+
+        let validity = payload.validity();
+        if validity.all_valid() {
+            // All of the element in the payload is not null
+            payload
+                .values_iter()
+                .zip(state_ptrs)
+                .try_for_each(|(payload_element, ptr)| {
+                    ptr.offset_as_mut::<F::State>(state_offset)
+                        .update(payload_element)
+                })
+        } else {
+            // Some elements are null, only update the element that is not null
+            validity.iter_ones().try_for_each(|index| unsafe {
+                let payload_element = payload.get_value_unchecked(index);
+                let ptr = *state_ptrs.get_unchecked(index);
+                ptr.offset_as_mut::<F::State>(state_offset)
+                    .update(payload_element)
+            })
+        }
+    }
+
+    unsafe fn batch_update_states(
+        &self,
+        _len: usize,
+        payloads: &[&ArrayImpl],
+        states_ptr: AggregationStatesPtr,
+        state_offset: usize,
+    ) -> Result<()> {
+        let payload = payloads[0];
+
+        let payload: &PayloadArray = payload
+            .try_into()
+            .expect("Unary aggregation's payload array should match its signature");
+
+        let validity = payload.validity();
+        let state = states_ptr
+            .offset_as_mut::<F::State>(state_offset)
+            .peel_mut();
+
+        if validity.all_valid() {
+            F::State::batch_update(state, payload.values_iter())
+        } else {
+            F::State::batch_update(state, ArrayNonNullValuesIter::new(payload, validity))
+        }
+    }
+
+    unsafe fn combine_states(
+        &self,
+        partial_state_ptrs: &[AggregationStatesPtr],
+        combined_state_ptrs: &[AggregationStatesPtr],
+        state_offset: usize,
+    ) -> Result<()> {
+        combined_state_ptrs
+            .iter()
+            .zip(partial_state_ptrs)
+            .try_for_each(|(combined, partial)| {
+                let combined = combined.offset_as_mut::<F::State>(state_offset);
+                let partial = partial.offset_as_mut::<F::State>(state_offset);
+                combined.combine(partial)
+            })
+    }
+
+    unsafe fn take_states(
+        &self,
+        state_ptrs: &[AggregationStatesPtr],
+        state_offset: usize,
+        output: &mut ArrayImpl,
+    ) -> Result<()> {
+        let output: &mut OutputArray = output
+            .try_into()
+            .expect("Output of the unary aggregation should match its signature");
+
+        let trusted_len_iterator = state_ptrs.iter().map(|ptr| {
+            let state = ptr.offset_as_mut::<F::State>(state_offset);
+            state.take()
+        });
+
+        output.replace_with_trusted_len_iterator(state_ptrs.len(), trusted_len_iterator);
+
+        Ok(())
+    }
+
+    unsafe fn drop_states(&self, state_ptrs: &[AggregationStatesPtr], state_offset: usize) {
+        state_ptrs.iter().for_each(|ptr| {
+            let state = ptr.offset_as_mut::<F::State>(state_offset);
+            drop(state.peel_mut().take());
+        });
+    }
 }

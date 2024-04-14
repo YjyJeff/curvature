@@ -38,15 +38,15 @@ tikv-jemallocator = "0.5"
 
 [features]
 default = []
-nightly = ["hashbrown/nightly"]
+likely = []
+nightly = ["hashbrown/nightly", "likely"]
 portable_simd = ["data-block/portable_simd"]
 # Check overflow in arithmetic
 overflow_checks = []
 
-[[bench]]
-name = "numbers"
-harness = false
+[lints]
+workspace = true
 
 [[bench]]
-name = "hash"
+name = "numbers"
 harness = false

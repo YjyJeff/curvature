@@ -2,7 +2,7 @@
 //!
 //! TBD: Do we really need `avx2`? Bitmap is pretty small
 
-use crate::array::{Array, BooleanArray, MutateArrayExt};
+use crate::array::{Array, BooleanArray};
 use crate::bitmap::BitStore;
 use crate::compute::combine_validities;
 use std::ops::{BitAnd, BitOr};

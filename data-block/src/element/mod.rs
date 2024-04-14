@@ -33,6 +33,7 @@ pub trait Element: Sealed + Debug + 'static {
     fn replace_with(&mut self, element_ref: Self::ElementRef<'_>);
 
     /// Convert long lifetime to short lifetime. Manually covariance
+    #[allow(single_use_lifetimes)]
     fn upcast_gat<'short, 'long: 'short>(long: Self::ElementRef<'long>)
         -> Self::ElementRef<'short>;
 }
@@ -70,6 +71,7 @@ macro_rules! impl_element_for_primitive_types {
                     *self = element_ref;
                 }
 
+                #[allow(single_use_lifetimes)]
                 #[inline]
                 fn upcast_gat<'short, 'long: 'short>(
                     long: Self::ElementRef<'long>,
@@ -82,7 +84,7 @@ macro_rules! impl_element_for_primitive_types {
             #[doc = concat!(
                 "Implement [`ElementRef`] for primitive type [`", stringify!($primitive_element_ty), "`]. ",
                 "Note that primitive types are both [`Element`] and [`ElementRef`] as they have little cost for copy.")]
-            impl<'a> ElementRef<'a> for $primitive_element_ty {
+            impl ElementRef<'_> for $primitive_element_ty {
                 type OwnedType = $primitive_element_ty;
 
                 #[inline]
@@ -114,6 +116,7 @@ impl Element for bool {
         *self = element_ref;
     }
 
+    #[allow(single_use_lifetimes)]
     #[inline]
     fn upcast_gat<'short, 'long: 'short>(
         long: Self::ElementRef<'long>,
@@ -122,7 +125,7 @@ impl Element for bool {
     }
 }
 
-impl<'a> ElementRef<'a> for bool {
+impl ElementRef<'_> for bool {
     type OwnedType = bool;
 
     fn to_owned(self) -> Self::OwnedType {
@@ -149,6 +152,7 @@ impl Element for Vec<u8> {
         self.extend_from_slice(element_ref)
     }
 
+    #[allow(single_use_lifetimes)]
     #[inline]
     fn upcast_gat<'short, 'long: 'short>(
         long: Self::ElementRef<'long>,
@@ -157,7 +161,7 @@ impl Element for Vec<u8> {
     }
 }
 
-impl<'a> Sealed for &'a [u8] {}
+impl Sealed for &'_ [u8] {}
 
 impl<'a> ElementRef<'a> for &'a [u8] {
     type OwnedType = Vec<u8>;
@@ -224,7 +228,7 @@ pub enum ElementImplRef<'a> {
 
 macro_rules! impl_element_impl_ref {
     ($({$variant:ident, $_:ty, $__:ident}),+) => {
-        impl<'a> Display for ElementImplRef<'a> {
+        impl Display for ElementImplRef<'_> {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 match self {
                     $(

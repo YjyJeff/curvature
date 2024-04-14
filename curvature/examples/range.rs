@@ -1,3 +1,5 @@
+//! Range example
+
 use std::num::NonZeroU64;
 use std::sync::Arc;
 
@@ -15,6 +17,7 @@ use curvature::exec::physical_operator::aggregate::hash_aggregate::serde::{
     FixedSizedSerdeKeySerializer, NonNullableFixedSizedSerdeKeySerializer,
 };
 use curvature::exec::physical_operator::aggregate::hash_aggregate::HashAggregate;
+use curvature::exec::physical_operator::aggregate::simple_aggregate::SimpleAggregate;
 use curvature::exec::physical_operator::numbers::Numbers;
 use curvature::exec::physical_operator::projection::Projection;
 use curvature::exec::physical_operator::PhysicalOperator;
@@ -25,7 +28,8 @@ use data_block::types::LogicalType;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
-const COUNT: NonZeroU64 = unsafe { NonZeroU64::new_unchecked(10000000000) };
+const HASH_COUNT: NonZeroU64 = unsafe { NonZeroU64::new_unchecked(10000000000) };
+const SIMPLE_COUNT: NonZeroU64 = unsafe { NonZeroU64::new_unchecked(100000000000) };
 const PARALLELISM: ParallelismDegree = unsafe { ParallelismDegree::new_unchecked(10) };
 
 #[cfg(not(target_env = "msvc"))]
@@ -39,69 +43,103 @@ fn main() {
         .init();
 
     let now = std::time::Instant::now();
-    let field_ref: Arc<dyn PhysicalExpr> = Arc::new(FieldRef::new(
-        0,
-        LogicalType::UnsignedBigInt,
-        "number".to_string(),
-    ));
 
-    let physical_plan: Arc<dyn PhysicalOperator> = Arc::new(Numbers::new(0, COUNT));
+    let physical_plan: Arc<dyn PhysicalOperator> = Arc::new(Numbers::new(0, SIMPLE_COUNT));
 
-    let physical_plan: Arc<dyn PhysicalOperator> = Arc::new(Projection::new(
-        physical_plan,
-        vec![
-            Arc::clone(&field_ref),
-            Arc::new(ConstDiv::<u64, u8>::new(
-                Arc::clone(&field_ref),
-                3,
-                "number % 3".to_string(),
-            )),
-            Arc::new(ConstDiv::<u64, u8>::new(
-                Arc::clone(&field_ref),
-                4,
-                "number % 4".to_string(),
-            )),
-            Arc::new(ConstDiv::<u64, u8>::new(
-                Arc::clone(&field_ref),
-                5,
-                "number % 5".to_string(),
-            )),
-        ],
-    ));
-
-    let field_ref = [FieldRef::new(
+    let payloads_ref = [FieldRef::new(
         0,
         LogicalType::UnsignedBigInt,
         "number".to_string(),
     )];
     let physical_plan: Arc<dyn PhysicalOperator> = Arc::new(
-        HashAggregate::<NonNullableFixedSizedSerdeKeySerializer<u32>>::try_new(
+        SimpleAggregate::try_new(
             physical_plan,
-            &[
-                FieldRef::new(1, LogicalType::UnsignedTinyInt, "number % 3".to_string()),
-                FieldRef::new(2, LogicalType::UnsignedTinyInt, "number % 4".to_string()),
-                FieldRef::new(3, LogicalType::UnsignedTinyInt, "number % 5".to_string()),
-            ],
             vec![
                 AggregationFunctionExpr::try_new(
-                    &field_ref,
+                    &payloads_ref,
+                    Arc::new(Sum::<UInt64Array>::try_new(LogicalType::UnsignedBigInt).unwrap()),
+                )
+                .unwrap(),
+                AggregationFunctionExpr::try_new(
+                    &payloads_ref,
                     Arc::new(Max::<UInt64Array>::try_new(LogicalType::UnsignedBigInt).unwrap()),
                 )
                 .unwrap(),
-                // AggregationFunctionExpr::try_new(
-                //     &field_ref,
-                //     Arc::new(Sum::<UInt64Array>::try_new(LogicalType::UnsignedBigInt).unwrap()),
-                // )
-                // .unwrap(),
-                // AggregationFunctionExpr::try_new(
-                //     &field_ref,
-                //     Arc::new(Avg::<UInt64Array>::try_new(LogicalType::UnsignedBigInt).unwrap()),
-                // )
-                // .unwrap(),
+                AggregationFunctionExpr::try_new(
+                    &payloads_ref,
+                    Arc::new(Avg::<UInt64Array>::try_new(LogicalType::UnsignedBigInt).unwrap()),
+                )
+                .unwrap(),
             ],
         )
         .unwrap(),
     );
+
+    // // group by number % 3, number %4, number % 5
+
+    // let physical_plan: Arc<dyn PhysicalOperator> = Arc::new(Numbers::new(0, HASH_COUNT));
+
+    // let field_ref: Arc<dyn PhysicalExpr> = Arc::new(FieldRef::new(
+    //     0,
+    //     LogicalType::UnsignedBigInt,
+    //     "number".to_string(),
+    // ));
+
+    // let physical_plan: Arc<dyn PhysicalOperator> = Arc::new(Projection::new(
+    //     physical_plan,
+    //     vec![
+    //         Arc::clone(&field_ref),
+    //         Arc::new(ConstDiv::<u64, u8>::new(
+    //             Arc::clone(&field_ref),
+    //             3,
+    //             "number % 3".to_string(),
+    //         )),
+    //         Arc::new(ConstDiv::<u64, u8>::new(
+    //             Arc::clone(&field_ref),
+    //             4,
+    //             "number % 4".to_string(),
+    //         )),
+    //         Arc::new(ConstDiv::<u64, u8>::new(
+    //             Arc::clone(&field_ref),
+    //             5,
+    //             "number % 5".to_string(),
+    //         )),
+    //     ],
+    // ));
+
+    // let field_ref = [FieldRef::new(
+    //     0,
+    //     LogicalType::UnsignedBigInt,
+    //     "number".to_string(),
+    // )];
+    // let physical_plan: Arc<dyn PhysicalOperator> = Arc::new(
+    //     HashAggregate::<NonNullableFixedSizedSerdeKeySerializer<u32>>::try_new(
+    //         physical_plan,
+    //         &[
+    //             FieldRef::new(1, LogicalType::UnsignedTinyInt, "number % 3".to_string()),
+    //             FieldRef::new(2, LogicalType::UnsignedTinyInt, "number % 4".to_string()),
+    //             FieldRef::new(3, LogicalType::UnsignedTinyInt, "number % 5".to_string()),
+    //         ],
+    //         vec![
+    //             AggregationFunctionExpr::try_new(
+    //                 &field_ref,
+    //                 Arc::new(Max::<UInt64Array>::try_new(LogicalType::UnsignedBigInt).unwrap()),
+    //             )
+    //             .unwrap(),
+    //             // AggregationFunctionExpr::try_new(
+    //             //     &field_ref,
+    //             //     Arc::new(Sum::<UInt64Array>::try_new(LogicalType::UnsignedBigInt).unwrap()),
+    //             // )
+    //             // .unwrap(),
+    //             // AggregationFunctionExpr::try_new(
+    //             //     &field_ref,
+    //             //     Arc::new(Avg::<UInt64Array>::try_new(LogicalType::UnsignedBigInt).unwrap()),
+    //             // )
+    //             // .unwrap(),
+    //         ],
+    //     )
+    //     .unwrap(),
+    // );
 
     tracing::info!("{}", IndentDisplayWrapper::new(&*physical_plan));
 

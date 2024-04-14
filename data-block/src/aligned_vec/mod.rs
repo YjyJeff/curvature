@@ -2,7 +2,7 @@
 //!
 //! Heavily adapted from [Arrow](https://github.com/apache/arrow-rs)
 
-mod alignment;
+pub mod alignment;
 use alignment::ALIGNMENT;
 
 use std::alloc::{alloc, dealloc, handle_alloc_error, realloc, Layout};
@@ -12,7 +12,7 @@ use std::ptr::{copy_nonoverlapping, NonNull};
 
 use crate::element::interval::DayTime;
 use crate::private::Sealed;
-use crate::utils::roundup_to_multiple_of;
+use crate::utils::roundup_to_multiple_of_pow_of_two_base;
 
 /// Size of the cache line in bytes
 pub const CACHE_LINE_SIZE: usize = 64;
@@ -77,7 +77,8 @@ impl<T: AllocType> AlignedVec<T> {
     pub fn with_capacity(capacity: usize) -> Self {
         let mut capacity_in_bytes = capacity * std::mem::size_of::<T>();
         // round the cap up to multiple of [`CACHE_LINE_SIZE`]
-        capacity_in_bytes = roundup_to_multiple_of(capacity_in_bytes, CACHE_LINE_SIZE);
+        capacity_in_bytes =
+            roundup_to_multiple_of_pow_of_two_base(capacity_in_bytes, CACHE_LINE_SIZE);
         // SAFETY: [`ALIGNMENT`] is guaranteed to be power of two
         unsafe {
             if capacity_in_bytes == 0 {
@@ -169,7 +170,8 @@ impl<T: AllocType> AlignedVec<T> {
         // 1. self.ptr and self.layout is pre-allocated by the allocator
         // 2. [`ALIGNMENT`] is guaranteed to be power of two
         unsafe {
-            let new_cap_in_bytes = roundup_to_multiple_of(new_cap_in_bytes, CACHE_LINE_SIZE);
+            let new_cap_in_bytes =
+                roundup_to_multiple_of_pow_of_two_base(new_cap_in_bytes, CACHE_LINE_SIZE);
             // The new memory region is at least two times larger than the old region
             let new_cap_in_bytes = std::cmp::max(new_cap_in_bytes, self.capacity_in_bytes * 2);
             let new_layout = Layout::from_size_align_unchecked(new_cap_in_bytes, ALIGNMENT);

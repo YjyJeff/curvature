@@ -103,6 +103,12 @@ impl<S: Serde> HashTable<S> {
         self.swiss_table.len()
     }
 
+    /// Returns true if the hash table is empty
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// Add the block to the hash hash table
     ///
     /// # Safety

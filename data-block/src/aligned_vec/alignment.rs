@@ -1,3 +1,5 @@
+//! Alignment of the cache line, adapted from [datafusion](https://github.com/apache/arrow-datafusion)
+
 // NOTE: Below code is written for spatial/temporal prefetcher optimizations. Memory allocation
 // should align well with usage pattern of cache access and block sizes on layers of storage levels from
 // registers to non-volatile memory. These alignments are all cache aware alignments incorporated

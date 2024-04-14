@@ -27,7 +27,7 @@ use std::fmt::Debug;
 
 use super::iter::ArrayValuesIter;
 use super::swar::SwarPtr;
-use super::{Array, InvalidLogicalTypeSnafu, MutateArrayExt, Result, ScalarArray};
+use super::{Array, InvalidLogicalTypeSnafu, Result};
 
 /// [`Array`] of string
 pub struct StringArray {
@@ -140,6 +140,7 @@ impl Debug for StringArray {
 impl Sealed for StringArray {}
 
 impl Array for StringArray {
+    const PHYSICAL_TYPE: PhysicalType = PhysicalType::String;
     type Element = StringElement;
 
     type ValuesIter<'a> = ArrayValuesIter<'a, Self>;
@@ -182,14 +183,77 @@ impl Array for StringArray {
     fn logical_type(&self) -> &LogicalType {
         &self.logical_type
     }
-}
 
-impl MutateArrayExt for StringArray {
+    // Mutate array
+
     #[inline]
     fn reference(&mut self, other: &Self) {
         self._bytes.reference(&other._bytes);
         self.views.reference(&other.views);
         self.validity.reference(&other.validity);
+    }
+
+    #[inline]
+    unsafe fn replace_with_trusted_len_values_iterator(
+        &mut self,
+        len: usize,
+        trusted_len_iterator: impl Iterator<Item = Self::Element>,
+    ) {
+        self.validity.as_mut().clear();
+
+        let uninitiated_views = self.views.as_mut().clear_and_resize(len);
+        let uninitiated_bytes = self._bytes.as_mut();
+        uninitiated_bytes.clear();
+        self._calibrate_offsets.clear();
+
+        trusted_len_iterator
+            .enumerate()
+            .for_each(|(index, element)| {
+                assign_string_element(
+                    element,
+                    uninitiated_bytes,
+                    uninitiated_views,
+                    index,
+                    &mut self._calibrate_offsets,
+                )
+            });
+
+        calibrate_pointers(
+            uninitiated_bytes.ptr.as_ptr(),
+            uninitiated_views,
+            &self._calibrate_offsets,
+        )
+    }
+
+    unsafe fn replace_with_trusted_len_iterator(
+        &mut self,
+        len: usize,
+        trusted_len_iterator: impl Iterator<Item = Option<Self::Element>>,
+    ) {
+        let uninitiated_validity = self.validity.as_mut();
+
+        let uninitiated_views = self.views.as_mut().clear_and_resize(len);
+        let uninitiated_bytes = self._bytes.as_mut();
+        uninitiated_bytes.clear();
+        self._calibrate_offsets.clear();
+
+        uninitiated_validity.reset(
+            len,
+            trusted_len_iterator.enumerate().map(|(index, element)| {
+                if let Some(element) = element {
+                    assign_string_element(
+                        element,
+                        uninitiated_bytes,
+                        uninitiated_views,
+                        index,
+                        &mut self._calibrate_offsets,
+                    );
+                    true
+                } else {
+                    false
+                }
+            }),
+        );
     }
 }
 
@@ -296,73 +360,6 @@ impl<V: AsRef<str> + Debug> FromIterator<Option<V>> for StringArray {
             validity: SwarPtr::new(validity),
             _calibrate_offsets: calibrate_offsets,
         }
-    }
-}
-
-impl ScalarArray for StringArray {
-    const PHYSICAL_TYPE: PhysicalType = PhysicalType::String;
-
-    #[inline]
-    unsafe fn replace_with_trusted_len_values_iterator(
-        &mut self,
-        len: usize,
-        trusted_len_iterator: impl Iterator<Item = Self::Element>,
-    ) {
-        self.validity.as_mut().clear();
-
-        let uninitiated_views = self.views.as_mut().clear_and_resize(len);
-        let uninitiated_bytes = self._bytes.as_mut();
-        uninitiated_bytes.clear();
-        self._calibrate_offsets.clear();
-
-        trusted_len_iterator
-            .enumerate()
-            .for_each(|(index, element)| {
-                assign_string_element(
-                    element,
-                    uninitiated_bytes,
-                    uninitiated_views,
-                    index,
-                    &mut self._calibrate_offsets,
-                )
-            });
-
-        calibrate_pointers(
-            uninitiated_bytes.ptr.as_ptr(),
-            uninitiated_views,
-            &self._calibrate_offsets,
-        )
-    }
-
-    unsafe fn replace_with_trusted_len_iterator(
-        &mut self,
-        len: usize,
-        trusted_len_iterator: impl Iterator<Item = Option<Self::Element>>,
-    ) {
-        let uninitiated_validity = self.validity.as_mut();
-
-        let uninitiated_views = self.views.as_mut().clear_and_resize(len);
-        let uninitiated_bytes = self._bytes.as_mut();
-        uninitiated_bytes.clear();
-        self._calibrate_offsets.clear();
-
-        uninitiated_validity.reset(
-            len,
-            trusted_len_iterator.enumerate().map(|(index, element)| {
-                if let Some(element) = element {
-                    assign_string_element(
-                        element,
-                        uninitiated_bytes,
-                        uninitiated_views,
-                        index,
-                        &mut self._calibrate_offsets,
-                    );
-                    true
-                } else {
-                    false
-                }
-            }),
-        );
     }
 }
 

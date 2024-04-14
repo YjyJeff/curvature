@@ -1,14 +1,3 @@
-#![warn(clippy::todo)]
-#![deny(
-    rustdoc::broken_intra_doc_links,
-    rustdoc::bare_urls,
-    rustdoc::private_intra_doc_links,
-    rust_2018_idioms,
-    missing_docs,
-    clippy::needless_borrow,
-    clippy::redundant_clone,
-    missing_debug_implementations
-)]
 #![cfg_attr(feature = "portable_simd", feature(portable_simd))]
 
 //! # DataBlock
@@ -39,7 +28,7 @@ pub mod compute;
 pub mod element;
 mod macros;
 pub mod types;
-mod utils;
+pub mod utils;
 
 mod private {
     /// Sealed trait protect against downstream implementations

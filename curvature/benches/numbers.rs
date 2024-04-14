@@ -1,4 +1,7 @@
 //! Benchmark the overhead of the morsel-driven parallelism framework
+
+#![allow(missing_docs)]
+
 use std::num::NonZeroU64;
 use std::ops::DerefMut;
 use std::sync::atomic::{AtomicU64, Ordering};

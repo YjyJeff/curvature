@@ -11,9 +11,11 @@ use self::builder::PipelineBuilder;
 pub use self::builder::PipelineBuilderError;
 pub use self::executor::{PipelineExecutor, PipelineExecutorError};
 use super::physical_operator::{
-    GlobalOperatorState, GlobalSinkState, GlobalSourceState, LocalSinkState, PhysicalOperator,
+    GlobalOperatorState, GlobalSinkState, GlobalSourceState, LocalSinkState, OperatorError,
+    PhysicalOperator,
 };
 use crate::common::client_context::ClientContext;
+use crate::common::types::ParallelismDegree;
 use crate::private::Sealed;
 use crate::tree_node::display::IndentDisplayWrapper;
 
@@ -115,11 +117,11 @@ impl SinkTrait for Sink {
 #[derive(Debug)]
 pub struct Pipeline<S> {
     /// Source of the pipeline
-    pub(super) source: Source,
+    source: Source,
     /// Chain of regular operators
     operators: Vec<Operator>,
     /// Sink of the pipeline.
-    pub(super) sink: S,
+    sink: S,
     /// Children of this Pipeline. This pipeline can be executed iff all of its children are
     /// finished
     ///
@@ -150,13 +152,37 @@ impl Display for Pipeline<()> {
     }
 }
 
+impl<S> Pipeline<S> {
+    /// Compute the parallelism degree of the pipeline
+    ///
+    /// FIXME: Take care of the intermediate operator and sink operator
+    pub(super) fn parallelism_degree(
+        &self,
+        max_parallelism: ParallelismDegree,
+    ) -> ParallelismDegree {
+        let source_parallelism = self
+            .source
+            .op
+            .source_parallelism_degree(&*self.source.global_state);
+
+        std::cmp::min(source_parallelism, max_parallelism)
+    }
+}
+
+impl Pipeline<Sink> {
+    /// Finalize the sink, called by the query executor
+    pub(super) unsafe fn finalize_sink(&self) -> Result<(), OperatorError> {
+        self.sink.op.finalize_sink(&*self.sink.global_state)
+    }
+}
+
 /// Source operator and its global source state
 #[derive(Debug)]
 pub(super) struct Source {
     /// Source operator
-    pub op: Arc<dyn PhysicalOperator>,
+    op: Arc<dyn PhysicalOperator>,
     /// Global source state
-    pub global_state: Arc<dyn GlobalSourceState>,
+    global_state: Arc<dyn GlobalSourceState>,
 }
 
 /// Regular operator and its global operator state
@@ -182,9 +208,9 @@ impl Clone for Operator {
 #[derive(Debug)]
 pub(super) struct Sink {
     /// Sink operator
-    pub op: Arc<dyn PhysicalOperator>,
+    op: Arc<dyn PhysicalOperator>,
     /// Global sink state
-    pub global_state: Arc<dyn GlobalSinkState>,
+    global_state: Arc<dyn GlobalSinkState>,
 }
 
 impl Clone for Sink {

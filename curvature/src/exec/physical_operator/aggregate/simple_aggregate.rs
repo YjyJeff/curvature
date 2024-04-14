@@ -1,6 +1,5 @@
 //! Aggregation without group by keys
 
-use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -147,6 +146,13 @@ struct SimpleAggregateMetrics {
     agg_time: Time,
 }
 
+impl SimpleAggregateMetrics {
+    fn combine_local_metrics(&self, local_metrics: &LocalSinkMetrics) {
+        self.num_rows.add(local_metrics.num_rows);
+        self.agg_time.add_duration(local_metrics.agg_time);
+    }
+}
+
 /// Local source state of the [`SimpleAggregate`]
 #[derive(Debug)]
 pub struct SimpleAggregateLocalSourceState;
@@ -192,9 +198,9 @@ pub struct SimpleAggregateLocalSinkState {
 #[derive(Debug, Default)]
 struct LocalSinkMetrics {
     /// The number of rows to perform aggregation
-    pub num_rows: u64,
+    num_rows: u64,
     /// The time used to perform aggregation
-    pub agg_time: Duration,
+    agg_time: Duration,
 }
 
 impl Drop for SimpleAggregateLocalSinkState {
@@ -348,12 +354,7 @@ impl PhysicalOperator for SimpleAggregate {
         // - ptr is guaranteed to be valid
         unsafe {
             self.agg_func_list
-                .batch_update_states(
-                    NonZeroUsize::new(input.len())
-                        .expect("Pipeline executor should guarantee the input of the `write_data` is not empty"),
-                    &local_state.payloads,
-                    local_state.states_ptr,
-                )
+                .batch_update_states(input.len(), &local_state.payloads, local_state.states_ptr)
                 .boxed()
                 .context(WriteDataSnafu)?;
         }
@@ -364,13 +365,21 @@ impl PhysicalOperator for SimpleAggregate {
         Ok(SinkExecStatus::NeedMoreInput)
     }
 
-    fn merge_sink(
+    fn combine_sink(
         &self,
         _global_state: &dyn GlobalSinkState,
         local_state: &mut dyn LocalSinkState,
     ) -> OperatorResult<()> {
         let local_state =
             downcast_mut_local_state!(self, local_state, SimpleAggregateLocalSinkState, SINK);
+
+        // Combine metrics
+        tracing::debug!(
+            "Aggregate {} rows into 1 row in: `{:?}`",
+            local_state.metrics.num_rows,
+            local_state.metrics.agg_time
+        );
+        self.metrics.combine_local_metrics(&local_state.metrics);
 
         let global_state = self.global_states.lock();
 
@@ -460,7 +469,7 @@ mod tests {
                 .unwrap();
 
             aggregate
-                .merge_sink(&*global_state, &mut *local_state)
+                .combine_sink(&*global_state, &mut *local_state)
                 .unwrap();
 
             unsafe {

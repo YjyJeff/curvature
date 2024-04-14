@@ -12,7 +12,6 @@ use super::pipeline::{
 use crate::common::client_context::ClientContext;
 use crate::common::profiler::Instant;
 use crate::common::types::ParallelismDegree;
-use std::fmt::Display;
 use std::sync::Arc;
 
 #[allow(missing_docs)]
@@ -78,7 +77,7 @@ impl QueryExecutor {
 
             // We can execute the root pipeline now
             let parallelism =
-                parallelism_degree(root_pipeline, self.client_ctx.exec_args.parallelism);
+                root_pipeline.parallelism_degree(self.client_ctx.exec_args.parallelism);
 
             if parallelism > ParallelismDegree::MIN {
                 // FIXME: remove rayon, use monoio instead?
@@ -110,7 +109,7 @@ impl QueryExecutor {
 
         // We can execute this pipeline now
 
-        let parallelism = parallelism_degree(pipeline, self.client_ctx.exec_args.parallelism);
+        let parallelism = pipeline.parallelism_degree(self.client_ctx.exec_args.parallelism);
 
         if parallelism > ParallelismDegree::MIN {
             // FIXME: remove rayon, use monoio instead?
@@ -129,9 +128,7 @@ impl QueryExecutor {
         // SAFETY: Main thread here, finalize_sink is only called here
         unsafe {
             pipeline
-                .sink
-                .op
-                .finalize_sink(&*pipeline.sink.global_state)
+                .finalize_sink()
                 .with_context(|_| FinalizePipelineSnafu {
                     pipeline: format!("{}", pipeline),
                 })?;
@@ -196,25 +193,6 @@ where
     );
 
     Ok(())
-}
-
-/// FIXME: Take care of the intermediate operator and sink operator
-///
-/// Compute the parallelism degree of the pipeline
-#[inline]
-fn parallelism_degree<S>(
-    pipeline: &Pipeline<S>,
-    parallelism: ParallelismDegree,
-) -> ParallelismDegree
-where
-    Pipeline<S>: Display,
-{
-    let source_parallelism_degree = pipeline
-        .source
-        .op
-        .source_parallelism_degree(&*pipeline.source.global_state);
-
-    std::cmp::min(source_parallelism_degree, parallelism)
 }
 
 #[cfg(test)]

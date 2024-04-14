@@ -10,7 +10,7 @@ struct IndentDisplayVisitor<'a, 'b> {
     indent: usize,
 }
 
-impl<'a, 'b, V> Visitor<V> for IndentDisplayVisitor<'a, 'b>
+impl<V> Visitor<V> for IndentDisplayVisitor<'_, '_>
 where
     V: TreeNode + Display + ?Sized,
 {
@@ -46,13 +46,13 @@ where
     }
 }
 
-impl<'a, T> Debug for IndentDisplayWrapper<'a, T> {
+impl<T> Debug for IndentDisplayWrapper<'_, T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "IndentDisplayWrapper({})", std::any::type_name::<T>())
     }
 }
 
-impl<'a, T> Display for IndentDisplayWrapper<'a, T>
+impl<T> Display for IndentDisplayWrapper<'_, T>
 where
     T: TreeNode + Display + ?Sized,
 {

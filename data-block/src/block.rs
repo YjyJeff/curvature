@@ -194,7 +194,7 @@ pub struct MutateArrayGuard<'a> {
     array: &'a mut ArrayImpl,
 }
 
-impl<'a> Deref for MutateArrayGuard<'a> {
+impl Deref for MutateArrayGuard<'_> {
     type Target = ArrayImpl;
 
     #[inline]
@@ -203,7 +203,7 @@ impl<'a> Deref for MutateArrayGuard<'a> {
     }
 }
 
-impl<'a> DerefMut for MutateArrayGuard<'a> {
+impl DerefMut for MutateArrayGuard<'_> {
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.array
@@ -211,7 +211,7 @@ impl<'a> DerefMut for MutateArrayGuard<'a> {
 }
 
 /// Set DataBlock's length when array has mutated
-impl<'a> Drop for MutateArrayGuard<'a> {
+impl Drop for MutateArrayGuard<'_> {
     #[inline]
     fn drop(&mut self) {
         *self.length = self.array.len();
@@ -225,7 +225,7 @@ pub struct MutateArraysGuard<'a> {
     arrays: &'a mut [ArrayImpl],
 }
 
-impl<'a> MutateArraysGuard<'a> {
+impl MutateArraysGuard<'_> {
     /// Mutate the arrays
     ///
     /// # Safety

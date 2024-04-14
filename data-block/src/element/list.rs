@@ -34,6 +34,7 @@ impl Element for ListElement {
         todo!()
     }
 
+    #[allow(single_use_lifetimes)]
     #[inline]
     fn upcast_gat<'short, 'long: 'short>(
         long: Self::ElementRef<'long>,
@@ -58,7 +59,7 @@ impl<'a> ListElementRef<'a> {
     }
 }
 
-impl<'a> Sealed for ListElementRef<'a> {}
+impl Sealed for ListElementRef<'_> {}
 
 impl<'a> ElementRef<'a> for ListElementRef<'a> {
     type OwnedType = ListElement;
@@ -69,7 +70,7 @@ impl<'a> ElementRef<'a> for ListElementRef<'a> {
     }
 }
 
-impl<'a> Debug for ListElementRef<'a> {
+impl Debug for ListElementRef<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.array
             .debug_array_slice(f, self.offset as usize, self.len as usize)

@@ -62,6 +62,9 @@ type Result<T> = std::result::Result<T, ArrayError>;
 
 /// A trait over all arrays
 pub trait Array: Sealed + Debug + 'static + Sized {
+    /// Physical type of the scalar array
+    const PHYSICAL_TYPE: PhysicalType;
+
     /// Element of the [`Array`]
     type Element: Element;
 
@@ -154,18 +157,11 @@ pub trait Array: Sealed + Debug + 'static + Sized {
     /// Get the logical type of the array. This function enforces each array implementation
     /// should have a [`LogicalType`] as its field
     fn logical_type(&self) -> &LogicalType;
-}
 
-/// Extension for mutate array
-pub trait MutateArrayExt: Array {
+    // Mutate array
+
     /// Reference self to other array
     fn reference(&mut self, other: &Self);
-}
-
-/// Trait for arrays that element is scalar type
-pub trait ScalarArray: Array {
-    /// Physical type of the scalar array
-    const PHYSICAL_TYPE: PhysicalType;
 
     /// Replace the array with the trusted_len values iterator that has `len` items
     ///

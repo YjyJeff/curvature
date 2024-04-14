@@ -26,7 +26,7 @@ impl<'a> ScopedTimerGuard<'a> {
     }
 }
 
-impl<'a> Drop for ScopedTimerGuard<'a> {
+impl Drop for ScopedTimerGuard<'_> {
     #[inline]
     fn drop(&mut self) {
         *self.accumulation += self.now.elapsed();

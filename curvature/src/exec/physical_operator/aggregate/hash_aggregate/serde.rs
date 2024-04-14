@@ -6,7 +6,7 @@ use std::hash::Hash;
 use std::marker::PhantomData;
 use std::mem;
 
-use data_block::array::{Array, ArrayImpl, ScalarArray};
+use data_block::array::{Array, ArrayImpl};
 use data_block::bitmap::BitStore;
 use data_block::element::interval::DayTime;
 use data_block::types::{Element, PhysicalSize};
@@ -316,7 +316,7 @@ unsafe fn deserialize_scalar_fixed_sized_array<A, T, K>(
     offset_in_byte: usize,
     index: usize,
 ) where
-    A: ScalarArray<Element = T>,
+    A: Array<Element = T>,
     for<'a> T: Element<ElementRef<'a> = T>,
     K: Eq + Hash + Default + Clone + Debug + 'static,
 {
@@ -363,7 +363,7 @@ unsafe fn deserialize_non_nullable_scalar_fixed_sized_array<A, T, K>(
     keys: &[K],
     offset_in_byte: usize,
 ) where
-    A: ScalarArray<Element = T>,
+    A: Array<Element = T>,
     for<'a> T: Element<ElementRef<'a> = T>,
     K: Eq + Hash + Default + Clone + Debug + 'static,
 {
