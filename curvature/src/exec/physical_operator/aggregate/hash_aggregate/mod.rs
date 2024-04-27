@@ -202,6 +202,9 @@ impl HashAggregateMetics {
 
 impl<S: Serde> HashAggregate<S> {
     /// Try to create a HashAggregate
+    ///
+    /// FIXME: Check the type of the group by keys. For example, currently, we do not
+    /// support group by list
     pub fn try_new(
         input: Arc<dyn PhysicalOperator>,
         group_by_keys: &[FieldRef],
@@ -875,6 +878,8 @@ impl<S: Serde> SourceOperatorExt for HashAggregate<S> {
     type GlobalSourceState = HashAggregateGlobalSourceState;
     type LocalSourceState = HashAggregateLocalSourceState<S>;
 
+    /// FIXME: The morsel is too large, we view the whole hash table as morsel, will cause
+    /// the unbalance problem
     #[inline]
     fn next_morsel(
         &self,

@@ -3,6 +3,7 @@
 use super::swar::SwarPtr;
 use super::{Array, InvalidLogicalTypeSnafu, Result};
 use snafu::ensure;
+use std::convert::identity;
 use std::fmt::Debug;
 use std::iter::Copied;
 use std::slice::Iter;
@@ -15,17 +16,39 @@ use crate::macros::for_all_primitive_types;
 use crate::private::Sealed;
 use crate::types::{LogicalType, PhysicalType};
 
+/// Extension for float
+trait FloatExt: num_traits::Float {
+    // Normalize the float, make `NaN`/`-Nan` and `-0.0`/`0.0` consistent
+    #[inline]
+    fn normalize(self) -> Self {
+        if self.is_nan() {
+            Self::nan()
+        } else if self.is_zero() {
+            Self::zero()
+        } else {
+            self
+        }
+    }
+}
+
+impl FloatExt for f32 {}
+impl FloatExt for f64 {}
+
 /// Trait for types that can be placed on the [`PrimitiveArray`]
 pub trait PrimitiveType: AllocType + for<'a> Element<ElementRef<'a> = Self> + Copy {
     /// Default logical type of this primitive type
     const LOGICAL_TYPE: LogicalType;
+    /// Function to normalize self. For integers, it is the identity function.
+    /// For floats, it will make `NaN`/`-Nan` and `-0.0`/`0.0` consistent
+    const NORMALIZE_FUNC: fn(Self) -> Self;
 }
 
 macro_rules! impl_primitive_type {
-    ($({$pt_variant:ident, $primitive_element_ty:ty, $alias:ident, $lt:ident}),*) => {
+    ($({$_:ident, $primitive_element_ty:ty, $alias:ident, $lt:ident, $normalize:path}),*) => {
         $(
             impl PrimitiveType for $primitive_element_ty {
                 const LOGICAL_TYPE: LogicalType = LogicalType::$lt;
+                const NORMALIZE_FUNC: fn(Self) -> Self = $normalize;
             }
         )*
     };
@@ -114,7 +137,7 @@ impl<T: PrimitiveType> PrimitiveArray<T> {
 }
 
 macro_rules! alias {
-    ($({$_:ident, $ty:ty, $alias:ident, $lt:ident}),*) => {
+    ($({$_:ident, $ty:ty, $alias:ident, $lt:ident, $normalize:path}),*) => {
         $(
             #[doc = concat!("A [`PrimitiveArray`] of [`", stringify!($ty), "`]")]
             pub type $alias = PrimitiveArray<$ty>;
@@ -196,11 +219,13 @@ where
     }
 
     #[inline]
-    unsafe fn replace_with_trusted_len_values_iterator(
+    unsafe fn replace_with_trusted_len_values_iterator<I>(
         &mut self,
         len: usize,
-        trusted_len_iterator: impl Iterator<Item = T>,
-    ) {
+        trusted_len_iterator: I,
+    ) where
+        I: Iterator<Item = T>,
+    {
         self.validity.as_mut().clear();
 
         let uninitiated = self.data.as_mut();
@@ -214,11 +239,10 @@ where
     }
 
     #[inline]
-    unsafe fn replace_with_trusted_len_iterator(
-        &mut self,
-        len: usize,
-        trusted_len_iterator: impl Iterator<Item = Option<T>>,
-    ) {
+    unsafe fn replace_with_trusted_len_iterator<I>(&mut self, len: usize, trusted_len_iterator: I)
+    where
+        I: Iterator<Item = Option<T>>,
+    {
         let uninitiated_vec = self.data.as_mut();
         let uninitiated_slice = uninitiated_vec.clear_and_resize(len);
         let uninitiated_validity = self.validity.as_mut();
@@ -235,6 +259,26 @@ where
                 }
             }),
         );
+    }
+
+    unsafe fn replace_with_trusted_len_values_ref_iterator<'a, I>(
+        &mut self,
+        len: usize,
+        trusted_len_iterator: I,
+    ) where
+        I: Iterator<Item = T> + 'a,
+    {
+        self.replace_with_trusted_len_values_iterator(len, trusted_len_iterator);
+    }
+
+    unsafe fn replace_with_trusted_len_ref_iterator<'a, I>(
+        &mut self,
+        len: usize,
+        trusted_len_iterator: I,
+    ) where
+        I: Iterator<Item = Option<T>> + 'a,
+    {
+        self.replace_with_trusted_len_iterator(len, trusted_len_iterator);
     }
 }
 

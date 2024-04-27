@@ -96,6 +96,9 @@ impl_sum_payload_array!(f64,  {f32, f64}, float_checked_add);
 impl_sum_payload_array!(DayTime, { DayTime }, DayTime::checked_add);
 
 /// Aggregation state of the sum function
+///
+/// TODO: Accelerate batch update with a temp SIMD vec. In this case, we can not
+/// implement TransparentWrapper for it
 #[derive(Debug)]
 #[repr(transparent)]
 pub struct SumState<S: SumType>(Option<S>);

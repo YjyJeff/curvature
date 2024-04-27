@@ -102,6 +102,7 @@ impl QueryExecutor {
     /// Execute the pipeline in the given index
     fn execute_pipeline(&self, index: PipelineIndex) -> Result<()> {
         let pipeline = &self.pipelines.pipelines[index];
+        // FIXME: Execute the child pipeline in parallel
         pipeline
             .children
             .iter()

@@ -6,10 +6,11 @@ use std::hash::Hash;
 use std::marker::PhantomData;
 use std::mem;
 
-use data_block::array::{Array, ArrayImpl};
+use data_block::array::{Array, ArrayImpl, BinaryArray, BooleanArray, PrimitiveArray, StringArray};
 use data_block::bitmap::BitStore;
 use data_block::element::interval::DayTime;
-use data_block::types::{Element, PhysicalSize};
+use data_block::element::{Element, ElementRefSerdeExt};
+use data_block::types::{PhysicalSize, PrimitiveType};
 
 /// Trait for the memory equality comparable serde struct that stores the `GroupByKeys`
 pub trait SerdeKey: Eq + Hash + Default + Debug + Clone + Send + Sync + 'static {
@@ -43,23 +44,7 @@ pub trait Serde: Debug + 'static {
     unsafe fn deserialize(arrays: &mut [ArrayImpl], keys: &[Self::SerdeKey]);
 }
 
-/// Extension for float
-trait FloatSerdeExt: num_traits::Float {
-    // Normalize the float, make `NaN`/`-Nan` and `-0.0`/`0.0` consistent
-    #[inline]
-    fn normalize(self) -> Self {
-        if self.is_nan() {
-            Self::nan()
-        } else if self.is_zero() {
-            Self::zero()
-        } else {
-            self
-        }
-    }
-}
-
-impl FloatSerdeExt for f32 {}
-impl FloatSerdeExt for f64 {}
+// Fixed size
 
 /// Serde key that contains the keys that all of them are fixed size.
 ///
@@ -83,17 +68,17 @@ pub struct FixedSizedSerdeKey<K: Eq + Hash + Default + Clone + Debug + 'static> 
 macro_rules! for_all_fixed_sized_serde_key {
     ($macro:ident) => {
         $macro! {
-            <u16, {Int8, i8}, {UInt8, u8},>,
-            <u32, {Int8, i8}, {UInt8, u8}, {Int16, i16}, {UInt16, u16},>,
-            <u64, {Int8, i8}, {UInt8, u8}, {Int16, i16}, {UInt16, u16}, {Int32, i32}, {UInt32, u32}, [Float32, f32]>,
-            <u128, {Int8, i8}, {UInt8, u8}, {Int16, i16}, {UInt16, u16}, {Int32, i32}, {UInt32, u32}, {Int64, i64}, {UInt64, u64}, {DayTime, DayTime}, [Float32, f32], [Float64, f64]>,
-            <[u8; 32], {Int8, i8}, {UInt8, u8}, {Int16, i16}, {UInt16, u16}, {Int32, i32}, {UInt32, u32}, {Int64, i64}, {UInt64, u64}, {DayTime, DayTime}, {Int128, i128}, [Float32, f32], [Float64, f64]>
+            <u16, {Int8, i8}, {UInt8, u8}>,
+            <u32, {Int8, i8}, {UInt8, u8}, {Int16, i16}, {UInt16, u16}>,
+            <u64, {Int8, i8}, {UInt8, u8}, {Int16, i16}, {UInt16, u16}, {Int32, i32}, {UInt32, u32}, {Float32, f32}>,
+            <u128, {Int8, i8}, {UInt8, u8}, {Int16, i16}, {UInt16, u16}, {Int32, i32}, {UInt32, u32}, {Int64, i64}, {UInt64, u64}, {DayTime, DayTime}, {Float32, f32}, {Float64, f64}>,
+            <[u8; 32], {Int8, i8}, {UInt8, u8}, {Int16, i16}, {UInt16, u16}, {Int32, i32}, {UInt32, u32}, {Int64, i64}, {UInt64, u64}, {DayTime, DayTime}, {Int128, i128}, {Float32, f32}, {Float64, f64}>
         }
     };
 }
 
 macro_rules! impl_fixed_sized_serde_key {
-    ($(<$ty:ty, $({$_:ident, $__:ty}),+, $([$___:ident, $____:ty]),* >),+) => {
+    ($(<$ty:ty, $({$_:ident, $__:ty}),+>),+) => {
         $(
             impl SerdeKey for FixedSizedSerdeKey<$ty> {
                 const PHYSICAL_SIZE: PhysicalSize = PhysicalSize::Fixed(mem::size_of::<$ty>());
@@ -110,8 +95,7 @@ for_all_fixed_sized_serde_key!(impl_fixed_sized_serde_key);
 
 macro_rules! impl_fixed_sized_serde_key_serializer {
     ($(<$serde_key_ty:ty,
-        $({$int_variant:ident, $int_primitive_ty:ty}),+,
-        $([$float_variant:ident, $float_primitive_ty:ty]),*
+        $({$variant:ident, $primitive_ty:ty}),+
     >),+) => {
         $(
             impl Serde for FixedSizedSerdeKeySerializer<$serde_key_ty> {
@@ -125,23 +109,17 @@ macro_rules! impl_fixed_sized_serde_key_serializer {
                     for (index, array) in arrays.iter().enumerate() {
                         match array {
                             ArrayImpl::Boolean(array) => {
-                                serialize_scalar_fixed_sized_array(array, keys, offset_in_byte, index, identity);
+                                serialize_fsa_into_fsk(array, keys, offset_in_byte, index, identity);
                                 offset_in_byte += mem::size_of::<bool>();
                             }
                             $(
-                                ArrayImpl::$int_variant(array) => {
-                                    serialize_scalar_fixed_sized_array(array, keys, offset_in_byte, index, identity);
-                                    offset_in_byte += mem::size_of::<$int_primitive_ty>();
+                                ArrayImpl::$variant(array) => {
+                                    serialize_fsa_into_fsk(array, keys, offset_in_byte, index, <$primitive_ty as PrimitiveType>::NORMALIZE_FUNC);
+                                    offset_in_byte += mem::size_of::<$primitive_ty>();
                                 }
                             )+
-                            $(
-                                ArrayImpl::$float_variant(array) => {
-                                    serialize_scalar_fixed_sized_array(array, keys, offset_in_byte, index, <$float_primitive_ty as FloatSerdeExt>::normalize);
-                                    offset_in_byte += mem::size_of::<$float_primitive_ty>();
-                                }
-                            )*
                             _ => {
-                                unreachable!(
+                                panic!(
                                     "FixedSizedSerdeKeySerializer<{}> can not serialize {} array. Caller breaks the safety contract",
                                     stringify!($serde_key_ty),
                                     array.ident()
@@ -156,23 +134,17 @@ macro_rules! impl_fixed_sized_serde_key_serializer {
                     for (index, array) in arrays.iter_mut().enumerate() {
                         match array{
                             ArrayImpl::Boolean(array) => {
-                                deserialize_scalar_fixed_sized_array(array, keys, offset_in_byte, index);
+                                deserialize_fsa_from_fsk(array, keys, offset_in_byte, index);
                                 offset_in_byte += mem::size_of::<bool>();
                             }
                             $(
-                                ArrayImpl::$int_variant(array) => {
-                                    deserialize_scalar_fixed_sized_array(array, keys, offset_in_byte, index);
-                                    offset_in_byte += mem::size_of::<$int_primitive_ty>();
+                                ArrayImpl::$variant(array) => {
+                                    deserialize_fsa_from_fsk(array, keys, offset_in_byte, index);
+                                    offset_in_byte += mem::size_of::<$primitive_ty>();
                                 }
                             )+
-                            $(
-                                ArrayImpl::$float_variant(array) => {
-                                    deserialize_scalar_fixed_sized_array(array, keys, offset_in_byte, index);
-                                    offset_in_byte += mem::size_of::<$float_primitive_ty>();
-                                }
-                            )*
                             _ => {
-                                unreachable!(
+                                panic!(
                                     "FixedSizedSerdeKeySerializer<{}> can not deserialize {} array. Caller breaks the safety contract",
                                     stringify!($serde_key_ty),
                                     array.ident()
@@ -191,23 +163,17 @@ macro_rules! impl_fixed_sized_serde_key_serializer {
                     for array in arrays {
                         match array {
                             ArrayImpl::Boolean(array) => {
-                                serialize_non_nullable_scalar_fixed_sized_array(array, keys, offset_in_byte, identity);
+                                serialize_non_nullable_fsa_into_fsk(array, keys, offset_in_byte, identity);
                                 offset_in_byte += mem::size_of::<bool>();
                             }
                             $(
-                                ArrayImpl::$int_variant(array) => {
-                                    serialize_non_nullable_scalar_fixed_sized_array(array, keys, offset_in_byte, identity);
-                                    offset_in_byte += mem::size_of::<$int_primitive_ty>();
+                                ArrayImpl::$variant(array) => {
+                                    serialize_non_nullable_fsa_into_fsk(array, keys, offset_in_byte, <$primitive_ty as PrimitiveType>::NORMALIZE_FUNC);
+                                    offset_in_byte += mem::size_of::<$primitive_ty>();
                                 }
                             )+
-                            $(
-                                ArrayImpl::$float_variant(array) => {
-                                    serialize_non_nullable_scalar_fixed_sized_array(array, keys, offset_in_byte, <$float_primitive_ty as FloatSerdeExt>::normalize);
-                                    offset_in_byte += mem::size_of::<$float_primitive_ty>();
-                                }
-                            )*
                             _ => {
-                                unreachable!(
+                                panic!(
                                     "NonNullableFixedSizedSerdeKeySerializer<{}> can not serialize {} array. Caller breaks the safety contract",
                                     stringify!($serde_key_ty),
                                     array.ident()
@@ -222,23 +188,17 @@ macro_rules! impl_fixed_sized_serde_key_serializer {
                     for array in arrays.iter_mut() {
                         match array{
                             ArrayImpl::Boolean(array) => {
-                                deserialize_non_nullable_scalar_fixed_sized_array(array, keys, offset_in_byte);
+                                deserialize_non_nullable_fsa_from_fsk(array, keys, offset_in_byte);
                                 offset_in_byte += mem::size_of::<bool>();
                             }
                             $(
-                                ArrayImpl::$int_variant(array) => {
-                                    deserialize_non_nullable_scalar_fixed_sized_array(array, keys, offset_in_byte);
-                                    offset_in_byte += mem::size_of::<$int_primitive_ty>();
+                                ArrayImpl::$variant(array) => {
+                                    deserialize_non_nullable_fsa_from_fsk(array, keys, offset_in_byte);
+                                    offset_in_byte += mem::size_of::<$primitive_ty>();
                                 }
                             )+
-                            $(
-                                ArrayImpl::$float_variant(array) => {
-                                    deserialize_non_nullable_scalar_fixed_sized_array(array, keys, offset_in_byte);
-                                    offset_in_byte += mem::size_of::<$float_primitive_ty>();
-                                }
-                            )*
                             _ => {
-                                unreachable!(
+                                panic!(
                                     "NonNullableFixedSizedSerdeKeySerializer<{}> can not deserialize {} array. Caller breaks the safety contract",
                                     stringify!($serde_key_ty),
                                     array.ident()
@@ -267,7 +227,8 @@ pub struct NonNullableFixedSizedSerdeKeySerializer<K> {
     _phantom: PhantomData<K>,
 }
 
-unsafe fn serialize_scalar_fixed_sized_array<A, T, K, F>(
+/// Serialize the fixed size array into the fixed sized key
+unsafe fn serialize_fsa_into_fsk<A, T, K, F>(
     array: &A,
     keys: &mut [FixedSizedSerdeKey<K>],
     offset_in_byte: usize,
@@ -310,7 +271,8 @@ unsafe fn serialize_scalar_fixed_sized_array<A, T, K, F>(
     }
 }
 
-unsafe fn deserialize_scalar_fixed_sized_array<A, T, K>(
+/// Deserialize the fixed size array from the fixed sized key
+unsafe fn deserialize_fsa_from_fsk<A, T, K>(
     array: &mut A,
     keys: &[FixedSizedSerdeKey<K>],
     offset_in_byte: usize,
@@ -334,7 +296,8 @@ unsafe fn deserialize_scalar_fixed_sized_array<A, T, K>(
     array.replace_with_trusted_len_iterator(keys.len(), trusted_len_iterator)
 }
 
-unsafe fn serialize_non_nullable_scalar_fixed_sized_array<A, T, K, F>(
+/// Serialize the non nullable fixed size array into the fixed sized key
+unsafe fn serialize_non_nullable_fsa_into_fsk<A, T, K, F>(
     array: &A,
     keys: &mut [K],
     offset_in_byte: usize,
@@ -358,7 +321,8 @@ unsafe fn serialize_non_nullable_scalar_fixed_sized_array<A, T, K, F>(
     });
 }
 
-unsafe fn deserialize_non_nullable_scalar_fixed_sized_array<A, T, K>(
+/// Deserialize the non nullable fixed size array from the fixed sized key
+unsafe fn deserialize_non_nullable_fsa_from_fsk<A, T, K>(
     array: &mut A,
     keys: &[K],
     offset_in_byte: usize,
@@ -373,6 +337,194 @@ unsafe fn deserialize_non_nullable_scalar_fixed_sized_array<A, T, K>(
     });
 
     array.replace_with_trusted_len_values_iterator(keys.len(), trusted_len_iterator)
+}
+
+// Variable size
+
+impl SerdeKey for Vec<u8> {
+    const PHYSICAL_SIZE: PhysicalSize = PhysicalSize::Variable;
+}
+
+/// Serializer that can serialize all of the arrays that contains null. It will serialize
+/// them into bytes array
+#[derive(Debug)]
+pub struct GeneralSerializer;
+
+/// Compiler could not infer the array type and we should specify it manually. I think
+/// it is a compiler bug 😂
+macro_rules! for_all_serde_array {
+    ($macro:ident) => {
+        $macro! {
+            {Boolean, BooleanArray},
+            {Int8, PrimitiveArray<i8>},
+            {UInt8, PrimitiveArray<u8>},
+            {Int16, PrimitiveArray<i16>},
+            {UInt16, PrimitiveArray<u16>},
+            {Int32, PrimitiveArray<i32>},
+            {UInt32, PrimitiveArray<u32>},
+            {Int64, PrimitiveArray<i64>},
+            {UInt64, PrimitiveArray<u64>},
+            {Int128, PrimitiveArray<i128>},
+            {DayTime, PrimitiveArray<DayTime>},
+            {Float32, PrimitiveArray<f32>},
+            {Float64, PrimitiveArray<f64>},
+            {String, StringArray},
+            {Binary, BinaryArray}
+        }
+    };
+}
+
+macro_rules! serde {
+    ($array:ident, $arg:expr, $func:ident, $({$variant:ident, $ty:ty}),+) => {
+        match $array {
+            $(
+                ArrayImpl::$variant(array) => $func::<$ty>(array, $arg),
+            )+
+            ArrayImpl::List(_) => {
+                panic!("Group by list is not supported now")
+            }
+        }
+    };
+}
+
+impl Serde for GeneralSerializer {
+    type SerdeKey = Vec<u8>;
+
+    unsafe fn serialize(arrays: &[&ArrayImpl], keys: &mut [Vec<u8>]) {
+        // Clear all of the keys
+        keys.iter_mut().for_each(|key| key.clear());
+
+        for &array in arrays.iter() {
+            macro_rules! serialize {
+                ($({$variant:ident, $ty:ty}),+) => {
+                    serde!(array, keys, serialize_element_ref_into_bytes, $({$variant, $ty}),+)
+                };
+            }
+
+            for_all_serde_array!(serialize);
+        }
+    }
+
+    unsafe fn deserialize(arrays: &mut [ArrayImpl], keys: &[Vec<u8>]) {
+        // FIXME: reuse this memory across different blocks
+        let mut ptrs = keys.iter().map(|key| key.as_ptr()).collect::<Vec<_>>();
+        for array in arrays {
+            macro_rules! deserialize {
+                ($({$variant:ident, $ty:ty}),+) => {
+                    serde!(array, &mut ptrs, deserialize_from_bytes, $({$variant, $ty}),+)
+                };
+            }
+
+            for_all_serde_array!(deserialize)
+        }
+    }
+}
+
+unsafe fn serialize_element_ref_into_bytes<A>(array: &A, keys: &mut [Vec<u8>])
+where
+    A: Array,
+    for<'a> <A::Element as Element>::ElementRef<'a>: ElementRefSerdeExt<'a>,
+{
+    let validity = array.validity();
+    if validity.all_valid() {
+        array.values_iter().zip(keys).for_each(|(val, serde_key)| {
+            serde_key.push(1);
+            val.serialize(serde_key);
+        });
+    } else {
+        array.values_iter().zip(validity.iter()).zip(keys).for_each(
+            |((val, not_null), serde_key)| {
+                serde_key.push(not_null as u8);
+                // We only serialize the data if it is valid
+                if not_null {
+                    val.serialize(serde_key);
+                }
+            },
+        );
+    }
+}
+
+unsafe fn deserialize_from_bytes<A>(array: &mut A, ptrs: &mut [*const u8])
+where
+    A: Array,
+    for<'a> <A::Element as Element>::ElementRef<'a>: ElementRefSerdeExt<'a>,
+{
+    let len = ptrs.len();
+
+    let trusted_len_iterator = ptrs.iter_mut().map(|ptr| {
+        let not_null = **ptr != 0;
+        *ptr = ptr.add(1);
+        if not_null {
+            // deserialize data
+            Some(<<A::Element as Element>::ElementRef<'_> as ElementRefSerdeExt>::deserialize(ptr))
+        } else {
+            None
+        }
+    });
+
+    array.replace_with_trusted_len_ref_iterator(len, trusted_len_iterator)
+}
+
+/// Serializer that can serialize all of the arrays that does not contain null. It will serialize
+/// them into bytes array
+#[derive(Debug)]
+pub struct NonNullableGeneralSerializer;
+
+impl Serde for NonNullableGeneralSerializer {
+    type SerdeKey = Vec<u8>;
+
+    unsafe fn serialize(arrays: &[&ArrayImpl], keys: &mut [Self::SerdeKey]) {
+        // Clear all of the keys
+        keys.iter_mut().for_each(|key| key.clear());
+
+        for &array in arrays.iter() {
+            macro_rules! serialize {
+                ($({$variant:ident, $ty:ty}),+) => {
+                    serde!(array, keys, serialize_non_nullable_element_ref_into_bytes, $({$variant, $ty}),+)
+                };
+            }
+
+            for_all_serde_array!(serialize);
+        }
+    }
+
+    unsafe fn deserialize(arrays: &mut [ArrayImpl], keys: &[Self::SerdeKey]) {
+        // FIXME: reuse this memory across different blocks
+        let mut ptrs = keys.iter().map(|key| key.as_ptr()).collect::<Vec<_>>();
+        for array in arrays {
+            macro_rules! deserialize {
+                ($({$variant:ident, $ty:ty}),+) => {
+                    serde!(array, &mut ptrs, deserialize_non_nullable_from_bytes, $({$variant, $ty}),+)
+                };
+            }
+
+            for_all_serde_array!(deserialize)
+        }
+    }
+}
+
+unsafe fn serialize_non_nullable_element_ref_into_bytes<A>(array: &A, keys: &mut [Vec<u8>])
+where
+    A: Array,
+    for<'a> <A::Element as Element>::ElementRef<'a>: ElementRefSerdeExt<'a>,
+{
+    array.values_iter().zip(keys).for_each(|(val, serde_key)| {
+        val.serialize(serde_key);
+    });
+}
+
+unsafe fn deserialize_non_nullable_from_bytes<A>(array: &mut A, ptrs: &mut [*const u8])
+where
+    A: Array,
+    for<'a> <A::Element as Element>::ElementRef<'a>: ElementRefSerdeExt<'a>,
+{
+    let len = ptrs.len();
+
+    let trusted_len_iterator = ptrs.iter_mut().map(|ptr| {
+        <<A::Element as Element>::ElementRef<'_> as ElementRefSerdeExt>::deserialize(ptr)
+    });
+
+    array.replace_with_trusted_len_values_ref_iterator(len, trusted_len_iterator)
 }
 
 #[cfg(test)]
@@ -485,6 +637,95 @@ mod tests {
 
         match (array1, block.arrays().last().unwrap()) {
             (ArrayImpl::Int16(l), ArrayImpl::Int16(r)) => {
+                assert!(l.iter().zip(r.iter()).all(|(l, r)| l == r))
+            }
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn test_roundtrip_general_serde() {
+        let array0 = ArrayImpl::Int32(PrimitiveArray::<i32>::from_iter([
+            Some(-3),
+            Some(-100),
+            None,
+            Some(-100),
+            Some(10),
+        ]));
+        let array1 = ArrayImpl::Int16(PrimitiveArray::<i16>::from_iter([
+            None,
+            None,
+            Some(100),
+            None,
+            Some(-4),
+        ]));
+
+        let array2 = ArrayImpl::String(StringArray::from_iter([
+            Some(""),
+            Some("Morsel driven parallelism"),
+            Some("curvature"),
+            Some("Morsel driven parallelism"),
+            None,
+        ]));
+
+        let array3 = ArrayImpl::Binary(BinaryArray::from_iter([
+            Some(vec![1]),
+            Some(vec![5, 6, 7]),
+            None,
+            Some(vec![5, 6, 7]),
+            Some(vec![1, 2, 3, 4]),
+        ]));
+
+        let arrays = &[&array0, &array1, &array2, &array3];
+        let mut keys = vec![vec![0]; 5];
+
+        unsafe {
+            GeneralSerializer::serialize(arrays, &mut keys);
+        }
+
+        assert_eq!(keys[1], keys[3]);
+
+        let mut block = DataBlock::with_logical_types(vec![
+            LogicalType::Integer,
+            LogicalType::SmallInt,
+            LogicalType::VarChar,
+            LogicalType::VarBinary,
+        ]);
+
+        let guard = block.mutate_arrays();
+        unsafe {
+            let mutate_func = |arrays: &mut [ArrayImpl]| {
+                GeneralSerializer::deserialize(arrays, &keys);
+                Ok::<_, ()>(())
+            };
+
+            guard.mutate(mutate_func).unwrap();
+        }
+
+        let arrays = block.arrays();
+        match (array0, &arrays[0]) {
+            (ArrayImpl::Int32(l), ArrayImpl::Int32(r)) => {
+                assert!(l.iter().zip(r.iter()).all(|(l, r)| l == r))
+            }
+            _ => panic!(),
+        }
+
+        match (array1, &arrays[1]) {
+            (ArrayImpl::Int16(l), ArrayImpl::Int16(r)) => {
+                assert!(l.iter().zip(r.iter()).all(|(l, r)| l == r))
+            }
+            _ => panic!(),
+        }
+
+        match (array2, &arrays[2]) {
+            (ArrayImpl::String(l), ArrayImpl::String(r)) => {
+                assert!(l.iter().zip(r.iter()).all(|(l, r)| l == r))
+            }
+            _ => panic!(),
+        }
+
+        match (array3, &arrays[3]) {
+            (ArrayImpl::Binary(l), ArrayImpl::Binary(r)) => {
                 assert!(l.iter().zip(r.iter()).all(|(l, r)| l == r))
             }
             _ => panic!(),

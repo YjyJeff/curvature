@@ -30,7 +30,7 @@ impl Element for ListElement {
     }
 
     #[inline]
-    fn replace_with(&mut self, element_ref: Self::ElementRef<'_>) {
+    fn replace_with(&mut self, _element_ref: Self::ElementRef<'_>) {
         todo!()
     }
 
@@ -64,7 +64,6 @@ impl Sealed for ListElementRef<'_> {}
 impl<'a> ElementRef<'a> for ListElementRef<'a> {
     type OwnedType = ListElement;
 
-    #[inline]
     fn to_owned(self) -> Self::OwnedType {
         todo!()
     }

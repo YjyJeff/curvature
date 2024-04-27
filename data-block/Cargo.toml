@@ -14,11 +14,11 @@ paste = { workspace = true }
 libc = { workspace = true }
 snafu = { workspace = true }
 tabled = { workspace = true, features = ["std"] }
+num-traits = { workspace = true }
 # Either is used in ping-pong
 # either = { workspace = true }
 
 [dev-dependencies]
-num-traits = { workspace = true }
 criterion = "0.5"
 expect-test = "1.4"
 

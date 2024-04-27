@@ -170,11 +170,12 @@ pub trait Array: Sealed + Debug + 'static + Sized {
     /// - The `trusted_len_iterator` must has `len` items
     ///
     /// - Satisfy the mutate condition
-    unsafe fn replace_with_trusted_len_values_iterator(
+    unsafe fn replace_with_trusted_len_values_iterator<I>(
         &mut self,
         len: usize,
-        trusted_len_iterator: impl Iterator<Item = Self::Element>,
-    );
+        trusted_len_iterator: I,
+    ) where
+        I: Iterator<Item = Self::Element>;
 
     /// Replace the array with the trusted_len iterator that has `len` items
     ///
@@ -183,11 +184,39 @@ pub trait Array: Sealed + Debug + 'static + Sized {
     /// - The `trusted_len_iterator` must has `len` items
     ///
     /// - Satisfy the mutate condition
-    unsafe fn replace_with_trusted_len_iterator(
+    unsafe fn replace_with_trusted_len_iterator<I>(&mut self, len: usize, trusted_len_iterator: I)
+    where
+        I: Iterator<Item = Option<Self::Element>>;
+
+    // FIXME: Ugly !!!! Duplicated code.... Using trait to combine them!
+
+    /// Replace the array with the trusted_len values iterator that has `len` items
+    ///
+    /// # Safety
+    ///
+    /// - The `trusted_len_iterator` must has `len` items
+    ///
+    /// - Satisfy the mutate condition
+    unsafe fn replace_with_trusted_len_values_ref_iterator<'a, I>(
         &mut self,
         len: usize,
-        trusted_len_iterator: impl Iterator<Item = Option<Self::Element>>,
-    );
+        trusted_len_iterator: I,
+    ) where
+        I: Iterator<Item = <Self::Element as Element>::ElementRef<'a>> + 'a;
+
+    /// Replace the array with the trusted_len iterator that has `len` items
+    ///
+    /// # Safety
+    ///
+    /// - The `trusted_len_iterator` must has `len` items
+    ///
+    /// - Satisfy the mutate condition
+    unsafe fn replace_with_trusted_len_ref_iterator<'a, I>(
+        &mut self,
+        len: usize,
+        trusted_len_iterator: I,
+    ) where
+        I: Iterator<Item = Option<<Self::Element as Element>::ElementRef<'a>>> + 'a;
 }
 
 macro_rules! array_impl {

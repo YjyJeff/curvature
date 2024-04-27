@@ -194,11 +194,13 @@ impl Array for StringArray {
     }
 
     #[inline]
-    unsafe fn replace_with_trusted_len_values_iterator(
+    unsafe fn replace_with_trusted_len_values_iterator<I>(
         &mut self,
         len: usize,
-        trusted_len_iterator: impl Iterator<Item = Self::Element>,
-    ) {
+        trusted_len_iterator: I,
+    ) where
+        I: Iterator<Item = Self::Element>,
+    {
         self.validity.as_mut().clear();
 
         let uninitiated_views = self.views.as_mut().clear_and_resize(len);
@@ -209,8 +211,8 @@ impl Array for StringArray {
         trusted_len_iterator
             .enumerate()
             .for_each(|(index, element)| {
-                assign_string_element(
-                    element,
+                assign_string_view(
+                    element.view,
                     uninitiated_bytes,
                     uninitiated_views,
                     index,
@@ -225,11 +227,10 @@ impl Array for StringArray {
         )
     }
 
-    unsafe fn replace_with_trusted_len_iterator(
-        &mut self,
-        len: usize,
-        trusted_len_iterator: impl Iterator<Item = Option<Self::Element>>,
-    ) {
+    unsafe fn replace_with_trusted_len_iterator<I>(&mut self, len: usize, trusted_len_iterator: I)
+    where
+        I: Iterator<Item = Option<Self::Element>>,
+    {
         let uninitiated_validity = self.validity.as_mut();
 
         let uninitiated_views = self.views.as_mut().clear_and_resize(len);
@@ -241,8 +242,73 @@ impl Array for StringArray {
             len,
             trusted_len_iterator.enumerate().map(|(index, element)| {
                 if let Some(element) = element {
-                    assign_string_element(
-                        element,
+                    assign_string_view(
+                        element.view,
+                        uninitiated_bytes,
+                        uninitiated_views,
+                        index,
+                        &mut self._calibrate_offsets,
+                    );
+                    true
+                } else {
+                    false
+                }
+            }),
+        );
+    }
+
+    #[inline]
+    unsafe fn replace_with_trusted_len_values_ref_iterator<'a, I>(
+        &mut self,
+        len: usize,
+        trusted_len_iterator: I,
+    ) where
+        I: Iterator<Item = StringView<'a>>,
+    {
+        self.validity.as_mut().clear();
+
+        let uninitiated_views = self.views.as_mut().clear_and_resize(len);
+        let uninitiated_bytes = self._bytes.as_mut();
+        uninitiated_bytes.clear();
+        self._calibrate_offsets.clear();
+
+        trusted_len_iterator.enumerate().for_each(|(index, view)| {
+            assign_string_view(
+                view,
+                uninitiated_bytes,
+                uninitiated_views,
+                index,
+                &mut self._calibrate_offsets,
+            )
+        });
+
+        calibrate_pointers(
+            uninitiated_bytes.ptr.as_ptr(),
+            uninitiated_views,
+            &self._calibrate_offsets,
+        )
+    }
+
+    unsafe fn replace_with_trusted_len_ref_iterator<'a, I>(
+        &mut self,
+        len: usize,
+        trusted_len_iterator: I,
+    ) where
+        I: Iterator<Item = Option<StringView<'a>>>,
+    {
+        let uninitiated_validity = self.validity.as_mut();
+
+        let uninitiated_views = self.views.as_mut().clear_and_resize(len);
+        let uninitiated_bytes = self._bytes.as_mut();
+        uninitiated_bytes.clear();
+        self._calibrate_offsets.clear();
+
+        uninitiated_validity.reset(
+            len,
+            trusted_len_iterator.enumerate().map(|(index, view)| {
+                if let Some(view) = view {
+                    assign_string_view(
+                        view,
                         uninitiated_bytes,
                         uninitiated_views,
                         index,
@@ -284,27 +350,28 @@ fn push_str(
 }
 
 #[inline]
-unsafe fn assign_string_element(
-    element: StringElement,
+unsafe fn assign_string_view(
+    view: StringView<'_>,
     bytes: &mut AlignedVec<u8>,
     views: &mut [StringView<'static>],
     index: usize,
     calibrate_offsets: &mut Vec<usize>,
 ) {
-    *views.get_unchecked_mut(index) = element.view;
+    *views.get_unchecked_mut(index) = view.expand();
 
-    if let Some(data) = element._data {
-        let len = data.len();
+    if view.is_inlined() {
+        // Do not need to calibrate
+        calibrate_offsets.push(usize::MAX);
+    } else {
+        let len = view.length as usize;
         calibrate_offsets.push(bytes.len);
         bytes.reserve(len);
         unsafe {
             // Copy the string content to bytes
             let dst = bytes.ptr.as_ptr().add(bytes.len);
-            std::ptr::copy_nonoverlapping(data.as_ptr(), dst, len);
+            std::ptr::copy_nonoverlapping(view.as_ptr(), dst, len);
             bytes.len += len;
         }
-    } else {
-        calibrate_offsets.push(usize::MAX);
     }
 }
 
@@ -401,7 +468,7 @@ mod tests {
     }
 
     #[test]
-    fn test_string_array_replace_with_trusted_len_values_iter() {
+    fn test_string_array_replace_with_trusted_len_values_ref_iter() {
         let data = [
             "curvature",
             "",
@@ -410,10 +477,10 @@ mod tests {
             "auto-vectorization",
         ];
 
-        let iter = data.iter().map(|v| StringElement::new(v.to_string()));
+        let iter = data.iter().map(|v| StringView::from_static_str(v));
 
         let mut string_array = StringArray::new(LogicalType::VarChar).unwrap();
-        unsafe { string_array.replace_with_trusted_len_values_iterator(5, iter) }
+        unsafe { string_array.replace_with_trusted_len_values_ref_iterator(5, iter) }
 
         assert_eq!(
             string_array

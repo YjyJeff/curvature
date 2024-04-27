@@ -10,7 +10,7 @@ use std::marker::PhantomData;
 use std::slice::from_raw_parts;
 use std::str::from_utf8_unchecked;
 
-use super::{Element, ElementRef};
+use super::{Element, ElementRef, ElementRefSerdeExt};
 use libc::memcmp;
 
 /// Length of the prefix
@@ -152,7 +152,7 @@ impl<'a> StringView<'a> {
     ///
     /// The clippy hint is wrong!
     #[allow(clippy::unnecessary_cast)]
-    unsafe fn expand(&self) -> StringView<'static> {
+    pub(crate) unsafe fn expand(&self) -> StringView<'static> {
         *((self as *const _) as *const StringView<'static>)
     }
 
@@ -454,6 +454,34 @@ impl<'a> ElementRef<'a> for StringView<'a> {
                 }
             }
         }
+    }
+}
+
+impl<'a> ElementRefSerdeExt<'a> for StringView<'a> {
+    #[inline]
+    fn serialize(self, buf: &mut Vec<u8>) {
+        // Write length before data
+        self.length.serialize(buf);
+        // Write data
+        buf.extend_from_slice(self.as_str().as_bytes())
+    }
+
+    #[inline]
+    unsafe fn deserialize(ptr: &'a mut *const u8) -> StringView<'a> {
+        let length = std::ptr::read_unaligned(*ptr as *const u32);
+        let data_ptr = ptr.add(std::mem::size_of::<u32>());
+        let v = if length <= INLINE_LEN as u32 {
+            let mut inlined = [0; INLINE_LEN];
+            std::ptr::copy_nonoverlapping(data_ptr, inlined.as_mut_ptr(), length as usize);
+            Self {
+                length,
+                content: StringViewContent { inlined },
+            }
+        } else {
+            Self::new_indirect(data_ptr, length)
+        };
+        *ptr = ptr.add(std::mem::size_of::<u32>() + length as usize);
+        v
     }
 }
 

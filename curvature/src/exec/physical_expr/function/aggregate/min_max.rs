@@ -31,6 +31,9 @@ where
 }
 
 /// Aggregation state of the min/max function
+///
+/// TODO: Accelerate batch update with a temp SIMD vec. In this case, we can not
+/// implement TransparentWrapper for it
 #[derive(Debug)]
 #[repr(transparent)]
 pub struct MinMaxState<const IS_MIN: bool, S>(Option<S>);

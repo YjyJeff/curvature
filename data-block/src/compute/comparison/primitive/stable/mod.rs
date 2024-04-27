@@ -18,10 +18,10 @@ use crate::compute::comparison::primitive::{
     lt_scalar_default_, ne_scalar_default_,
 };
 
-// FIXME: Following implementation heavily depends on the reading intrinsic types from
+// TBD: Following implementation heavily depends on the reading intrinsic types from
 // uninitialized  memory optimization. However, it is undefined behavior in the Rust.
 // See following links for details. In our cases, the cpu is the main reason to avoid
-// reading uninitialized memory. So remove this optimization!
+// reading uninitialized memory. Should we remove this optimization?
 //
 // https://doc.rust-lang.org/nightly/reference/behavior-considered-undefined.html
 // https://www.ralfj.de/blog/2019/07/14/uninit.html

@@ -17,9 +17,13 @@ use data_block_benches::{
 use rand::distributions::{Distribution, Standard};
 
 #[cfg(not(feature = "portable_simd"))]
-fn bench_primitive_array<T>(c: &mut Criterion, rhs: T, null_density: f32, seed: u64)
+fn bench_primitive_array<T, U>(c: &mut Criterion, rhs: T, null_density: f32, seed: u64)
 where
-    T: PrimitiveCmpElement + arrow2::types::NativeType + arrow2::compute::comparison::Simd8,
+    T: PrimitiveCmpElement
+        + arrow2::types::NativeType
+        + arrow2::compute::comparison::Simd8
+        + arrow::datatypes::ArrowNativeTypeOp,
+    U: arrow::array::ArrowPrimitiveType<Native = T>,
     Standard: Distribution<T>,
     PrimitiveArray<T>: Array,
     T::Simd: arrow2::compute::comparison::Simd8PartialOrd,
@@ -32,7 +36,7 @@ where
 
         unsafe { comparison::primitive::ge_scalar(&lhs, rhs, &mut dst) };
 
-        let arr_a = arrow2::util::bench_util::create_primitive_array_with_seed::<T>(
+        let arr_arrow2 = arrow2::util::bench_util::create_primitive_array_with_seed::<T>(
             size,
             null_density,
             seed,
@@ -40,9 +44,24 @@ where
 
         assert_eq!(
             dst.values_iter().collect::<Vec<_>>(),
-            arrow2::compute::comparison::primitive::gt_eq_scalar(&arr_a, rhs)
+            arrow2::compute::comparison::primitive::gt_eq_scalar(&arr_arrow2, rhs)
                 .values_iter()
                 .collect::<Vec<_>>()
+        );
+
+        let arr_arrow = arrow::util::bench_util::create_primitive_array_with_seed::<U>(
+            size,
+            null_density,
+            seed,
+        );
+        let arrow_rhs = arrow::array::PrimitiveArray::<U>::new_scalar(rhs);
+        assert_eq!(
+            dst.values_iter().collect::<Vec<_>>(),
+            arrow::compute::kernels::cmp::gt_eq(&arr_arrow, &arrow_rhs)
+                .unwrap()
+                .values()
+                .iter()
+                .collect::<Vec<_>>(),
         );
 
         group.bench_function(BenchmarkId::new("DataBlock: scalar", size), |b| {
@@ -50,7 +69,11 @@ where
         });
 
         group.bench_function(BenchmarkId::new("Arrow2: scalar", size), |b| {
-            b.iter(|| arrow2::compute::comparison::primitive::gt_eq_scalar(&arr_a, rhs))
+            b.iter(|| arrow2::compute::comparison::primitive::gt_eq_scalar(&arr_arrow2, rhs))
+        });
+
+        group.bench_function(BenchmarkId::new("Arrow: scalar", size), |b| {
+            b.iter(|| arrow::compute::kernels::cmp::gt_eq(&arr_arrow, &arrow_rhs).unwrap())
         });
 
         let mut dst = vec![false; size];
@@ -150,14 +173,25 @@ fn bench_boolean_array(
 
         unsafe { comparison::boolean::ne_scalar(&lhs, rhs, &mut dst) };
 
-        let arr_a =
+        let arr_arrow2 =
             arrow2::util::bench_util::create_boolean_array(size, null_density, true_density);
 
         assert_eq!(
             dst.iter().collect::<Vec<_>>(),
-            arrow2::compute::comparison::boolean::neq_scalar(&arr_a, rhs)
+            arrow2::compute::comparison::boolean::neq_scalar(&arr_arrow2, rhs)
                 .iter()
                 .collect::<Vec<_>>(),
+        );
+
+        let arr_arrow =
+            arrow::util::bench_util::create_boolean_array(size, null_density, true_density);
+        let arrow_rhs = arrow::array::BooleanArray::new_scalar(rhs);
+        assert_eq!(
+            dst.iter().collect::<Vec<_>>(),
+            arrow::compute::kernels::cmp::neq(&arr_arrow, &arrow_rhs)
+                .unwrap()
+                .iter()
+                .collect::<Vec<_>>()
         );
 
         group.bench_function(BenchmarkId::new("DataBlock: scalar", size), |b| {
@@ -165,7 +199,11 @@ fn bench_boolean_array(
         });
 
         group.bench_function(BenchmarkId::new("Arrow2: scalar", size), |b| {
-            b.iter(|| arrow2::compute::comparison::boolean::neq_scalar(&arr_a, rhs));
+            b.iter(|| arrow2::compute::comparison::boolean::neq_scalar(&arr_arrow2, rhs));
+        });
+
+        group.bench_function(BenchmarkId::new("Arrow: scalar", size), |b| {
+            b.iter(|| arrow::compute::kernels::cmp::neq(&arr_arrow, &arrow_rhs).unwrap());
         });
     });
 }
@@ -178,16 +216,28 @@ fn bench_string_array(c: &mut Criterion, rhs: StringView<'_>, null_density: f32,
         let lhs = create_var_string_array(size, null_density, seed);
         let mut dst = BooleanArray::default();
 
-        let arr_a: arrow2::array::Utf8Array<i32> =
+        let arr_arrow2: arrow2::array::Utf8Array<i32> =
             create_var_string_array_iter(size, null_density, seed).collect();
 
         unsafe { comparison::string::ge_scalar(&lhs, rhs, &mut dst) }
 
         assert_eq!(
             dst.iter().collect::<Vec<_>>(),
-            arrow2::compute::comparison::utf8::gt_eq_scalar(&arr_a, rhs.as_str())
+            arrow2::compute::comparison::utf8::gt_eq_scalar(&arr_arrow2, rhs.as_str())
                 .iter()
                 .collect::<Vec<_>>(),
+        );
+
+        let arr_arrow: arrow::array::StringArray =
+            create_var_string_array_iter(size, null_density, seed).collect();
+        let arrow_rhs = arrow::array::StringArray::new_scalar(rhs.as_str());
+
+        assert_eq!(
+            dst.iter().collect::<Vec<_>>(),
+            arrow::compute::kernels::cmp::gt_eq(&arr_arrow, &arrow_rhs)
+                .unwrap()
+                .iter()
+                .collect::<Vec<_>>()
         );
 
         group.bench_function(&format!("DataBlock: string 2^{log2_size}"), |b| {
@@ -196,18 +246,22 @@ fn bench_string_array(c: &mut Criterion, rhs: StringView<'_>, null_density: f32,
 
         let rhs = rhs.as_str();
         group.bench_function(&format!("Arrow2: string 2^{log2_size}"), |b| {
-            b.iter(|| arrow2::compute::comparison::utf8::gt_eq_scalar(&arr_a, rhs))
+            b.iter(|| arrow2::compute::comparison::utf8::gt_eq_scalar(&arr_arrow2, rhs))
+        });
+
+        group.bench_function(&format!("Arrow: string 2^{log2_size}"), |b| {
+            b.iter(|| arrow::compute::kernels::cmp::gt_eq(&arr_arrow, &arrow_rhs).unwrap())
         });
     })
 }
 
 fn comparison_benchmark(c: &mut Criterion) {
-    bench_primitive_array::<i8>(c, 0, 0.0, 42);
-    bench_primitive_array::<i16>(c, 0, 0.0, 42);
-    bench_primitive_array::<i32>(c, 0, 0.0, 42);
-    bench_primitive_array::<i64>(c, 0, 0.0, 42);
-    bench_primitive_array::<f32>(c, 0.5, 0.0, 42);
-    bench_primitive_array::<f64>(c, 0.5, 0.0, 42);
+    bench_primitive_array::<i8, arrow::datatypes::Int8Type>(c, 0, 0.0, 42);
+    bench_primitive_array::<i16, arrow::datatypes::Int16Type>(c, 0, 0.0, 42);
+    bench_primitive_array::<i32, arrow::datatypes::Int32Type>(c, 0, 0.0, 42);
+    bench_primitive_array::<i64, arrow::datatypes::Int64Type>(c, 0, 0.0, 42);
+    bench_primitive_array::<f32, arrow::datatypes::Float32Type>(c, 0.5, 0.0, 42);
+    bench_primitive_array::<f64, arrow::datatypes::Float64Type>(c, 0.5, 0.0, 42);
     bench_boolean_array(c, true, 0.0, 0.2, 42);
     bench_string_array(
         c,

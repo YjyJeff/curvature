@@ -112,25 +112,25 @@ impl Array for BooleanArray {
         self.validity.reference(&other.validity);
     }
 
-    unsafe fn replace_with_trusted_len_values_iterator(
+    unsafe fn replace_with_trusted_len_values_iterator<I>(
         &mut self,
         len: usize,
-        trusted_len_iterator: impl Iterator<Item = bool>,
-    ) {
+        trusted_len_iterator: I,
+    ) where
+        I: Iterator<Item = bool>,
+    {
         self.validity.as_mut().clear();
         self.data.as_mut().reset(len, trusted_len_iterator);
     }
 
-    unsafe fn replace_with_trusted_len_iterator(
-        &mut self,
-        len: usize,
-        trusted_len_iterator: impl Iterator<Item = Option<bool>>,
-    ) {
+    unsafe fn replace_with_trusted_len_iterator<I>(&mut self, len: usize, trusted_len_iterator: I)
+    where
+        I: Iterator<Item = Option<bool>>,
+    {
         let uninitiated = self.data.as_mut();
         let _ = uninitiated.clear_and_resize(len);
         let uninitiated_validity = self.validity.as_mut();
 
-        // FIXME: set the data with unfold loop
         uninitiated_validity.reset(
             len,
             trusted_len_iterator.enumerate().map(|(i, val)| {
@@ -142,6 +142,26 @@ impl Array for BooleanArray {
                 }
             }),
         );
+    }
+
+    unsafe fn replace_with_trusted_len_values_ref_iterator<'a, I>(
+        &mut self,
+        len: usize,
+        trusted_len_iterator: I,
+    ) where
+        I: Iterator<Item = bool> + 'a,
+    {
+        self.replace_with_trusted_len_values_iterator(len, trusted_len_iterator);
+    }
+
+    unsafe fn replace_with_trusted_len_ref_iterator<'a, I>(
+        &mut self,
+        len: usize,
+        trusted_len_iterator: I,
+    ) where
+        I: Iterator<Item = Option<bool>> + 'a,
+    {
+        self.replace_with_trusted_len_iterator(len, trusted_len_iterator);
     }
 }
 

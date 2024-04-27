@@ -15,10 +15,10 @@ macro_rules! for_all_variants {
             {UInt32, u32, UInt32Array},
             {Int64, i64, Int64Array},
             {UInt64, u64, UInt64Array},
-            {Float32, f32, Float32Array},
-            {Float64, f64, Float64Array},
             {Int128, i128, Int128Array},
             {DayTime, DayTime, DayTimeArray},
+            {Float32, f32, Float32Array},
+            {Float64, f64, Float64Array},
             {String, StringElement, StringArray},
             {Binary, Vec<u8>, BinaryArray},
             {Boolean, bool, BooleanArray},
@@ -31,22 +31,22 @@ pub(crate) use for_all_variants;
 
 /// Call macro for all primitive types.
 ///
-/// Tuple: {enum variant name, element type, array type, logical type variant}
+/// Tuple: {enum variant name, element type, array type, logical type variant, normalize function}
 macro_rules! for_all_primitive_types {
     ($macro:ident) => {
         $macro! {
-            {Int8, i8, Int8Array, TinyInt},
-            {UInt8, u8, UInt8Array, UnsignedTinyInt},
-            {Int16, i16, Int16Array, SmallInt},
-            {UInt16, u16, UInt16Array, UnsignedSmallInt},
-            {Int32, i32, Int32Array, Integer},
-            {UInt32, u32, UInt32Array, UnsignedInteger},
-            {Int64, i64, Int64Array, BigInt},
-            {UInt64, u64, UInt64Array, UnsignedBigInt},
-            {Float32, f32, Float32Array, Float},
-            {Float64, f64, Float64Array, Double},
-            {Int128, i128, Int128Array, HugeInt},
-            {DayTime, DayTime, DayTimeArray, IntervalDayTime}
+            {Int8, i8, Int8Array, TinyInt, identity},
+            {UInt8, u8, UInt8Array, UnsignedTinyInt, identity},
+            {Int16, i16, Int16Array, SmallInt, identity},
+            {UInt16, u16, UInt16Array, UnsignedSmallInt, identity},
+            {Int32, i32, Int32Array, Integer, identity},
+            {UInt32, u32, UInt32Array, UnsignedInteger, identity},
+            {Int64, i64, Int64Array, BigInt, identity},
+            {UInt64, u64, UInt64Array, UnsignedBigInt, identity},
+            {Int128, i128, Int128Array, HugeInt, identity},
+            {DayTime, DayTime, DayTimeArray, IntervalDayTime, identity},
+            {Float32, f32, Float32Array, Float, f32::normalize},
+            {Float64, f64, Float64Array, Double, f64::normalize}
         }
     };
 }

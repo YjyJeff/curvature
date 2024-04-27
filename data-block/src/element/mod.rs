@@ -12,7 +12,7 @@ use std::fmt::{Debug, Display};
 use crate::for_all_variants;
 use crate::macros::for_all_primitive_types;
 use crate::private::Sealed;
-use crate::types::PhysicalType;
+use crate::types::{PhysicalType, PrimitiveType};
 
 /// Element represents the owned single value in an `Array`
 pub trait Element: Sealed + Debug + 'static {
@@ -47,8 +47,29 @@ pub trait ElementRef<'a>: Sealed + Debug + Clone + Copy + 'a {
     fn to_owned(self) -> Self::OwnedType;
 }
 
+/// Extension of the ElementRef, use to serialize and deserialize ElementRef
+pub trait ElementRefSerdeExt<'a>: ElementRef<'a> {
+    /// Serialize self into the buf. The serialized bytes should not be ambiguous,
+    /// which means that we can deserialize the bytes to get `Self` and
+    /// we can compare the equivalency of the bytes to get the equivalency of the
+    /// element. Implementation should serialize self into the end of the buf, which
+    /// means that we should extend the buf in stead of write self to the start of
+    /// the buf
+    fn serialize(self, buf: &mut Vec<u8>);
+
+    /// Deserialize the element ref from buf with the start address. The lifetime
+    /// of the deserialized ElementRef is the lifetime of the buf. Implementation
+    /// should also advance the ptr such that we can deserialize other element
+    ///
+    /// # Safety
+    ///
+    /// Caller should guarantee the buf has adequate space to store `Self`.
+    /// Otherwise, undefined behavior happens
+    unsafe fn deserialize(ptr: &'a mut *const u8) -> Self;
+}
+
 macro_rules! impl_element_for_primitive_types {
-    ($({$variant:ident, $primitive_element_ty:ty, $_:ident, $__:ident}),*) => {
+    ($({$variant:ident, $primitive_element_ty:ty, $_:ident, $__:ident, $___:path}),*) => {
         $(
             #[doc = concat!(
                 "Implement [`Element`] for primitive type [`", stringify!($primitive_element_ty), "`]. ",
@@ -91,6 +112,28 @@ macro_rules! impl_element_for_primitive_types {
                 fn to_owned(self) -> Self::OwnedType {
                     self
                 }
+
+            }
+
+            impl ElementRefSerdeExt<'_> for $primitive_element_ty {
+                #[inline]
+                #[allow(clippy::size_of_in_element_count)]
+                fn serialize(self, buf: &mut Vec<u8>){
+                    let normalized = <$primitive_element_ty>::NORMALIZE_FUNC(self);
+                    unsafe{
+                        buf.extend_from_slice(std::slice::from_raw_parts(
+                            &normalized as *const _ as *const u8,
+                            std::mem::size_of::<$primitive_element_ty>()
+                        ))
+                    }
+                }
+
+                #[inline]
+                unsafe fn deserialize(ptr: &mut *const u8) -> Self {
+                    let v = std::ptr::read_unaligned(*ptr as *const _);
+                    *ptr = ptr.add(std::mem::size_of::<$primitive_element_ty>());
+                    v
+                }
             }
         )*
     };
@@ -128,8 +171,23 @@ impl Element for bool {
 impl ElementRef<'_> for bool {
     type OwnedType = bool;
 
+    #[inline]
     fn to_owned(self) -> Self::OwnedType {
         self
+    }
+}
+
+impl ElementRefSerdeExt<'_> for bool {
+    #[inline]
+    fn serialize(self, buf: &mut Vec<u8>) {
+        buf.push(self as u8)
+    }
+
+    #[inline]
+    unsafe fn deserialize(ptr: &mut *const u8) -> Self {
+        let v = **ptr != 0;
+        *ptr = ptr.add(1);
+        v
     }
 }
 
@@ -169,6 +227,27 @@ impl<'a> ElementRef<'a> for &'a [u8] {
     #[inline]
     fn to_owned(self) -> Self::OwnedType {
         self.to_vec()
+    }
+}
+
+impl<'a> ElementRefSerdeExt<'a> for &'a [u8] {
+    #[inline]
+    fn serialize(self, buf: &mut Vec<u8>) {
+        // Write length before data
+        let len = self.len() as u32;
+        len.serialize(buf);
+
+        // write data
+        buf.extend_from_slice(self)
+    }
+
+    #[inline]
+    unsafe fn deserialize(ptr: &'a mut *const u8) -> &'a [u8] {
+        let length = std::ptr::read_unaligned(*ptr as *const u32);
+        let data_ptr = ptr.add(std::mem::size_of::<u32>());
+        let v = std::slice::from_raw_parts(data_ptr, length as usize);
+        *ptr = ptr.add(length as usize + std::mem::size_of::<u32>());
+        v
     }
 }
 

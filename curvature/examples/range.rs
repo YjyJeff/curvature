@@ -15,6 +15,7 @@ use curvature::exec::physical_expr::function::aggregate::AggregationFunctionExpr
 use curvature::exec::physical_expr::PhysicalExpr;
 use curvature::exec::physical_operator::aggregate::hash_aggregate::serde::{
     FixedSizedSerdeKeySerializer, NonNullableFixedSizedSerdeKeySerializer,
+    NonNullableGeneralSerializer,
 };
 use curvature::exec::physical_operator::aggregate::hash_aggregate::HashAggregate;
 use curvature::exec::physical_operator::aggregate::simple_aggregate::SimpleAggregate;
@@ -75,7 +76,7 @@ fn main() {
         .unwrap(),
     );
 
-    // // group by number % 3, number %4, number % 5
+    // group by number % 3, number %4, number % 5
 
     // let physical_plan: Arc<dyn PhysicalOperator> = Arc::new(Numbers::new(0, HASH_COUNT));
 
@@ -113,7 +114,7 @@ fn main() {
     //     "number".to_string(),
     // )];
     // let physical_plan: Arc<dyn PhysicalOperator> = Arc::new(
-    //     HashAggregate::<NonNullableFixedSizedSerdeKeySerializer<u32>>::try_new(
+    //     HashAggregate::<NonNullableFixedSizedSerdeKeySerializer<u64>>::try_new(
     //         physical_plan,
     //         &[
     //             FieldRef::new(1, LogicalType::UnsignedTinyInt, "number % 3".to_string()),

@@ -10,4 +10,4 @@
 - Aggregation
     - `SimpleAggregate`: Aggregation without group by
     - `HashAggregate`: Aggregation with group by using hash table
-- `Union`: Union two inputs that have same schema
+- `Union`: Union two inputs that have same schema. It is a fake physical operator and never appears in the pipeline execution

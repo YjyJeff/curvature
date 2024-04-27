@@ -75,7 +75,7 @@ impl BinaryArray {
     #[inline]
     pub unsafe fn with_capacity_unchecked(logical_type: LogicalType, capacity: usize) -> Self {
         let mut offsets = AlignedVec::<Offset>::with_capacity(capacity + 1);
-        *offsets.ptr.as_ptr().add(1) = 0;
+        *offsets.get_unchecked_mut(0) = 0;
         offsets.len = 1;
         Self {
             logical_type,
@@ -204,20 +204,121 @@ impl Array for BinaryArray {
         self.validity.reference(&other.validity);
     }
 
-    unsafe fn replace_with_trusted_len_values_iterator(
+    unsafe fn replace_with_trusted_len_values_iterator<I>(
         &mut self,
-        _len: usize,
-        _trusted_len_iterator: impl Iterator<Item = Self::Element>,
-    ) {
-        todo!()
+        len: usize,
+        trusted_len_iterator: I,
+    ) where
+        I: Iterator<Item = Self::Element>,
+    {
+        self.validity.as_mut().clear();
+        let bytes = self.bytes.as_mut();
+        bytes.clear();
+
+        let offsets = &mut self.offsets.as_mut().clear_and_resize(len + 1)[1..];
+        offsets
+            .iter_mut()
+            .zip(trusted_len_iterator)
+            .for_each(|(offset, element)| {
+                copy_bytes(&element, bytes);
+                *offset = bytes.len as _;
+            });
     }
 
-    unsafe fn replace_with_trusted_len_iterator(
+    unsafe fn replace_with_trusted_len_iterator<I>(&mut self, len: usize, trusted_len_iterator: I)
+    where
+        I: Iterator<Item = Option<Self::Element>>,
+    {
+        let uninitiated_validity = self.validity.as_mut();
+
+        let bytes = self.bytes.as_mut();
+        bytes.clear();
+        let offsets = &mut self.offsets.as_mut().clear_and_resize(len + 1)[1..];
+
+        uninitiated_validity.reset(
+            len,
+            offsets
+                .iter_mut()
+                .zip(trusted_len_iterator)
+                .map(|(offset, element)| {
+                    let not_null = if let Some(element) = element {
+                        copy_bytes(&element, bytes);
+                        true
+                    } else {
+                        false
+                    };
+                    *offset = bytes.len as _;
+
+                    not_null
+                }),
+        );
+    }
+
+    unsafe fn replace_with_trusted_len_values_ref_iterator<'a, I>(
         &mut self,
-        _len: usize,
-        _trusted_len_iterator: impl Iterator<Item = Option<Self::Element>>,
-    ) {
-        todo!()
+        len: usize,
+        trusted_len_iterator: I,
+    ) where
+        I: Iterator<Item = &'a [u8]> + 'a,
+    {
+        self.validity.as_mut().clear();
+        let bytes = self.bytes.as_mut();
+        bytes.clear();
+
+        let offsets = &mut self.offsets.as_mut().clear_and_resize(len + 1)[1..];
+        offsets
+            .iter_mut()
+            .zip(trusted_len_iterator)
+            .for_each(|(offset, element)| {
+                copy_bytes(element, bytes);
+                *offset = bytes.len as _;
+            });
+    }
+
+    unsafe fn replace_with_trusted_len_ref_iterator<'a, I>(
+        &mut self,
+        len: usize,
+        trusted_len_iterator: I,
+    ) where
+        I: Iterator<Item = Option<&'a [u8]>> + 'a,
+    {
+        let uninitiated_validity = self.validity.as_mut();
+
+        let bytes = self.bytes.as_mut();
+        bytes.clear();
+        let offsets = &mut self.offsets.as_mut().clear_and_resize(len + 1)[1..];
+
+        uninitiated_validity.reset(
+            len,
+            offsets
+                .iter_mut()
+                .zip(trusted_len_iterator)
+                .map(|(offset, element)| {
+                    let not_null = if let Some(element) = element {
+                        copy_bytes(element, bytes);
+                        true
+                    } else {
+                        false
+                    };
+                    *offset = bytes.len as _;
+
+                    not_null
+                }),
+        );
+    }
+}
+
+#[inline]
+fn copy_bytes(element_ref: &[u8], bytes: &mut AlignedVec<u8>) {
+    bytes.reserve(element_ref.len());
+    unsafe {
+        // Copy data to bytes
+        std::ptr::copy_nonoverlapping(
+            element_ref.as_ptr(),
+            bytes.ptr.as_ptr().add(bytes.len),
+            element_ref.len(),
+        );
+        bytes.len += element_ref.len();
     }
 }
 
@@ -273,5 +374,55 @@ impl<V: AsRef<[u8]>> FromIterator<Option<V>> for BinaryArray {
             offsets: SwarPtr::new(offsets),
             validity: SwarPtr::new(validity),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_replace_with_trusted_len_values_ref_iter() {
+        let mut array = BinaryArray::new(LogicalType::VarBinary).unwrap();
+
+        let data = ["arrow", "curvature", "lock", "free", "query", "wtf"];
+        unsafe {
+            array.replace_with_trusted_len_values_ref_iterator(
+                6,
+                data.iter().map(|&v| v.as_bytes()),
+            );
+        }
+
+        assert_eq!(
+            array.values_iter().collect::<Vec<_>>(),
+            data.iter().map(|v| v.as_bytes()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_replace_with_trusted_len_ref_iter() {
+        let mut array = BinaryArray::new(LogicalType::VarBinary).unwrap();
+
+        let data = [
+            Some("arrow"),
+            None,
+            Some("lock"),
+            Some("free"),
+            Some("query"),
+            None,
+        ];
+        unsafe {
+            array.replace_with_trusted_len_ref_iterator(
+                6,
+                data.iter().map(|&v| v.map(|v| v.as_bytes())),
+            );
+        }
+
+        assert_eq!(
+            array.iter().collect::<Vec<_>>(),
+            data.iter()
+                .map(|v| v.map(|v| v.as_bytes()))
+                .collect::<Vec<_>>()
+        );
     }
 }

@@ -159,19 +159,40 @@ impl Array for ListArray {
         self.validity.reference(&other.validity);
     }
 
-    unsafe fn replace_with_trusted_len_values_iterator(
+    unsafe fn replace_with_trusted_len_values_iterator<I>(
         &mut self,
         _len: usize,
-        _trusted_len_iterator: impl Iterator<Item = Self::Element>,
-    ) {
+        _trusted_len_iterator: I,
+    ) where
+        I: Iterator<Item = Self::Element>,
+    {
         todo!()
     }
 
-    unsafe fn replace_with_trusted_len_iterator(
+    unsafe fn replace_with_trusted_len_iterator<I>(&mut self, _len: usize, _trusted_len_iterator: I)
+    where
+        I: Iterator<Item = Option<Self::Element>>,
+    {
+        todo!()
+    }
+
+    unsafe fn replace_with_trusted_len_values_ref_iterator<'a, I>(
         &mut self,
-        _len: usize,
-        _trusted_len_iterator: impl Iterator<Item = Option<Self::Element>>,
-    ) {
+        len: usize,
+        trusted_len_iterator: I,
+    ) where
+        I: Iterator<Item = <Self::Element as Element>::ElementRef<'a>> + 'a,
+    {
+        todo!()
+    }
+
+    unsafe fn replace_with_trusted_len_ref_iterator<'a, I>(
+        &mut self,
+        len: usize,
+        trusted_len_iterator: I,
+    ) where
+        I: Iterator<Item = Option<<Self::Element as Element>::ElementRef<'a>>> + 'a,
+    {
         todo!()
     }
 }
