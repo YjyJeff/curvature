@@ -211,7 +211,7 @@ impl Array for BinaryArray {
     ) where
         I: Iterator<Item = Self::Element>,
     {
-        self.validity.as_mut().clear();
+        self.validity.as_mut().mutate().clear();
         let bytes = self.bytes.as_mut();
         bytes.clear();
 
@@ -229,7 +229,7 @@ impl Array for BinaryArray {
     where
         I: Iterator<Item = Option<Self::Element>>,
     {
-        let uninitiated_validity = self.validity.as_mut();
+        let mut uninitiated_validity = self.validity.as_mut().mutate();
 
         let bytes = self.bytes.as_mut();
         bytes.clear();
@@ -261,7 +261,7 @@ impl Array for BinaryArray {
     ) where
         I: Iterator<Item = &'a [u8]> + 'a,
     {
-        self.validity.as_mut().clear();
+        self.validity.as_mut().mutate().clear();
         let bytes = self.bytes.as_mut();
         bytes.clear();
 
@@ -282,7 +282,7 @@ impl Array for BinaryArray {
     ) where
         I: Iterator<Item = Option<&'a [u8]>> + 'a,
     {
-        let uninitiated_validity = self.validity.as_mut();
+        let mut uninitiated_validity = self.validity.as_mut().mutate();
 
         let bytes = self.bytes.as_mut();
         bytes.clear();
@@ -332,40 +332,43 @@ impl<V: AsRef<[u8]>> FromIterator<Option<V>> for BinaryArray {
         let mut bytes = AlignedVec::<u8>::new();
         let mut offsets = AlignedVec::<Offset>::with_capacity(lower + 1);
         let mut validity = Bitmap::with_capacity(lower);
-        // SAFETY: offsets is allocated successfully, index 0 is valid
-        unsafe {
-            *offsets.ptr.as_ptr() = 0;
-            offsets.len = 1;
-        }
-        for val in iter {
-            offsets.reserve(1);
-            match val {
-                Some(val) => {
-                    let val_bytes = val.as_ref();
-                    let new_len = bytes.len() + val_bytes.len();
-                    bytes.reserve(val_bytes.len());
-                    // SAFETY: we have reserve the bytes
-                    unsafe {
-                        // Copy data to bytes
-                        std::ptr::copy_nonoverlapping(
-                            val_bytes.as_ptr(),
-                            bytes.ptr.as_ptr().add(bytes.len),
-                            val_bytes.len(),
-                        );
-                        bytes.len = new_len;
-                        validity.push(true);
+        {
+            let mut mutate_validity_guard = validity.mutate();
+            // SAFETY: offsets is allocated successfully, index 0 is valid
+            unsafe {
+                *offsets.ptr.as_ptr() = 0;
+                offsets.len = 1;
+            }
+            for val in iter {
+                offsets.reserve(1);
+                match val {
+                    Some(val) => {
+                        let val_bytes = val.as_ref();
+                        let new_len = bytes.len() + val_bytes.len();
+                        bytes.reserve(val_bytes.len());
+                        // SAFETY: we have reserve the bytes
+                        unsafe {
+                            // Copy data to bytes
+                            std::ptr::copy_nonoverlapping(
+                                val_bytes.as_ptr(),
+                                bytes.ptr.as_ptr().add(bytes.len),
+                                val_bytes.len(),
+                            );
+                            bytes.len = new_len;
+                            mutate_validity_guard.push(true);
+                        }
+                    }
+                    None => {
+                        mutate_validity_guard.push(false);
                     }
                 }
-                None => {
-                    validity.push(false);
-                }
-            }
 
-            // SAFETY: we have reserved the space
-            unsafe {
-                *offsets.ptr.as_ptr().add(offsets.len) = bytes.len as Offset;
+                // SAFETY: we have reserved the space
+                unsafe {
+                    *offsets.ptr.as_ptr().add(offsets.len) = bytes.len as Offset;
+                }
+                offsets.len += 1;
             }
-            offsets.len += 1;
         }
 
         Self {

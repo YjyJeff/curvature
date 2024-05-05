@@ -34,7 +34,7 @@ pub unsafe fn eq_scalar(lhs: &BooleanArray, rhs: bool, dst: &mut BooleanArray) {
     } else {
         not_bitmap_dynamic(
             lhs.data.as_raw_slice(),
-            dst.data.as_mut().clear_and_resize(lhs.len()),
+            dst.data.as_mut().mutate().clear_and_resize(lhs.len()),
         );
     }
 }
@@ -56,7 +56,7 @@ pub unsafe fn ne_scalar(lhs: &BooleanArray, rhs: bool, dst: &mut BooleanArray) {
     } else {
         not_bitmap_dynamic(
             lhs.data.as_raw_slice(),
-            dst.data.as_mut().clear_and_resize(lhs.len()),
+            dst.data.as_mut().mutate().clear_and_resize(lhs.len()),
         );
     }
 }
@@ -79,6 +79,7 @@ pub unsafe fn gt_scalar(lhs: &BooleanArray, rhs: bool, dst: &mut BooleanArray) {
         // Compiler will optimize it to memset
         dst.data
             .as_mut()
+            .mutate()
             .clear_and_resize(lhs.len())
             .iter_mut()
             .for_each(|v| *v = 0);
@@ -103,6 +104,7 @@ pub unsafe fn ge_scalar(lhs: &BooleanArray, rhs: bool, dst: &mut BooleanArray) {
         // Compiler will optimize it to memset
         dst.data
             .as_mut()
+            .mutate()
             .clear_and_resize(lhs.len())
             .iter_mut()
             .for_each(|v| *v = u64::MAX);
@@ -121,7 +123,7 @@ pub unsafe fn ge_scalar(lhs: &BooleanArray, rhs: bool, dst: &mut BooleanArray) {
 pub unsafe fn lt_scalar(lhs: &BooleanArray, rhs: bool, dst: &mut BooleanArray) {
     dst.validity.reference(&lhs.validity);
 
-    let dst = dst.data.as_mut();
+    let mut dst = dst.data.as_mut().mutate();
     if rhs {
         not_bitmap_dynamic(lhs.data.as_raw_slice(), dst.clear_and_resize(lhs.len()));
     } else {
@@ -144,7 +146,7 @@ pub unsafe fn lt_scalar(lhs: &BooleanArray, rhs: bool, dst: &mut BooleanArray) {
 pub unsafe fn le_scalar(lhs: &BooleanArray, rhs: bool, dst: &mut BooleanArray) {
     dst.validity.reference(&lhs.validity);
 
-    let dst = dst.data.as_mut();
+    let mut dst = dst.data.as_mut().mutate();
     if rhs {
         // Compiler will optimize it to memset
         dst.clear_and_resize(lhs.len())

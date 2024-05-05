@@ -11,6 +11,7 @@ where
 
     dst.data
         .as_mut()
+        .mutate()
         .reset(lhs.len(), lhs.values_iter().map(|lhs| op(lhs, rhs)));
 }
 

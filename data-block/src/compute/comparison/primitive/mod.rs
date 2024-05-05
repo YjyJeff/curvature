@@ -6,8 +6,11 @@ macro_rules! cmp_assert {
         unsafe {
             let len = $lhs.len();
             let mut dst = Bitmap::with_capacity(len);
-            let uninitialized = dst.clear_and_resize(len);
-            $cmp_func($lhs, $rhs, uninitialized.as_mut_ptr());
+            {
+                let mut guard = dst.mutate();
+                let uninitialized = guard.clear_and_resize(len);
+                $cmp_func($lhs, $rhs, uninitialized.as_mut_ptr());
+            }
 
             assert_eq!(dst, Bitmap::from_slice_and_len($gt, len));
         }

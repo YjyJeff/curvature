@@ -7,6 +7,7 @@
 
 ## Regular 
 - `Projection`: Select the expressions from input
+- [ ] `Filter`: Filter out rows that do not satisfy the condition
 - Aggregation
     - `SimpleAggregate`: Aggregation without group by
     - `HashAggregate`: Aggregation with group by using hash table

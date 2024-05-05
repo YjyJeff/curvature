@@ -19,7 +19,7 @@ macro_rules! impl_eq_scalar {
         pub unsafe fn $func(lhs: &StringArray, rhs: StringView<'_>, dst: &mut BooleanArray) {
             dst.validity.reference(&lhs.validity);
 
-            let bitmap = dst.data.as_mut();
+            let mut bitmap = dst.data.as_mut().mutate();
             if rhs.is_inlined() {
                 bitmap.reset(
                     lhs.len(),
@@ -64,7 +64,7 @@ macro_rules! impl_ord_scalar {
         pub unsafe fn $func(lhs: &StringArray, rhs: StringView<'_>, dst: &mut BooleanArray) {
             dst.validity.reference(&lhs.validity);
 
-            let bitmap = dst.data.as_mut();
+            let mut bitmap = dst.data.as_mut().mutate();
             if rhs.is_inlined_in_prefix() {
                 // We only need to compare the prefix
                 bitmap.reset(

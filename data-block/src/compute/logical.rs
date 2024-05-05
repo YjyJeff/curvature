@@ -83,7 +83,7 @@ pub unsafe fn and(lhs: &BooleanArray, rhs: &BooleanArray, dst: &mut BooleanArray
     and_bitmaps_dynamic(
         lhs.data.as_raw_slice(),
         rhs.data.as_raw_slice(),
-        dst.data.as_mut().clear_and_resize(lhs.len()),
+        dst.data.as_mut().mutate().clear_and_resize(lhs.len()),
     )
 }
 
@@ -130,7 +130,7 @@ pub unsafe fn or(lhs: &BooleanArray, rhs: &BooleanArray, dst: &mut BooleanArray)
     or_bitmaps_dynamic(
         lhs.data.as_raw_slice(),
         rhs.data.as_raw_slice(),
-        dst.data.as_mut().clear_and_resize(lhs.len()),
+        dst.data.as_mut().mutate().clear_and_resize(lhs.len()),
     )
 }
 
@@ -151,6 +151,7 @@ pub unsafe fn and_scalar(lhs: &BooleanArray, rhs: bool, dst: &mut BooleanArray) 
         // Compiler will optimize set zero to memset
         dst.data
             .as_mut()
+            .mutate()
             .clear_and_resize(lhs.len())
             .iter_mut()
             .for_each(|v| *v = 0);
@@ -172,6 +173,7 @@ pub unsafe fn or_scalar(lhs: &BooleanArray, rhs: bool, dst: &mut BooleanArray) {
         // Compiler will optimize set u64::MAX to memset
         dst.data
             .as_mut()
+            .mutate()
             .clear_and_resize(lhs.len())
             .iter_mut()
             .for_each(|v| *v = u64::MAX);
@@ -209,7 +211,7 @@ pub unsafe fn not(array: &BooleanArray, dst: &mut BooleanArray) {
     dst.validity.reference(&array.validity);
     not_bitmap_dynamic(
         array.data.as_raw_slice(),
-        dst.data.as_mut().clear_and_resize(array.len()),
+        dst.data.as_mut().mutate().clear_and_resize(array.len()),
     )
 }
 

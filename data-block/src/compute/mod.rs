@@ -37,7 +37,7 @@ unsafe fn combine_validities(
     match (lhs.all_valid(), rhs.all_valid()) {
         (true, true) => {
             // Both of them are all valid
-            dst.as_mut().clear();
+            dst.as_mut().mutate().clear();
         }
         (true, false) => {
             // left is all valid, reference right
@@ -52,7 +52,7 @@ unsafe fn combine_validities(
             and_bitmaps_dynamic(
                 lhs.as_raw_slice(),
                 rhs.as_raw_slice(),
-                dst.as_mut().clear_and_resize(lhs.len()),
+                dst.as_mut().mutate().clear_and_resize(lhs.len()),
             )
         }
     }

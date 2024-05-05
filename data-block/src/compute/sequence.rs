@@ -11,7 +11,7 @@ use crate::dynamic_func;
 /// computation graph, it will never happens
 #[inline]
 pub unsafe fn sequence(array: &mut UInt64Array, start: u64, end: u64) {
-    array.validity.as_mut().clear();
+    array.validity.as_mut().mutate().clear();
 
     let array = array.data.as_mut().clear_and_resize((end - start) as usize);
 

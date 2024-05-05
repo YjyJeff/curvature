@@ -150,7 +150,7 @@ impl<const STAR: bool> AggregationFunction for Count<STAR> {
 
         // TBD: It looks like we do not need to clear it, because it is always empty after
         // it is created!
-        output.validity_mut().clear();
+        output.validity_mut().mutate().clear();
 
         output.replace_with_trusted_len_values_iterator(
             state_ptrs.len(),

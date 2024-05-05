@@ -117,7 +117,8 @@ macro_rules! cmp_scalar {
             // Reference dst's validity to lhs'validity
             dst.validity.reference(&lhs.validity);
 
-            let uninitialized = dst.data.as_mut().clear_and_resize(lhs.len()).as_mut_ptr();
+            let mut guard = dst.data.as_mut().mutate();
+            let uninitialized = guard.clear_and_resize(lhs.len()).as_mut_ptr();
 
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             {

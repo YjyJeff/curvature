@@ -98,6 +98,8 @@ type Result<T> = std::result::Result<T, HashAggregateError>;
 /// A hyper-parameter that determine when to partition the map. Tune me!
 const PARTITION_THRESHOLD: usize = 8192;
 
+/// FIXME: Group by single key, nullable, non-nullable(do we need serialize?)
+///
 /// Aggregate based on hash table
 ///
 /// # Generic

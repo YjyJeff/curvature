@@ -201,7 +201,7 @@ impl Array for StringArray {
     ) where
         I: Iterator<Item = Self::Element>,
     {
-        self.validity.as_mut().clear();
+        self.validity.as_mut().mutate().clear();
 
         let uninitiated_views = self.views.as_mut().clear_and_resize(len);
         let uninitiated_bytes = self._bytes.as_mut();
@@ -231,7 +231,7 @@ impl Array for StringArray {
     where
         I: Iterator<Item = Option<Self::Element>>,
     {
-        let uninitiated_validity = self.validity.as_mut();
+        let mut uninitiated_validity = self.validity.as_mut().mutate();
 
         let uninitiated_views = self.views.as_mut().clear_and_resize(len);
         let uninitiated_bytes = self._bytes.as_mut();
@@ -265,7 +265,7 @@ impl Array for StringArray {
     ) where
         I: Iterator<Item = StringView<'a>>,
     {
-        self.validity.as_mut().clear();
+        self.validity.as_mut().mutate().clear();
 
         let uninitiated_views = self.views.as_mut().clear_and_resize(len);
         let uninitiated_bytes = self._bytes.as_mut();
@@ -296,7 +296,7 @@ impl Array for StringArray {
     ) where
         I: Iterator<Item = Option<StringView<'a>>>,
     {
-        let uninitiated_validity = self.validity.as_mut();
+        let mut uninitiated_validity = self.validity.as_mut().mutate();
 
         let uninitiated_views = self.views.as_mut().clear_and_resize(len);
         let uninitiated_bytes = self._bytes.as_mut();
@@ -399,26 +399,29 @@ impl<V: AsRef<str> + Debug> FromIterator<Option<V>> for StringArray {
         let mut views = AlignedVec::<StringView<'static>>::with_capacity(lower);
         let mut calibrate_offsets = Vec::<usize>::with_capacity(lower);
         let mut validity = Bitmap::new();
+        {
+            let mut mutate_validity_guard = validity.mutate();
 
-        for val in iter {
-            views.reserve(1);
-            match val {
-                Some(val) => {
-                    push_str(val.as_ref(), &mut bytes, &mut views, &mut calibrate_offsets);
-                    validity.push(true);
-                }
-                None => {
-                    unsafe {
-                        *views.ptr.as_ptr().add(views.len) = StringView::default();
+            for val in iter {
+                views.reserve(1);
+                match val {
+                    Some(val) => {
+                        push_str(val.as_ref(), &mut bytes, &mut views, &mut calibrate_offsets);
+                        mutate_validity_guard.push(true);
                     }
-                    calibrate_offsets.push(usize::MAX);
-                    validity.push(false);
+                    None => {
+                        unsafe {
+                            *views.ptr.as_ptr().add(views.len) = StringView::default();
+                        }
+                        calibrate_offsets.push(usize::MAX);
+                        mutate_validity_guard.push(false);
+                    }
                 }
+                views.len += 1;
             }
-            views.len += 1;
-        }
 
-        calibrate_pointers(bytes.ptr.as_ptr(), views.as_mut_slice(), &calibrate_offsets);
+            calibrate_pointers(bytes.ptr.as_ptr(), views.as_mut_slice(), &calibrate_offsets);
+        }
 
         Self {
             logical_type: LogicalType::VarChar,

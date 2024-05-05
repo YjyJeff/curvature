@@ -226,7 +226,7 @@ where
     ) where
         I: Iterator<Item = T>,
     {
-        self.validity.as_mut().clear();
+        self.validity.as_mut().mutate().clear();
 
         let uninitiated = self.data.as_mut();
         uninitiated
@@ -245,7 +245,7 @@ where
     {
         let uninitiated_vec = self.data.as_mut();
         let uninitiated_slice = uninitiated_vec.clear_and_resize(len);
-        let uninitiated_validity = self.validity.as_mut();
+        let mut uninitiated_validity = self.validity.as_mut().mutate();
 
         uninitiated_validity.reset(
             len,
@@ -288,19 +288,22 @@ impl<T: PrimitiveType> FromIterator<Option<T>> for PrimitiveArray<T> {
         let (lower, _) = iter.size_hint();
         let mut data = AlignedVec::<T>::with_capacity(lower);
         let mut validity = Bitmap::with_capacity(lower);
-        for val in iter {
-            data.reserve(1);
-            unsafe {
-                if let Some(val) = val {
-                    *data.ptr.as_ptr().add(data.len) = val;
-                    validity.push(true);
-                } else {
-                    // Init the memory with default, such that all of the bytes in self.data is initialized!
-                    // Otherwise, read the slice from self.data may cause undefined behavior
-                    *data.ptr.as_ptr().add(data.len) = T::default();
-                    validity.push(false);
+        {
+            let mut mutate_validity_guard = validity.mutate();
+            for val in iter {
+                data.reserve(1);
+                unsafe {
+                    if let Some(val) = val {
+                        *data.ptr.as_ptr().add(data.len) = val;
+                        mutate_validity_guard.push(true);
+                    } else {
+                        // Init the memory with default, such that all of the bytes in self.data is initialized!
+                        // Otherwise, read the slice from self.data may cause undefined behavior
+                        *data.ptr.as_ptr().add(data.len) = T::default();
+                        mutate_validity_guard.push(false);
+                    }
+                    data.len += 1;
                 }
-                data.len += 1;
             }
         }
 

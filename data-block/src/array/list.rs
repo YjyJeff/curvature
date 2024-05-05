@@ -178,8 +178,8 @@ impl Array for ListArray {
 
     unsafe fn replace_with_trusted_len_values_ref_iterator<'a, I>(
         &mut self,
-        len: usize,
-        trusted_len_iterator: I,
+        _len: usize,
+        _trusted_len_iterator: I,
     ) where
         I: Iterator<Item = <Self::Element as Element>::ElementRef<'a>> + 'a,
     {
@@ -188,8 +188,8 @@ impl Array for ListArray {
 
     unsafe fn replace_with_trusted_len_ref_iterator<'a, I>(
         &mut self,
-        len: usize,
-        trusted_len_iterator: I,
+        _len: usize,
+        _trusted_len_iterator: I,
     ) where
         I: Iterator<Item = Option<<Self::Element as Element>::ElementRef<'a>>> + 'a,
     {

@@ -119,17 +119,17 @@ impl Array for BooleanArray {
     ) where
         I: Iterator<Item = bool>,
     {
-        self.validity.as_mut().clear();
-        self.data.as_mut().reset(len, trusted_len_iterator);
+        self.validity.as_mut().mutate().clear();
+        self.data.as_mut().mutate().reset(len, trusted_len_iterator);
     }
 
     unsafe fn replace_with_trusted_len_iterator<I>(&mut self, len: usize, trusted_len_iterator: I)
     where
         I: Iterator<Item = Option<bool>>,
     {
-        let uninitiated = self.data.as_mut();
+        let mut uninitiated = self.data.as_mut().mutate();
         let _ = uninitiated.clear_and_resize(len);
-        let uninitiated_validity = self.validity.as_mut();
+        let mut uninitiated_validity = self.validity.as_mut().mutate();
 
         uninitiated_validity.reset(
             len,
@@ -195,15 +195,19 @@ impl FromIterator<Option<bool>> for BooleanArray {
         let (lower, _) = iter.size_hint();
         let mut data = Bitmap::with_capacity(lower);
         let mut validity = Bitmap::with_capacity(lower);
-        for val in iter {
-            match val {
-                Some(val) => {
-                    data.push(val);
-                    validity.push(true);
-                }
-                None => {
-                    data.push(false);
-                    validity.push(false);
+        {
+            let mut mutate_data_guard = data.mutate();
+            let mut mutate_validity_guard = validity.mutate();
+            for val in iter {
+                match val {
+                    Some(val) => {
+                        mutate_data_guard.push(val);
+                        mutate_validity_guard.push(true);
+                    }
+                    None => {
+                        mutate_data_guard.push(false);
+                        mutate_validity_guard.push(false);
+                    }
                 }
             }
         }
