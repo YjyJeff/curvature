@@ -39,7 +39,6 @@ pub struct FieldRef {
 
 impl FieldRef {
     /// Create a new [`FieldRef`]
-    #[inline]
     pub fn new(field_index: usize, output_type: LogicalType, field: String) -> Self {
         Self {
             field_index,

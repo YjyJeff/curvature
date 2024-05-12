@@ -2,6 +2,7 @@
 pub mod arith;
 pub mod comparison;
 pub mod logical;
+pub mod null;
 pub mod regex_match;
 pub mod sequence;
 

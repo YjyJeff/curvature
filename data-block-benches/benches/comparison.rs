@@ -256,13 +256,13 @@ fn bench_string_array(c: &mut Criterion, rhs: StringView<'_>, null_density: f32,
 }
 
 fn comparison_benchmark(c: &mut Criterion) {
-    bench_primitive_array::<i8, arrow::datatypes::Int8Type>(c, 0, 0.0, 42);
-    bench_primitive_array::<i16, arrow::datatypes::Int16Type>(c, 0, 0.0, 42);
-    bench_primitive_array::<i32, arrow::datatypes::Int32Type>(c, 0, 0.0, 42);
-    bench_primitive_array::<i64, arrow::datatypes::Int64Type>(c, 0, 0.0, 42);
-    bench_primitive_array::<f32, arrow::datatypes::Float32Type>(c, 0.5, 0.0, 42);
-    bench_primitive_array::<f64, arrow::datatypes::Float64Type>(c, 0.5, 0.0, 42);
-    bench_boolean_array(c, true, 0.0, 0.2, 42);
+    // bench_primitive_array::<i8, arrow::datatypes::Int8Type>(c, 0, 0.0, 42);
+    // bench_primitive_array::<i16, arrow::datatypes::Int16Type>(c, 0, 0.0, 42);
+    // bench_primitive_array::<i32, arrow::datatypes::Int32Type>(c, 0, 0.0, 42);
+    // bench_primitive_array::<i64, arrow::datatypes::Int64Type>(c, 0, 0.0, 42);
+    // bench_primitive_array::<f32, arrow::datatypes::Float32Type>(c, 0.5, 0.0, 42);
+    // bench_primitive_array::<f64, arrow::datatypes::Float64Type>(c, 0.5, 0.0, 42);
+    // bench_boolean_array(c, true, 0.0, 0.2, 42);
     bench_string_array(
         c,
         black_box(StringView::from_static_str("lmnolollmnolol")),

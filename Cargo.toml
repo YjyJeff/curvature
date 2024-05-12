@@ -46,6 +46,9 @@ opt-level = 3
 codegen-units = 1
 debug = true
 
+[profile.bench]
+debug = true
+
 [workspace.lints.rustdoc]
 broken_intra_doc_links = "deny"
 bare_urls = "deny"

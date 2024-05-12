@@ -243,6 +243,12 @@ impl MutateBitmapGuard<'_> {
         tmp
     }
 
+    /// As raw slice
+    #[inline]
+    pub fn as_mut_slice(&mut self) -> &mut [u64] {
+        self.0.buffer.as_mut_slice()
+    }
+
     /// Clear the bitmap, it only set the num_bits to 0 and do not free the
     /// underling buffer
     #[inline]
@@ -276,6 +282,8 @@ impl MutateBitmapGuard<'_> {
         unsafe { set_bit_unchecked(&mut self.0.buffer, old_len, val) }
     }
 
+    /// Reset the bitmap with given trusted len iterator.
+    ///
     /// # Safety
     ///
     /// - len should equal to trusted_iter's length
@@ -287,6 +295,10 @@ impl MutateBitmapGuard<'_> {
 
     /// Mutate the ones in the bitmap with given function. The function take the index of the
     /// ones in the bitmap and return valid or not for overwriting the ones
+    ///
+    /// NOTE: For iterating time, it is two times slower than [`reset`](Self::reset()) if
+    /// all of the bits are set. It can reduce the computation count by only invoke the func
+    /// on the selected index
     pub fn mutate_ones(&mut self, func: impl Fn(usize) -> bool) {
         if self.0.count_ones == 0 {
             return;
@@ -413,8 +425,33 @@ impl Bitmap {
             );
         }
 
+        // SAFETY: the len is checked
+        unsafe { Self::from_slice_and_len_unchecked(slice, len) }
+    }
+
+    /// Construct self from slice of [`BitStore`] and len. Caller should
+    /// guarantee the len is valid. Otherwise, undefined behavior happens
+    ///
+    /// # Safety
+    ///
+    /// The len is valid: `slice.len() * BIT_STORE_BITS <= len`
+    #[inline]
+    pub unsafe fn from_slice_and_len_unchecked(slice: &[BitStore], len: usize) -> Self {
+        Self::from_aligned_vec_and_len_unchecked(AlignedVec::from_slice(slice), len)
+    }
+
+    /// Construct self from [`AlignedVec`] and len. Caller should
+    /// guarantee the len is valid. Otherwise, undefined behavior happens
+    ///
+    /// # Safety
+    ///
+    /// The len is valid: `buffer.len() * BIT_STORE_BITS <= len`
+    pub unsafe fn from_aligned_vec_and_len_unchecked(
+        buffer: AlignedVec<BitStore>,
+        len: usize,
+    ) -> Self {
         let mut bitmap = Self {
-            buffer: AlignedVec::from_slice(slice),
+            buffer,
             num_bits: len,
             count_ones: 0,
             count_zeros: 0,

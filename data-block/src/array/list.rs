@@ -20,7 +20,7 @@ pub struct ListArray {
     /// Logical type
     logical_type: LogicalType,
     /// validity
-    validity: SwarPtr<Bitmap>,
+    pub(crate) validity: SwarPtr<Bitmap>,
     /// offsets[i] and offsets[i+1] represents the start and end address of the ith
     /// element in the child array
     offsets: SwarPtr<AlignedVec<u32>>,

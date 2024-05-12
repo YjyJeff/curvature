@@ -46,3 +46,7 @@ harness = false
 [[bench]]
 name = "logical"
 harness = false
+
+[[bench]]
+name = "mutate_bitmap"
+harness = false

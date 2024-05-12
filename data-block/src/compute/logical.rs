@@ -3,7 +3,7 @@
 //! TBD: Do we really need `avx2`? Bitmap is pretty small
 
 use crate::array::{Array, BooleanArray};
-use crate::bitmap::BitStore;
+use crate::bitmap::{BitStore, Bitmap};
 use crate::compute::combine_validities;
 use std::ops::{BitAnd, BitOr};
 
@@ -215,6 +215,88 @@ pub unsafe fn not(array: &BooleanArray, dst: &mut BooleanArray) {
     )
 }
 
+/// This will be optimized for different target feature
+#[inline(always)]
+fn raw_bitmap_compute_inplace<F>(dst: &mut [BitStore], other: &[BitStore], op: F)
+where
+    F: Fn(BitStore, BitStore) -> BitStore,
+{
+    dst.iter_mut().zip(other).for_each(|(dst, &rhs)| {
+        *dst = op(*dst, rhs);
+    });
+}
+
+macro_rules! and_bitmaps_inplace {
+    ($dst:ident, $other:ident) => {
+        raw_bitmap_compute_inplace($dst, $other, BitAnd::bitand)
+    };
+}
+
+crate::dynamic_func!(
+    and_bitmaps_inplace,
+    ,
+    (dst: &mut [BitStore], other: &[BitStore]),
+);
+
+macro_rules! or_bitmaps_inplace {
+    ($dst:ident, $other:ident) => {
+        raw_bitmap_compute_inplace($dst, $other, BitOr::bitor)
+    };
+}
+
+crate::dynamic_func!(
+    or_bitmaps_inplace,
+    ,
+    (dst: &mut [BitStore], other: &[BitStore]),
+);
+
+/// Perform `&&` operation on two [`Bitmap`]s
+///
+/// Note that caller should guarantee `dst` and `other` have same length
+///
+/// # Safety
+///
+/// - `dst` should not referenced by any array
+pub unsafe fn and_inplace(dst: &mut Bitmap, other: &Bitmap) {
+    debug_assert_eq!(dst.len(), other.len());
+    let mut guard = dst.mutate();
+    and_bitmaps_inplace_dynamic(guard.as_mut_slice(), other.as_raw_slice());
+}
+
+/// Perform `||` operation on two [`Bitmap`]s
+///
+/// Note that caller should guarantee `dst` and `other` have same length
+///
+/// # Safety
+///
+/// - `dst` should not referenced by any array
+pub unsafe fn or_inplace(dst: &mut Bitmap, other: &Bitmap) {
+    debug_assert_eq!(dst.len(), other.len());
+    let mut guard = dst.mutate();
+    or_bitmaps_inplace_dynamic(guard.as_mut_slice(), other.as_raw_slice());
+}
+
+macro_rules! not_bitmap_inplace {
+    ($dst:ident) => {
+        $dst.iter_mut().for_each(|v| *v = !*v)
+    };
+}
+
+crate::dynamic_func!(
+    not_bitmap_inplace,
+    ,
+    (dst: &mut [BitStore]),
+);
+
+/// Perform `NOT` operation on [`Bitmap`]
+///
+/// # Safety
+///
+/// - `dst` should not referenced by any array
+pub unsafe fn not_inplace(dst: &mut Bitmap) {
+    not_bitmap_inplace_dynamic(dst.mutate().as_mut_slice())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -352,5 +434,25 @@ mod tests {
             dst.values_iter().collect::<Vec<_>>(),
             lhs.values_iter().collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn test_inplace() {
+        let mut dst = Bitmap::from_slice_and_len(&[0xff, 0x01], 65);
+        let other = Bitmap::from_slice_and_len(&[0xff01, 0xff], 65);
+        unsafe {
+            and_inplace(&mut dst, &other);
+        }
+        assert_eq!(dst.as_raw_slice(), &[0x01, 0x01]);
+
+        unsafe {
+            or_inplace(&mut dst, &other);
+        }
+        assert_eq!(dst.as_raw_slice(), &[0xff01, 0xff]);
+
+        unsafe {
+            not_inplace(&mut dst);
+        }
+        assert_eq!(dst.as_raw_slice(), &[!0xff01, !0xff]);
     }
 }

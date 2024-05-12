@@ -126,12 +126,6 @@ impl<'a> StringView<'a> {
         self.length <= INLINE_LEN as u32
     }
 
-    /// Check string is inlined in prefix or not
-    #[inline]
-    pub fn is_inlined_in_prefix(&self) -> bool {
-        self.length <= PREFIX_LEN as u32
-    }
-
     /// Shorten the lifetime of the StringView to the lifetime of the borrow.
     ///
     /// This is pretty useful! When self has a fake lifetime 'static, we can short
@@ -210,12 +204,6 @@ impl<'a> StringView<'a> {
     pub(crate) fn inlined_without_prefix_as_u64(&self) -> u64 {
         unsafe { *(self as *const _ as *const u64).add(1) }
     }
-
-    /// Read the whole StringView as u128
-    #[inline]
-    pub(crate) fn as_u128(&self) -> u128 {
-        unsafe { *(self as *const _ as *const u128) }
-    }
 }
 
 impl Default for StringView<'_> {
@@ -274,17 +262,14 @@ impl PartialOrd for StringView<'_> {
 
 impl Ord for StringView<'_> {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        if self.prefix_as_u32() != other.prefix_as_u32() {
-            // We can decide the result on prefix
-            // Note that we can not compare the prefix as u32, it only works for MSB!
-            unsafe {
-                return memcmp(
-                    self.inlined_ptr() as _,
-                    other.inlined_ptr() as _,
-                    PREFIX_LEN,
-                )
-                .cmp(&0);
-            }
+        // Compare the ordering of the prefix
+        match self
+            .prefix_as_u32()
+            .to_be()
+            .cmp(&other.prefix_as_u32().to_be())
+        {
+            std::cmp::Ordering::Equal => (),
+            ordering => return ordering,
         }
 
         // From now on, prefix is equal
@@ -297,6 +282,7 @@ impl Ord for StringView<'_> {
         let cmp_len = cmp_len as usize;
 
         if self.is_inlined() && other.is_inlined() {
+            // Compiler will optimize it to compare the u64 in the MSB form
             // Both of them are inlined
             let cmp = unsafe {
                 memcmp(
@@ -305,11 +291,9 @@ impl Ord for StringView<'_> {
                     INLINE_LEN - PREFIX_LEN,
                 )
             };
-            if cmp != 0 {
-                return cmp.cmp(&0);
-            } else {
-                // Equal until one of the string is end. Compare length
-                return self.length.cmp(&other.length);
+            match cmp.cmp(&0) {
+                std::cmp::Ordering::Equal => return self.length.cmp(&other.length),
+                ordering => return ordering,
             }
         }
 
@@ -320,12 +304,9 @@ impl Ord for StringView<'_> {
                 cmp_len,
             )
         };
-
-        if cmp != 0 {
-            cmp.cmp(&0)
-        } else {
-            // Equal until one of the string is end. Compare length
-            self.length.cmp(&other.length)
+        match cmp.cmp(&0) {
+            std::cmp::Ordering::Equal => self.length.cmp(&other.length),
+            ordering => ordering,
         }
     }
 }

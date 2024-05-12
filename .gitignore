@@ -1,3 +1,5 @@
 /target
 /Cargo.lock
 /.vscode
+/data-block-benches/target/
+

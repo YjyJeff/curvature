@@ -1,54 +1,8 @@
 //! Compare string array
 
-use libc::memcmp;
-
 use crate::array::{Array, BooleanArray, StringArray};
-use crate::element::string::{StringView, PREFIX_LEN};
-
-macro_rules! impl_eq_scalar {
-    ($func:ident, $op:tt, $conjunct:tt) => {
-        #[doc = concat!(" Perform `lhs ", stringify!($op), " rhs` between a StringArray and a StringView")]
-        ///
-        /// # Safety
-        ///
-        /// - `lhs`'s validity should not reference `dst`'s validity. In the computation graph,
-        /// `lhs` must be the descendant of `dst`
-        ///
-        /// - No other arrays that reference the `dst`'s data and validity are accessed! In the
-        /// computation graph, it will never happens
-        pub unsafe fn $func(lhs: &StringArray, rhs: StringView<'_>, dst: &mut BooleanArray) {
-            dst.validity.reference(&lhs.validity);
-
-            let mut bitmap = dst.data.as_mut().mutate();
-            if rhs.is_inlined() {
-                bitmap.reset(
-                    lhs.len(),
-                    lhs.values_iter().map(|lhs| {
-                        // Compare the whole string view. Inlined bytes is padded with 0
-                        lhs.as_u128() $op rhs.as_u128()
-                    }),
-                );
-            } else {
-                let cmp_len = rhs.length as usize - PREFIX_LEN;
-                bitmap.reset(
-                    lhs.len(),
-                    lhs.values_iter().map(|lhs| {
-                        // Compare the whole string view. Inlined bytes is padded with 0
-                        lhs.size_and_prefix_as_u64() $op rhs.size_and_prefix_as_u64()
-                            $conjunct memcmp(
-                                lhs.indirect_ptr().add(PREFIX_LEN) as _,
-                                rhs.indirect_ptr().add(PREFIX_LEN) as _,
-                                cmp_len,
-                            ) $op 0
-                    }),
-                );
-            }
-        }
-    };
-}
-
-impl_eq_scalar!(eq_scalar, ==, &&);
-impl_eq_scalar!(ne_scalar, !=, ||);
+use crate::bitmap::Bitmap;
+use crate::element::string::StringView;
 
 macro_rules! impl_ord_scalar {
     ($func:ident, $op:tt) => {
@@ -65,31 +19,66 @@ macro_rules! impl_ord_scalar {
             dst.validity.reference(&lhs.validity);
 
             let mut bitmap = dst.data.as_mut().mutate();
-            if rhs.is_inlined_in_prefix() {
-                // We only need to compare the prefix
-                bitmap.reset(
-                    lhs.len(),
-                    lhs.values_iter().map(|lhs| {
-                        let cmp =
-                            memcmp(lhs.inlined_ptr() as _, rhs.inlined_ptr() as _, PREFIX_LEN);
-                        if cmp != 0 {
-                            cmp $op 0
-                        } else {
-                            lhs.length $op rhs.length
-                        }
-                    }),
-                );
+            bitmap.reset(lhs.len(), lhs.values_iter().map(|lhs| lhs $op rhs));
+        }
+    };
+}
+
+impl_ord_scalar!(eq_scalar, ==);
+impl_ord_scalar!(ne_scalar, !=);
+impl_ord_scalar!(gt_scalar, >);
+impl_ord_scalar!(ge_scalar, >=);
+impl_ord_scalar!(lt_scalar, <);
+impl_ord_scalar!(le_scalar, <=);
+
+macro_rules! impl_selected_ord_scalar {
+    ($func:ident, $op:tt) => {
+        #[doc = concat!(" Perform `lhs ", stringify!($op), " rhs` between a StringArray with given selection array and a StringView")]
+        /// # Safety
+        ///
+        /// - `array` and `selection` should have same length. Otherwise, undefined behavior happens
+        ///
+        /// - `selection` should not be referenced by any array
+        pub unsafe fn $func(selection: &mut Bitmap, array: &StringArray, scalar: StringView<'_>) {
+            debug_assert_eq!(selection.len(), array.len());
+
+            let selection_all_valid = selection.all_valid();
+            let mut guard = selection.mutate();
+            let validity = array.validity();
+
+            if selection_all_valid {
+                if validity.all_valid() {
+                    // All selected, all valid
+                    guard.reset(array.len(), array.values_iter().map(|lhs| lhs $op scalar));
+                } else {
+                    // All selected, partial valid
+                    guard.reset(
+                        array.len(),
+                        array
+                            .values_iter()
+                            .zip(validity.iter())
+                            .map(|(view, valid)| valid && view $op scalar),
+                    )
+                }
+            } else if validity.all_valid() {
+                // Partial selected, all valid
+                guard.mutate_ones(|index| array.get_value_unchecked(index) $op scalar)
             } else {
-                bitmap.reset(lhs.len(), lhs.values_iter().map(|lhs| lhs $op rhs));
+                // Partial selected, partial valid
+                guard.mutate_ones(|index| {
+                    validity.get_unchecked(index) && array.get_value_unchecked(index) $op scalar
+                })
             }
         }
     };
 }
 
-impl_ord_scalar!(gt_scalar, >);
-impl_ord_scalar!(ge_scalar, >=);
-impl_ord_scalar!(lt_scalar, <);
-impl_ord_scalar!(le_scalar, <=);
+impl_selected_ord_scalar!(selected_eq_scalar, ==);
+impl_selected_ord_scalar!(selected_ne_scalar, !=);
+impl_selected_ord_scalar!(selected_gt_scalar, >);
+impl_selected_ord_scalar!(selected_ge_scalar, >=);
+impl_selected_ord_scalar!(selected_lt_scalar, <);
+impl_selected_ord_scalar!(selected_le_scalar, <=);
 
 #[cfg(test)]
 mod tests {
@@ -190,5 +179,166 @@ mod tests {
             StringView::from_static_str("curvature"),
             [true, false, true]
         );
+    }
+
+    #[test]
+    fn test_selected_eq_scalar() {
+        let lhs = [
+            "curvature",
+            "curve",
+            "curse",
+            "tcp",
+            "http",
+            "auto-vectorization",
+            "tcp",
+            "three body is pretty awesome",
+        ];
+        let array = StringArray::from_values_iter(lhs);
+        // All selected, all valid, inlined
+        let mut selection = Bitmap::from_slice_and_len(&[u64::MAX], 8);
+        unsafe {
+            selected_eq_scalar(&mut selection, &array, StringView::from_static_str("tcp"));
+        }
+        assert_eq!(selection.iter_ones().collect::<Vec<_>>(), [3, 6]);
+        let mut selection = Bitmap::from_slice_and_len(&[u64::MAX], 8);
+        unsafe {
+            selected_ne_scalar(&mut selection, &array, StringView::from_static_str("tcp"));
+        }
+        assert_eq!(
+            selection.iter_ones().collect::<Vec<_>>(),
+            [0, 1, 2, 4, 5, 7]
+        );
+
+        // All selected, all valid, not-inlined
+        let mut selection = Bitmap::from_slice_and_len(&[u64::MAX], 8);
+        unsafe {
+            selected_eq_scalar(
+                &mut selection,
+                &array,
+                StringView::from_static_str("auto-vectorization"),
+            );
+        }
+        assert_eq!(selection.iter_ones().collect::<Vec<_>>(), [5]);
+        let mut selection = Bitmap::from_slice_and_len(&[u64::MAX], 8);
+        unsafe {
+            selected_ne_scalar(
+                &mut selection,
+                &array,
+                StringView::from_static_str("auto-vectorization"),
+            );
+        }
+        assert_eq!(
+            selection.iter_ones().collect::<Vec<_>>(),
+            [0, 1, 2, 3, 4, 6, 7]
+        );
+
+        // Partial selected, all valid, inlined
+        let mut selection = Bitmap::from_slice_and_len(&[0xf7], 8);
+        unsafe {
+            selected_eq_scalar(&mut selection, &array, StringView::from_static_str("tcp"));
+        }
+        assert_eq!(selection.iter_ones().collect::<Vec<_>>(), [6]);
+        let mut selection = Bitmap::from_slice_and_len(&[0xbe], 8);
+        unsafe {
+            selected_ne_scalar(&mut selection, &array, StringView::from_static_str("tcp"));
+        }
+        assert_eq!(selection.iter_ones().collect::<Vec<_>>(), [1, 2, 4, 5, 7]);
+
+        // Partial selected, all valid, not-inlined
+        let mut selection = Bitmap::from_slice_and_len(&[0x31], 8);
+        unsafe {
+            selected_eq_scalar(
+                &mut selection,
+                &array,
+                StringView::from_static_str("auto-vectorization"),
+            );
+        }
+        assert_eq!(selection.iter_ones().collect::<Vec<_>>(), [5]);
+        let mut selection = Bitmap::from_slice_and_len(&[0x20], 8);
+        unsafe {
+            selected_ne_scalar(
+                &mut selection,
+                &array,
+                StringView::from_static_str("auto-vectorization"),
+            );
+        }
+        assert_eq!(selection.iter_ones().collect::<Vec<_>>(), []);
+
+        let lhs = [
+            Some("curvature"),
+            None,
+            Some("curse"),
+            Some(""),
+            Some("http"),
+            Some("auto-vectorization"),
+            Some(""),
+            None,
+        ];
+        let array = StringArray::from_iter(lhs);
+
+        // All selected, partial valid, inlined
+        let mut selection = Bitmap::from_slice_and_len(&[u64::MAX], 8);
+        unsafe {
+            selected_eq_scalar(&mut selection, &array, StringView::from_static_str(""));
+        }
+        assert_eq!(selection.iter_ones().collect::<Vec<_>>(), [3, 6]);
+        let mut selection = Bitmap::from_slice_and_len(&[u64::MAX], 8);
+        unsafe {
+            selected_ne_scalar(&mut selection, &array, StringView::from_static_str(""));
+        }
+        assert_eq!(selection.iter_ones().collect::<Vec<_>>(), [0, 2, 4, 5]);
+
+        // All selected, partial valid, not-inlined
+        let mut selection = Bitmap::from_slice_and_len(&[u64::MAX], 8);
+        unsafe {
+            selected_eq_scalar(
+                &mut selection,
+                &array,
+                StringView::from_static_str("auto-vectorization"),
+            );
+        }
+        assert_eq!(selection.iter_ones().collect::<Vec<_>>(), [5]);
+
+        let mut selection = Bitmap::from_slice_and_len(&[u64::MAX], 8);
+        unsafe {
+            selected_ne_scalar(
+                &mut selection,
+                &array,
+                StringView::from_static_str("auto-vectorization"),
+            );
+        }
+        assert_eq!(selection.iter_ones().collect::<Vec<_>>(), [0, 2, 3, 4, 6,]);
+
+        // Partial selected, partial valid, inlined
+        let mut selection = Bitmap::from_slice_and_len(&[0xf7], 8);
+        unsafe {
+            selected_eq_scalar(&mut selection, &array, StringView::from_static_str(""));
+        }
+        assert_eq!(selection.iter_ones().collect::<Vec<_>>(), [6]);
+        let mut selection = Bitmap::from_slice_and_len(&[0xf7], 8);
+        unsafe {
+            selected_ne_scalar(&mut selection, &array, StringView::from_static_str(""));
+        }
+        assert_eq!(selection.iter_ones().collect::<Vec<_>>(), [0, 2, 4, 5,]);
+
+        // Partial selected, partial valid, not-inlined
+        let mut selection = Bitmap::from_slice_and_len(&[0x31], 8);
+        unsafe {
+            selected_eq_scalar(
+                &mut selection,
+                &array,
+                StringView::from_static_str("auto-vectorization"),
+            );
+        }
+        assert_eq!(selection.iter_ones().collect::<Vec<_>>(), [5]);
+        let mut selection = Bitmap::from_slice_and_len(&[0x31], 8);
+        unsafe {
+            selected_ne_scalar(
+                &mut selection,
+                &array,
+                StringView::from_static_str("auto-vectorization"),
+            );
+        }
+        assert_eq!(selection.iter_ones().collect::<Vec<_>>(), [0, 4]);
     }
 }

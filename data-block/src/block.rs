@@ -241,6 +241,19 @@ impl MutateArraysGuard<'_> {
         if let Some(array) = self.arrays.first() {
             *self.length = array.len();
         }
+        #[cfg(debug_assertions)]
+        {
+            self.arrays.iter().enumerate().for_each(|(i, array)| {
+                if array.len() != *self.length {
+                    panic!(
+                        "Mutate arrays in the data block should produce same length. First len: {}, {}th len: {}", 
+                        *self.length,
+                        i,
+                        array.len()
+                    )
+                }
+            });
+        }
         Ok(())
     }
 }

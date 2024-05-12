@@ -13,6 +13,7 @@ pub mod swar;
 pub mod utils;
 
 use self::iter::ArrayIter;
+use self::swar::SwarPtr;
 use crate::bitmap::{Bitmap, BitmapIter};
 use crate::element::{Element, ElementImplRef};
 use crate::private::Sealed;
@@ -294,6 +295,15 @@ macro_rules! array_impl {
                 match self{
                     $(
                         Self::$variant(array) => array.validity(),
+                    )+
+                }
+            }
+
+            /// Get the validity bitmap with SwarPtr
+            pub(crate) fn swar_validity(&self) -> &SwarPtr<Bitmap>{
+                match self{
+                    $(
+                        Self::$variant(array) => &array.validity,
                     )+
                 }
             }

@@ -4,6 +4,7 @@ pub mod arith;
 mod executor;
 pub mod field_ref;
 pub mod function;
+pub mod is_null;
 pub mod utils;
 
 use crate::error::SendableError;
@@ -44,6 +45,8 @@ pub trait Stringify {
 }
 
 /// Trait for all of the physical expressions
+///
+/// TODO: Add selection context
 pub trait PhysicalExpr: Stringify + Send + Sync {
     /// as_any for down cast
     fn as_any(&self) -> &dyn std::any::Any;

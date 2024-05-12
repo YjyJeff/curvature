@@ -117,6 +117,7 @@ impl Iterator for BitmapOnesIter<'_> {
 
 impl FusedIterator for BitmapOnesIter<'_> {}
 
+#[inline]
 pub(super) fn next_index(
     bitmap: &Bitmap,
     current: &mut BitStore,
