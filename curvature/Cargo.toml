@@ -20,14 +20,15 @@ strength_reduce = { workspace = true }
 libc = { workspace = true }
 num-traits = { workspace = true }
 parking_lot = { workspace = true }
-# TODO: Remove the rayon, use monoio instead?
-rayon = { workspace = true }
 tracing = { workspace = true, features = ["log"] }
 crossbeam-utils = { workspace = true }
+regex = { workspace = true }
 
+# TODO: Remove the rayon, use monoio instead?
+rayon = { workspace = true }
 
 [dev-dependencies]
-expect-test = "1.4"
+expect-test = "1.5"
 criterion = "0.5"
 rand = { version = "0.8.5", features = ["std_rng"] }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }

@@ -1,13 +1,20 @@
 # DataBlock
 `DataBlock` is ours own implementation of [`Apache Arrow`](https://github.com/apache/arrow-rs) and adapt some concepts from [Velox](https://github.com/facebookincubator/velox). This crate uses the implementation described in [`Type Exercise in Rust`](https://github.com/skyzh/type-exercise-in-rust) to support the subset of [`Arrow`](https://github.com/apache/arrow-rs) format. What's more, `DataBlock` is designed to be used in the query engine of `curvature`, therefore:
 - it only provides the functions that query engine need to use
+
 - optimize the speed in the use case of the query engine
 
 # Difference with the official implementation
 - Array is `!Send`, if you want to send `Array` between threads, copy the inner data in the `Array`
-- `Array` is mutable! Query engine could mutate the `Array` with `&mut self` without copy, thanks to the `PingPongPtr`
+
+- `Array` is mutable! Query engine could mutate the `Array` with `&mut self` without copy, thanks to the `SwarPtr`
+
 - The result of the computation on `Array` should be written to a predefined `Array`. Arrow's computation will generate a new `Array`, it is inefficient and put a lots of pressure on the memory allocator. 
+
+- Computations on `Array`s will take a `selection` array as its context. The common meaning in of the `selection` array is that: it is used to reduce the computation, the function only used to perform computation on the selected elements. For computations that generating boolean result, the result is written into the `selection` array, instead of a brand new `BooleanArray`, via the `and_inplace` function such that we do not select the unselected elements. For other computations, the `selection` array will remain unchanged
+
 - An `Array` can not be partial slice of another `Array`
+
 - Arrow use portable SIMD to perform vectorization. However, it is static(in compiler time). You should compile the arrow with `-C target-features=+feature` to compile the problem for the cpu that supports this feature. Running the program on the CPU that does not support it will cause undefined behavior. If you do not compile with these features, the code will not use this SIMD instructions even if the CPU support it. Whats more, portable simd is only available in the nightly. We detect the features supported by the cpu at runtime and using the corresponding SIMD instructions. Whats more, we use intrinsic to write the SIMD manually, such that comparison that can not be auto-vectorized could use the SIMD to perform acceleration. You can use it in stable rust now.
 
 ## Build

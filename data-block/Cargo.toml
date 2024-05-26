@@ -20,7 +20,7 @@ num-traits = { workspace = true }
 
 [dev-dependencies]
 criterion = "0.5"
-expect-test = "1.4"
+expect-test = "1.5"
 
 [features]
 # Use portable simd to perform comparison. LLVM is smart, you can always use the simd

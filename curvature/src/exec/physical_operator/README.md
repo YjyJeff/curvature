@@ -4,6 +4,7 @@
 - `EmptyTableScan`: A table scan operator that do not produce any data
 - `MemoryTableScan`: Produce the DataBlock registered in memory
 - `Numbers`: A table with single field `number`, it will generate the sequence `start..end`
+- [ ] `ParquetTableScan`: Table scan that query parquet files
 
 ## Regular 
 - `Projection`: Select the expressions from input

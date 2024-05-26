@@ -1,168 +1,125 @@
 //! Comparison between boolean arrays
 
 use crate::array::{Array, BooleanArray};
-use crate::bitmap::BitStore;
+use crate::bitmap::Bitmap;
+use crate::compute::logical::{and_inplace, and_not_inplace};
 
-macro_rules! not_bitmap {
-    ($lhs:ident, $dst:ident) => {
-        $lhs.iter().zip($dst).for_each(|(&lhs, dst)| {
-            *dst = !lhs;
-        })
-    };
-}
-
-crate::dynamic_func!(
-    not_bitmap,
-    ,
-    (lhs: &[BitStore], dst: &mut [BitStore]),
-);
-
-/// Perform `lhs == rhs` between [`BooleanArray`] and bool
+/// Perform `array == scalar` between [`BooleanArray`] and `bool`
 ///
 /// # Safety
 ///
-/// - `lhs` data and validity should not reference `dst`'s data and validity. In the computation
-/// graph, `lhs` must be the descendant of `dst`
+/// - If the `selection` is not empty, `array` and `selection` should have same length.
+/// Otherwise, undefined behavior happens
 ///
-/// - No other arrays that reference the `dst`'s data and validity are accessed! In the
-/// computation graph, it will never happens
-pub unsafe fn eq_scalar(lhs: &BooleanArray, rhs: bool, dst: &mut BooleanArray) {
-    dst.validity.reference(&lhs.validity);
-
-    if rhs {
-        dst.data.reference(&lhs.data)
+/// - `selection` should not be referenced by any array
+pub unsafe fn eq_scalar(selection: &mut Bitmap, array: &BooleanArray, scalar: bool) {
+    and_inplace(selection, array.validity());
+    if scalar {
+        and_inplace(selection, array.data());
     } else {
-        not_bitmap_dynamic(
-            lhs.data.as_raw_slice(),
-            dst.data.as_mut().mutate().clear_and_resize(lhs.len()),
-        );
+        and_not_inplace(selection, array.data(), array.len())
     }
 }
 
-/// Perform `lhs != rhs` between [`BooleanArray`] and bool
+/// Perform `array != scalar` between [`BooleanArray`] and `bool`
 ///
 /// # Safety
 ///
-/// - `lhs`'s data and validity should not reference `dst`'s data and validity. In the computation
-/// graph, `lhs` must be the descendant of `dst`
+/// - If the `selection` is not empty, `array` and `selection` should have same length.
+/// Otherwise, undefined behavior happens
 ///
-/// - No other arrays that reference the `dst`'s data and validity are accessed! In the
-/// computation graph, it will never happens
-pub unsafe fn ne_scalar(lhs: &BooleanArray, rhs: bool, dst: &mut BooleanArray) {
-    dst.validity.reference(&lhs.validity);
+/// - `selection` should not be referenced by any array
+pub unsafe fn ne_scalar(selection: &mut Bitmap, array: &BooleanArray, scalar: bool) {
+    and_inplace(selection, array.validity());
 
-    if !rhs {
-        dst.data.reference(&lhs.data)
+    if !scalar {
+        and_inplace(selection, array.data());
     } else {
-        not_bitmap_dynamic(
-            lhs.data.as_raw_slice(),
-            dst.data.as_mut().mutate().clear_and_resize(lhs.len()),
-        );
+        and_not_inplace(selection, array.data(), array.len())
     }
 }
 
-/// Perform `lhs > rhs` between [`BooleanArray`] and bool
+/// Perform `array > scalar` between [`BooleanArray`] and `bool`
 ///
 /// # Safety
 ///
-/// - `lhs`'s data and validity should not reference `dst`'s data and validity. In the computation
-/// graph, `lhs` must be the descendant of `dst`
+/// - If the `selection` is not empty, `array` and `selection` should have same length.
+/// Otherwise, undefined behavior happens
 ///
-/// - No other arrays that reference the `dst`'s data and validity are accessed! In the
-/// computation graph, it will never happens
-pub unsafe fn gt_scalar(lhs: &BooleanArray, rhs: bool, dst: &mut BooleanArray) {
-    dst.validity.reference(&lhs.validity);
+/// - `selection` should not be referenced by any array
+pub unsafe fn gt_scalar(selection: &mut Bitmap, array: &BooleanArray, scalar: bool) {
+    and_inplace(selection, array.validity());
 
-    if !rhs {
-        dst.data.reference(&lhs.data);
+    if !scalar {
+        and_inplace(selection, array.data());
     } else {
         // Compiler will optimize it to memset
-        dst.data
-            .as_mut()
+        selection
             .mutate()
-            .clear_and_resize(lhs.len())
+            .clear_and_resize(array.len())
             .iter_mut()
             .for_each(|v| *v = 0);
     }
 }
 
-/// Perform `lhs >= rhs` between [`BooleanArray`] and bool
+/// Perform `array > scalar` between [`BooleanArray`] and `bool`
 ///
 /// # Safety
 ///
-/// - `lhs` data and validity should not reference `dst`'s data and validity. In the computation
-/// graph, `lhs`/`rhs` must be the descendant of `dst`
+/// - If the `selection` is not empty, `array` and `selection` should have same length.
+/// Otherwise, undefined behavior happens
 ///
-/// - No other arrays that reference the `dst`'s data and validity are accessed! In the
-/// computation graph, it will never happens
-pub unsafe fn ge_scalar(lhs: &BooleanArray, rhs: bool, dst: &mut BooleanArray) {
-    dst.validity.reference(&lhs.validity);
-
-    if rhs {
-        dst.data.reference(&lhs.data);
-    } else {
-        // Compiler will optimize it to memset
-        dst.data
-            .as_mut()
-            .mutate()
-            .clear_and_resize(lhs.len())
-            .iter_mut()
-            .for_each(|v| *v = u64::MAX);
+/// - `selection` should not be referenced by any array
+pub unsafe fn ge_scalar(selection: &mut Bitmap, array: &BooleanArray, scalar: bool) {
+    and_inplace(selection, array.validity());
+    if scalar {
+        and_inplace(selection, array.data())
     }
 }
 
-/// Perform `lhs < rhs` between [`BooleanArray`] and bool
+/// Perform `array < scalar` between [`BooleanArray`] and `bool`
 ///
 /// # Safety
 ///
-/// - `lhs`'s data and validity should not reference `dst`'s data and validity. In the computation
-/// graph, `lhs` must be the descendant of `dst`
+/// - If the `selection` is not empty, `array` and `selection` should have same length.
+/// Otherwise, undefined behavior happens
 ///
-/// - No other arrays that reference the `dst`'s data and validity are accessed! In the
-/// computation graph, it will never happens
-pub unsafe fn lt_scalar(lhs: &BooleanArray, rhs: bool, dst: &mut BooleanArray) {
-    dst.validity.reference(&lhs.validity);
+/// - `selection` should not be referenced by any array
+pub unsafe fn lt_scalar(selection: &mut Bitmap, array: &BooleanArray, scalar: bool) {
+    and_inplace(selection, array.validity());
 
-    let mut dst = dst.data.as_mut().mutate();
-    if rhs {
-        not_bitmap_dynamic(lhs.data.as_raw_slice(), dst.clear_and_resize(lhs.len()));
+    if scalar {
+        and_not_inplace(selection, array.data(), array.len());
     } else {
         // Compiler will optimize it to memset
-        dst.clear_and_resize(lhs.len())
+        selection
+            .mutate()
+            .clear_and_resize(array.len())
             .iter_mut()
             .for_each(|v| *v = 0);
     }
 }
 
-/// Perform `lhs <= rhs` between [`BooleanArray`] and bool
+/// Perform `array < scalar` between [`BooleanArray`] and `bool`
 ///
 /// # Safety
 ///
-/// - `lhs`'s data and validity should not reference `dst`'s data and validity. In the computation
-/// graph, `lhs` must be the descendant of `dst`
+/// - If the `selection` is not empty, `array` and `selection` should have same length.
+/// Otherwise, undefined behavior happens
 ///
-/// - No other arrays that reference the `dst`'s data and validity are accessed! In the
-/// computation graph, it will never happens
-pub unsafe fn le_scalar(lhs: &BooleanArray, rhs: bool, dst: &mut BooleanArray) {
-    dst.validity.reference(&lhs.validity);
+/// - `selection` should not be referenced by any array
+pub unsafe fn le_scalar(selection: &mut Bitmap, array: &BooleanArray, scalar: bool) {
+    and_inplace(selection, array.validity());
 
-    let mut dst = dst.data.as_mut().mutate();
-    if rhs {
-        // Compiler will optimize it to memset
-        dst.clear_and_resize(lhs.len())
-            .iter_mut()
-            .for_each(|v| *v = u64::MAX);
-    } else {
-        not_bitmap_dynamic(lhs.data.as_raw_slice(), dst.clear_and_resize(lhs.len()))
+    if !scalar {
+        and_not_inplace(selection, array.data(), array.len());
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::ops::Deref;
 
     use crate::bitmap::Bitmap;
-    use crate::types::LogicalType;
 
     use super::*;
 
@@ -173,61 +130,64 @@ mod tests {
         );
     }
 
-    fn test_all_true(dst: &Bitmap) {
-        dst.iter().all(|v| v);
-    }
-
-    fn test_all_false(dst: &Bitmap) {
-        dst.iter().all(|v| !v);
-    }
-
     #[test]
     fn test_equal() {
         let lhs = BooleanArray::new_with_data(Bitmap::from_slice_and_len(&[0xf371], 16));
+        let mut selection = Bitmap::new();
 
-        let mut dst = BooleanArray::new(LogicalType::Boolean).unwrap();
-        unsafe { eq_scalar(&lhs, true, &mut dst) };
-        assert_eq!(dst.data.deref(), lhs.data.deref());
+        unsafe { eq_scalar(&mut selection, &lhs, true) };
+        assert_eq!(&selection, lhs.data());
 
         let lhs = BooleanArray::new_with_data(Bitmap::from_slice_and_len(&[0xf371], 40));
 
-        unsafe { eq_scalar(&lhs, false, &mut dst) };
-        test_reverse(&dst.data, &lhs.data);
+        selection.mutate().clear();
+        unsafe { eq_scalar(&mut selection, &lhs, false) };
+        test_reverse(&selection, lhs.data());
 
-        unsafe { ne_scalar(&lhs, true, &mut dst) };
-        test_reverse(&dst.data, &lhs.data);
+        selection.mutate().clear();
+        unsafe { ne_scalar(&mut selection, &lhs, true) };
+        test_reverse(&selection, lhs.data());
 
-        unsafe { ne_scalar(&lhs, false, &mut dst) };
-        assert_eq!(dst.data.deref(), lhs.data.deref());
+        selection.mutate().clear();
+        unsafe { ne_scalar(&mut selection, &lhs, false) };
+        assert_eq!(&selection, lhs.data());
     }
 
     #[test]
     fn test_order() {
-        let lhs = BooleanArray::new_with_data(Bitmap::from_slice_and_len(&[0x52e3, 0xd2c8], 100));
+        let len = 100;
+        let lhs = BooleanArray::new_with_data(Bitmap::from_slice_and_len(&[0x52e3, 0xd2c8], len));
+        let mut selection = Bitmap::new();
 
-        let mut dst = BooleanArray::new(LogicalType::Boolean).unwrap();
-        unsafe { gt_scalar(&lhs, false, &mut dst) };
-        assert_eq!(dst.data.deref(), lhs.data.deref());
+        unsafe { gt_scalar(&mut selection, &lhs, false) };
+        assert_eq!(&selection, lhs.data());
 
-        unsafe { gt_scalar(&lhs, true, &mut dst) };
-        test_all_false(&dst.data);
+        selection.mutate().clear();
+        unsafe { gt_scalar(&mut selection, &lhs, true) };
+        assert_eq!(selection.count_zeros(), len);
 
-        unsafe { ge_scalar(&lhs, false, &mut dst) };
-        test_all_true(&dst.data);
+        selection.mutate().clear();
+        unsafe { ge_scalar(&mut selection, &lhs, false) };
+        assert!(selection.all_valid());
 
-        unsafe { ge_scalar(&lhs, true, &mut dst) };
-        assert_eq!(dst.data.deref(), lhs.data.deref());
+        selection.mutate().clear();
+        unsafe { ge_scalar(&mut selection, &lhs, true) };
+        assert_eq!(&selection, lhs.data());
 
-        unsafe { lt_scalar(&lhs, false, &mut dst) };
-        test_all_false(&dst.data);
+        selection.mutate().clear();
+        unsafe { lt_scalar(&mut selection, &lhs, false) };
+        assert_eq!(selection.count_zeros(), len);
 
-        unsafe { lt_scalar(&lhs, true, &mut dst) };
-        test_reverse(&dst.data, &lhs.data);
+        selection.mutate().clear();
+        unsafe { lt_scalar(&mut selection, &lhs, true) };
+        test_reverse(&selection, lhs.data());
 
-        unsafe { le_scalar(&lhs, false, &mut dst) };
-        test_reverse(&dst.data, &lhs.data);
+        selection.mutate().clear();
+        unsafe { le_scalar(&mut selection, &lhs, false) };
+        test_reverse(&selection, &lhs.data);
 
-        unsafe { le_scalar(&lhs, true, &mut dst) };
-        test_all_true(&dst.data)
+        selection.mutate().clear();
+        unsafe { le_scalar(&mut selection, &lhs, true) };
+        assert!(selection.all_valid());
     }
 }

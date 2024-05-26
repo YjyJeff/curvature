@@ -20,7 +20,7 @@ pub struct BooleanArray {
 impl BooleanArray {
     /// Create a new [`BooleanArray`]
     #[inline]
-    pub fn new(logical_type: LogicalType) -> Result<Self> {
+    pub fn try_new(logical_type: LogicalType) -> Result<Self> {
         Self::with_capacity(logical_type, 0)
     }
 
@@ -61,6 +61,23 @@ impl BooleanArray {
             data: SwarPtr::new(Bitmap::with_capacity(capacity)),
             validity: SwarPtr::new(Bitmap::new()),
         }
+    }
+
+    /// Get the mutable data
+    ///
+    /// # Safety
+    ///
+    /// You must enforce Rust’s aliasing rules. In particular, while this reference exists,
+    /// the Bitmap must not get accessed (read or written) through any other array.
+    #[inline]
+    pub unsafe fn data_mut(&mut self) -> &mut Bitmap {
+        self.data.as_mut()
+    }
+
+    /// Get underling bitmap data
+    #[inline]
+    pub fn data(&self) -> &Bitmap {
+        &self.data
     }
 }
 

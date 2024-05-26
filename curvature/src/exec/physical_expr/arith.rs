@@ -1,6 +1,7 @@
 //! Expression to perform basic arithmetic like `+`/`-`/`*`/`/`/`%`
 
 use data_block::array::{ArrayError, ArrayImpl, PrimitiveArray};
+use data_block::bitmap::Bitmap;
 use data_block::block::DataBlock;
 use data_block::compute::arith::{
     ArithFuncTrait, ArrayRemElement, DefaultAddScalar, DefaultDivScalar, DefaultMulScalar,
@@ -109,6 +110,7 @@ where
     fn execute(
         &self,
         leaf_input: &DataBlock,
+        selection: &mut Bitmap,
         exec_ctx: &mut ExprExecCtx,
         output: &mut ArrayImpl,
     ) -> ExprResult<()> {
@@ -116,7 +118,12 @@ where
         let mut guard = exec_ctx.intermediate_block.mutate_single_array();
 
         self.children[0]
-            .execute(leaf_input, &mut exec_ctx.children[0], guard.deref_mut())
+            .execute(
+                leaf_input,
+                selection,
+                &mut exec_ctx.children[0],
+                guard.deref_mut(),
+            )
             .boxed()
             .with_context(|_| ExecuteSnafu {
                 expr: CompactExprDisplayWrapper::new(self).to_string(),
@@ -146,8 +153,10 @@ where
         });
 
         unsafe {
-            F::SCALAR_FUNC(input, self.constant, output);
+            F::SCALAR_FUNC(selection, input, self.constant, output);
         }
+
+        debug_assert_eq!(output.len(), leaf_input.len());
 
         Ok(())
     }
@@ -234,13 +243,19 @@ where
     fn execute(
         &self,
         leaf_input: &DataBlock,
+        selection: &mut Bitmap,
         exec_ctx: &mut ExprExecCtx,
         output: &mut ArrayImpl,
     ) -> ExprResult<()> {
         // Execute input
         let mut guard = exec_ctx.intermediate_block.mutate_single_array();
 
-        self.children[0].execute(leaf_input, &mut exec_ctx.children[0], guard.deref_mut())?;
+        self.children[0].execute(
+            leaf_input,
+            selection,
+            &mut exec_ctx.children[0],
+            guard.deref_mut(),
+        )?;
 
         // Execute self
         let input: &PrimitiveArray<T> = guard.deref().try_into().unwrap_or_else(|_| {
@@ -266,8 +281,10 @@ where
         });
 
         unsafe {
-            data_block::compute::arith::rem_scalar(input, self.constant, output);
+            data_block::compute::arith::rem_scalar(selection, input, self.constant, output);
         }
+
+        debug_assert_eq!(output.len(), leaf_input.len());
 
         Ok(())
     }
@@ -295,7 +312,12 @@ mod tests {
         let mut output = ArrayImpl::new(LogicalType::Integer);
 
         arith
-            .execute(&input, &mut ExprExecCtx::new(&arith), &mut output)
+            .execute(
+                &input,
+                &mut Bitmap::new(),
+                &mut ExprExecCtx::new(&arith),
+                &mut output,
+            )
             .unwrap();
 
         let expect = expect_test::expect![[r#"

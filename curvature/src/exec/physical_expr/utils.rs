@@ -1,9 +1,7 @@
 //! utils
 
-use std::{
-    fmt::{Debug, Display},
-    sync::Arc,
-};
+use std::fmt::{Debug, Display};
+use std::sync::Arc;
 
 use super::{function::aggregate::AggregationFunction, PhysicalExpr};
 

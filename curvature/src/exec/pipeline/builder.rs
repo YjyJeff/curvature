@@ -1,7 +1,7 @@
 use super::{Operator, Pipeline, PipelineIndex, Sink, Source};
 use crate::common::client_context::ClientContext;
 use crate::exec::physical_operator::union::Union;
-use crate::exec::physical_operator::{OperatorError, PhysicalOperator};
+use crate::exec::physical_operator::PhysicalOperator;
 use snafu::{ensure, OptionExt, Snafu};
 use std::cell::RefCell;
 use std::mem::take;
@@ -37,30 +37,6 @@ pub enum PipelineBuilderError {
     BorrowChecker,
     #[snafu(display("Pipeline builder try to build a new pipeline, however the source is None."))]
     SourceIsNone,
-    #[snafu(display(
-        "Pipeline builder can not create `GlobalSourceState` for source `{}`",
-        source_op
-    ))]
-    CreateGlobalSourceState {
-        source_op: &'static str,
-        source: OperatorError,
-    },
-    #[snafu(display(
-        "Pipeline builder can not create `GlobalSinkState` for sink `{}`",
-        sink_op
-    ))]
-    CreateGlobalSinkState {
-        sink_op: &'static str,
-        source: OperatorError,
-    },
-    #[snafu(display(
-        "Pipeline builder can not create `GlobalOperatorState` for operator `{}`",
-        op
-    ))]
-    CreateGlobalOperatorState {
-        op: &'static str,
-        source: OperatorError,
-    },
 }
 
 type Result<T> = std::result::Result<T, PipelineBuilderError>;

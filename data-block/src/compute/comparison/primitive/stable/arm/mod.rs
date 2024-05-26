@@ -111,12 +111,12 @@ macro_rules! cmp_scalar {
             $inner_macro!([<le_scalar_ $ty>], $ty, [<vdupq_n_ $suffix>], [<vld1q_ $suffix>], [<vcleq_ $suffix>], );
 
             impl PrimitiveCmpElement for $ty {
-                const EQ_FUNC_NEON: CmpFunc<Self> = [<eq_scalar_ $ty>];
-                const NE_FUNC_NEON: CmpFunc<Self> = [<ne_scalar_ $ty>];
-                const GT_FUNC_NEON: CmpFunc<Self> = [<gt_scalar_ $ty>];
-                const GE_FUNC_NEON: CmpFunc<Self> = [<ge_scalar_ $ty>];
-                const LT_FUNC_NEON: CmpFunc<Self> = [<lt_scalar_ $ty>];
-                const LE_FUNC_NEON: CmpFunc<Self> = [<le_scalar_ $ty>];
+                const EQ_SCALAR_NEON: CmpFunc<Self> = [<eq_scalar_ $ty>];
+                const NE_SCALAR_NEON: CmpFunc<Self> = [<ne_scalar_ $ty>];
+                const GT_SCALAR_NEON: CmpFunc<Self> = [<gt_scalar_ $ty>];
+                const GE_SCALAR_NEON: CmpFunc<Self> = [<ge_scalar_ $ty>];
+                const LT_SCALAR_NEON: CmpFunc<Self> = [<lt_scalar_ $ty>];
+                const LE_SCALAR_NEON: CmpFunc<Self> = [<le_scalar_ $ty>];
             }
         }
 

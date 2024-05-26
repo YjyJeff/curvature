@@ -111,29 +111,21 @@ impl Iterator for BitmapOnesIter<'_> {
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        next_index(self.bitmap, &mut self.current, &mut self.bit_store_index)
+        while self.current == 0 {
+            self.bit_store_index += 1;
+            if self.bit_store_index >= self.bitmap.buffer.len() {
+                return None;
+            }
+
+            self.current = unsafe { self.bitmap.valid_bit_store_unchecked(self.bit_store_index) };
+        }
+
+        let index =
+            (self.bit_store_index * BIT_STORE_BITS) + self.current.trailing_zeros() as usize;
+
+        self.current &= self.current - 1;
+        Some(index)
     }
 }
 
 impl FusedIterator for BitmapOnesIter<'_> {}
-
-#[inline]
-pub(super) fn next_index(
-    bitmap: &Bitmap,
-    current: &mut BitStore,
-    bit_store_index: &mut usize,
-) -> Option<usize> {
-    while *current == 0 {
-        *bit_store_index += 1;
-        if *bit_store_index == bitmap.buffer.len() {
-            return None;
-        }
-
-        *current = unsafe { bitmap.valid_bit_store_unchecked(*bit_store_index) };
-    }
-
-    let index = (*bit_store_index * BIT_STORE_BITS) + current.trailing_zeros() as usize;
-
-    *current &= *current - 1;
-    Some(index)
-}

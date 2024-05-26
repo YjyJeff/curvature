@@ -19,6 +19,8 @@ pub struct InconsistentLengthError {
 type Result<T> = std::result::Result<T, InconsistentLengthError>;
 
 /// [`DataBlock`] is a collection of [`ArrayImpl`]
+///
+/// FIXME: All of the mutation should know its length in advance!
 #[derive(Debug)]
 pub struct DataBlock {
     arrays: Vec<ArrayImpl>,

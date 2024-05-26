@@ -9,8 +9,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::common::client_context::ClientContext;
+use crate::exec::physical_expr::executor::ExprsExecutor;
 use crate::exec::physical_expr::utils::{compact_display_expressions, CompactExprDisplayWrapper};
-use crate::exec::physical_expr::{ExprError, ExprExecutor, PhysicalExpr};
+use crate::exec::physical_expr::{ExprError, PhysicalExpr};
 use crate::exec::physical_operator::metric::MetricsSet;
 
 use super::ext_traits::RegularOperatorExt;
@@ -65,7 +66,7 @@ impl Projection {
 
 /// Local state of the projection
 #[derive(Debug)]
-pub struct ProjectionLocalState(ExprExecutor);
+pub struct ProjectionLocalState(ExprsExecutor);
 
 impl StateStringify for ProjectionLocalState {
     fn name(&self) -> &'static str {
@@ -169,7 +170,7 @@ impl PhysicalOperator for Projection {
     }
 
     fn local_operator_state(&self) -> Box<dyn LocalOperatorState> {
-        Box::new(ProjectionLocalState(ExprExecutor::new(&self.exprs)))
+        Box::new(ProjectionLocalState(ExprsExecutor::new(&self.exprs)))
     }
 
     fn merge_local_operator_metrics(&self, local_state: &dyn LocalOperatorState) {

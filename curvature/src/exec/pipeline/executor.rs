@@ -35,8 +35,8 @@ pub enum PipelineExecutorError {
 
 type Result<T> = std::result::Result<T, PipelineExecutorError>;
 
-/// Executor that execute the pipeline. Each thread will create a executor to execute
-/// the pipeline. The executor tries to read the data from the `Source` operator,
+/// Executor that execute the [`Pipeline`]. Each thread will create a executor to execute
+/// the [`Pipeline`]. The executor tries to read the data from the `Source` operator,
 /// pass the data through the `Regular` operators and finally writes the data to
 /// the `Sink` operator.
 #[derive(Debug)]

@@ -5,11 +5,18 @@ use std::fmt::Debug;
 use super::{Element, ElementRef};
 use crate::array::ArrayImpl;
 use crate::private::Sealed;
-use crate::types::PhysicalType;
+use crate::types::{LogicalType, PhysicalType};
 
 /// List as a element
 #[derive(Debug)]
 pub struct ListElement(ArrayImpl);
+
+impl ListElement {
+    /// Get the child type of the list element
+    pub fn child_type(&self) -> &LogicalType {
+        self.0.logical_type()
+    }
+}
 
 impl Sealed for ListElement {}
 

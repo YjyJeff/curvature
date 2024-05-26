@@ -13,6 +13,9 @@ fn raw_bitmap_compute<F>(lhs: &[BitStore], rhs: &[BitStore], dst: &mut [BitStore
 where
     F: Fn(BitStore, BitStore) -> BitStore,
 {
+    debug_assert_eq!(lhs.len(), rhs.len());
+    debug_assert_eq!(lhs.len(), dst.len());
+
     lhs.iter()
         .zip(rhs)
         .zip(dst)
@@ -221,6 +224,7 @@ fn raw_bitmap_compute_inplace<F>(dst: &mut [BitStore], other: &[BitStore], op: F
 where
     F: Fn(BitStore, BitStore) -> BitStore,
 {
+    debug_assert_eq!(dst.len(), other.len());
     dst.iter_mut().zip(other).for_each(|(dst, &rhs)| {
         *dst = op(*dst, rhs);
     });
@@ -231,9 +235,20 @@ macro_rules! and_bitmaps_inplace {
         raw_bitmap_compute_inplace($dst, $other, BitAnd::bitand)
     };
 }
-
 crate::dynamic_func!(
     and_bitmaps_inplace,
+    ,
+    (dst: &mut [BitStore], other: &[BitStore]),
+);
+
+macro_rules! and_not_bitmaps_inplace {
+    ($dst:ident, $other:ident) => {
+        raw_bitmap_compute_inplace($dst, $other, |dst, rhs| dst & !rhs)
+    };
+}
+
+crate::dynamic_func!(
+    and_not_bitmaps_inplace,
     ,
     (dst: &mut [BitStore], other: &[BitStore]),
 );
@@ -243,24 +258,83 @@ macro_rules! or_bitmaps_inplace {
         raw_bitmap_compute_inplace($dst, $other, BitOr::bitor)
     };
 }
-
 crate::dynamic_func!(
     or_bitmaps_inplace,
     ,
     (dst: &mut [BitStore], other: &[BitStore]),
 );
 
-/// Perform `&&` operation on two [`Bitmap`]s
-///
-/// Note that caller should guarantee `dst` and `other` have same length
+/// Perform `&` operation on two [`Bitmap`]s
 ///
 /// # Safety
 ///
 /// - `dst` should not referenced by any array
+///
+/// - If `dst` is not empty, `dst` and `other` should have same length
+#[inline]
 pub unsafe fn and_inplace(dst: &mut Bitmap, other: &Bitmap) {
-    debug_assert_eq!(dst.len(), other.len());
-    let mut guard = dst.mutate();
-    and_bitmaps_inplace_dynamic(guard.as_mut_slice(), other.as_raw_slice());
+    #[cfg(debug_assertions)]
+    {
+        if !dst.is_empty() && !other.is_empty() {
+            assert_eq!(dst.len(), other.len());
+        }
+    }
+
+    if other.all_valid() {
+        // Do nothing
+        return;
+    }
+    if dst.all_valid() {
+        // Copy from other. Compiler will optimize it to memory copy
+        let mut guard = dst.mutate();
+        let uninitialized = guard.clear_and_resize(other.len());
+        uninitialized
+            .iter_mut()
+            .zip(other.as_raw_slice())
+            .for_each(|(dst, &src)| *dst = src);
+    } else {
+        // Perform and operation
+        debug_assert_eq!(dst.len(), other.len());
+        let mut guard = dst.mutate();
+        and_bitmaps_inplace_dynamic(guard.as_mut_slice(), other.as_raw_slice());
+    }
+}
+
+/// Perform `&!` operation on two [`Bitmap`]s
+///
+/// # Safety
+///
+/// - `dst` should not referenced by any array
+///
+/// - If `dst`/`other` is not empty, they should have same length with len
+#[inline]
+pub unsafe fn and_not_inplace(dst: &mut Bitmap, other: &Bitmap, len: usize) {
+    #[cfg(debug_assertions)]
+    {
+        if !dst.is_empty() {
+            assert_eq!(dst.len(), len);
+        }
+
+        if !other.is_empty() {
+            assert_eq!(other.len(), len);
+        }
+    }
+
+    if other.all_valid() {
+        // & false, set to false
+        dst.mutate()
+            .clear_and_resize(len)
+            .iter_mut()
+            .for_each(|v| *v = 0);
+    } else if other.count_zeros() != len {
+        if dst.is_empty() {
+            not_bitmap_dynamic(other.as_raw_slice(), dst.mutate().clear_and_resize(len));
+        } else {
+            and_not_bitmaps_inplace_dynamic(dst.mutate().as_mut_slice(), other.as_raw_slice());
+        }
+    } else {
+        // & true, do nothing
+    }
 }
 
 /// Perform `||` operation on two [`Bitmap`]s
@@ -270,31 +344,30 @@ pub unsafe fn and_inplace(dst: &mut Bitmap, other: &Bitmap) {
 /// # Safety
 ///
 /// - `dst` should not referenced by any array
+///
+/// - If `dst` is not all valid, `dst` and `other` should have same length
 pub unsafe fn or_inplace(dst: &mut Bitmap, other: &Bitmap) {
-    debug_assert_eq!(dst.len(), other.len());
-    let mut guard = dst.mutate();
-    or_bitmaps_inplace_dynamic(guard.as_mut_slice(), other.as_raw_slice());
-}
+    #[cfg(debug_assertions)]
+    {
+        if !dst.is_empty() && !other.is_empty() {
+            assert_eq!(dst.len(), other.len());
+        }
+    }
 
-macro_rules! not_bitmap_inplace {
-    ($dst:ident) => {
-        $dst.iter_mut().for_each(|v| *v = !*v)
-    };
-}
-
-crate::dynamic_func!(
-    not_bitmap_inplace,
-    ,
-    (dst: &mut [BitStore]),
-);
-
-/// Perform `NOT` operation on [`Bitmap`]
-///
-/// # Safety
-///
-/// - `dst` should not referenced by any array
-pub unsafe fn not_inplace(dst: &mut Bitmap) {
-    not_bitmap_inplace_dynamic(dst.mutate().as_mut_slice())
+    if dst.all_valid() {
+        // Do nothing
+        return;
+    }
+    if other.all_valid() {
+        // Set dst to all true
+        let mut guard = dst.mutate();
+        let uninitialized = guard.clear_and_resize(other.len());
+        uninitialized.iter_mut().for_each(|dst| *dst = 0);
+    } else {
+        debug_assert_eq!(dst.len(), other.len());
+        let mut guard = dst.mutate();
+        or_bitmaps_inplace_dynamic(guard.as_mut_slice(), other.as_raw_slice());
+    }
 }
 
 #[cfg(test)]
@@ -324,7 +397,7 @@ mod tests {
             Some(true),
         ]);
 
-        let mut dst = BooleanArray::new(LogicalType::Boolean).unwrap();
+        let mut dst = BooleanArray::try_new(LogicalType::Boolean).unwrap();
         unsafe { and(&lhs, &rhs, &mut dst) };
         assert_eq!(
             dst.values_iter().collect::<Vec<_>>(),
@@ -375,7 +448,7 @@ mod tests {
             Some(true),
         ]);
 
-        let mut dst = BooleanArray::new(LogicalType::Boolean).unwrap();
+        let mut dst = BooleanArray::try_new(LogicalType::Boolean).unwrap();
         unsafe { or(&lhs, &rhs, &mut dst) };
         assert_eq!(
             dst.values_iter().collect::<Vec<_>>(),
@@ -416,7 +489,7 @@ mod tests {
             Some(false),
         ]);
 
-        let dst = &mut BooleanArray::new(LogicalType::Boolean).unwrap();
+        let dst = &mut BooleanArray::try_new(LogicalType::Boolean).unwrap();
         unsafe { and_scalar(&lhs, true, dst) };
         assert_eq!(
             dst.values_iter().collect::<Vec<_>>(),
@@ -449,10 +522,5 @@ mod tests {
             or_inplace(&mut dst, &other);
         }
         assert_eq!(dst.as_raw_slice(), &[0xff01, 0xff]);
-
-        unsafe {
-            not_inplace(&mut dst);
-        }
-        assert_eq!(dst.as_raw_slice(), &[!0xff01, !0xff]);
     }
 }

@@ -115,18 +115,18 @@ macro_rules! intrinsic_cmp_scalar {
     ($ty:ty) => {
         paste::paste! {
             impl PrimitiveCmpElement for $ty {
-                const EQ_FUNC_AVX2: CmpFunc<Self> = [<eq_scalar_ $ty _avx2_>];
-                const EQ_FUNC_SSE2: CmpFunc<Self> = [<eq_scalar_ $ty _sse2_>];
-                const NE_FUNC_AVX2: CmpFunc<Self> = [<ne_scalar_ $ty _avx2_>];
-                const NE_FUNC_SSE2: CmpFunc<Self> = [<ne_scalar_ $ty _sse2_>];
-                const GT_FUNC_AVX2: CmpFunc<Self> = [<gt_scalar_ $ty _avx2_>];
-                const GT_FUNC_SSE2: CmpFunc<Self> = [<gt_scalar_ $ty _sse2_>];
-                const GE_FUNC_AVX2: CmpFunc<Self> = [<ge_scalar_ $ty _avx2_>];
-                const GE_FUNC_SSE2: CmpFunc<Self> = [<ge_scalar_ $ty _sse2_>];
-                const LT_FUNC_AVX2: CmpFunc<Self> = [<lt_scalar_ $ty _avx2_>];
-                const LT_FUNC_SSE2: CmpFunc<Self> = [<lt_scalar_ $ty _sse2_>];
-                const LE_FUNC_AVX2: CmpFunc<Self> = [<le_scalar_ $ty _avx2_>];
-                const LE_FUNC_SSE2: CmpFunc<Self> = [<le_scalar_ $ty _sse2_>];
+                const EQ_SCALAR_AVX2: CmpFunc<Self> = [<eq_scalar_ $ty _avx2_>];
+                const EQ_SCALAR_SSE2: CmpFunc<Self> = [<eq_scalar_ $ty _sse2_>];
+                const NE_SCALAR_AVX2: CmpFunc<Self> = [<ne_scalar_ $ty _avx2_>];
+                const NE_SCALAR_SSE2: CmpFunc<Self> = [<ne_scalar_ $ty _sse2_>];
+                const GT_SCALAR_AVX2: CmpFunc<Self> = [<gt_scalar_ $ty _avx2_>];
+                const GT_SCALAR_SSE2: CmpFunc<Self> = [<gt_scalar_ $ty _sse2_>];
+                const GE_SCALAR_AVX2: CmpFunc<Self> = [<ge_scalar_ $ty _avx2_>];
+                const GE_SCALAR_SSE2: CmpFunc<Self> = [<ge_scalar_ $ty _sse2_>];
+                const LT_SCALAR_AVX2: CmpFunc<Self> = [<lt_scalar_ $ty _avx2_>];
+                const LT_SCALAR_SSE2: CmpFunc<Self> = [<lt_scalar_ $ty _sse2_>];
+                const LE_SCALAR_AVX2: CmpFunc<Self> = [<le_scalar_ $ty _avx2_>];
+                const LE_SCALAR_SSE2: CmpFunc<Self> = [<le_scalar_ $ty _sse2_>];
             }
         }
     };
@@ -151,18 +151,18 @@ macro_rules! impl_primitive_cmp_trait {
         $le_avx2:ident, $le_sse2:ident
     ) => {
         impl PrimitiveCmpElement for $ty {
-            const EQ_FUNC_AVX2: CmpFunc<Self> = $eq_avx2;
-            const EQ_FUNC_SSE2: CmpFunc<Self> = $eq_sse2;
-            const NE_FUNC_AVX2: CmpFunc<Self> = $ne_avx2;
-            const NE_FUNC_SSE2: CmpFunc<Self> = $ne_sse2;
-            const GT_FUNC_AVX2: CmpFunc<Self> = $gt_avx2;
-            const GT_FUNC_SSE2: CmpFunc<Self> = $gt_sse2;
-            const GE_FUNC_AVX2: CmpFunc<Self> = $ge_avx2;
-            const GE_FUNC_SSE2: CmpFunc<Self> = $ge_sse2;
-            const LT_FUNC_AVX2: CmpFunc<Self> = $lt_avx2;
-            const LT_FUNC_SSE2: CmpFunc<Self> = $lt_sse2;
-            const LE_FUNC_AVX2: CmpFunc<Self> = $le_avx2;
-            const LE_FUNC_SSE2: CmpFunc<Self> = $le_sse2;
+            const EQ_SCALAR_AVX2: CmpFunc<Self> = $eq_avx2;
+            const EQ_SCALAR_SSE2: CmpFunc<Self> = $eq_sse2;
+            const NE_SCALAR_AVX2: CmpFunc<Self> = $ne_avx2;
+            const NE_SCALAR_SSE2: CmpFunc<Self> = $ne_sse2;
+            const GT_SCALAR_AVX2: CmpFunc<Self> = $gt_avx2;
+            const GT_SCALAR_SSE2: CmpFunc<Self> = $gt_sse2;
+            const GE_SCALAR_AVX2: CmpFunc<Self> = $ge_avx2;
+            const GE_SCALAR_SSE2: CmpFunc<Self> = $ge_sse2;
+            const LT_SCALAR_AVX2: CmpFunc<Self> = $lt_avx2;
+            const LT_SCALAR_SSE2: CmpFunc<Self> = $lt_sse2;
+            const LE_SCALAR_AVX2: CmpFunc<Self> = $le_avx2;
+            const LE_SCALAR_SSE2: CmpFunc<Self> = $le_sse2;
         }
     };
 }

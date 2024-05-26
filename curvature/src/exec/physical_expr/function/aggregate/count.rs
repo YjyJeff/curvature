@@ -109,11 +109,9 @@ impl<const STAR: bool> AggregationFunction for Count<STAR> {
             len as u64
         } else {
             let validity = payloads[0].validity();
-            if validity.is_empty() {
-                len as u64
-            } else {
-                validity.count_ones() as u64
-            }
+            validity
+                .count_ones()
+                .map_or(len as u64, |count_ones| count_ones as u64)
         };
         let state = states_ptr.offset_as_mut::<CountState>(state_offset);
         state.0 += len;

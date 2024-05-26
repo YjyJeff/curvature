@@ -99,12 +99,20 @@ impl SinkTrait for Sink {
 /// A fragment of the `PhysicalPlan` that can be executed in parallel. It consists of
 /// `Source`, `Regular` and `Sink` operators.
 ///
-/// The generic parameter `S` represents the `Sink` operator in the pipeline. There are
-/// two kinds of pipelines: with sink and without sink. The pipeline without sink is the
-/// root pipeline(pipeline without parent). We use the `()` type to represent the pipeline
-/// without sink and `Sink` type to represent the pipeline with sink.
+/// You can not build a single [`Pipeline`] from multiple operators. The only way to get
+/// it is through [Pipelines::try_new](Pipelines::try_new()) method. It will create a
+/// DAG that consists of [`Pipeline`]
 ///
-/// # Generic instead of Option
+/// # **Generic instead of Option**
+///
+/// The generic parameter `S` represents the `Sink` operator in the pipeline. There are
+/// two kinds of pipelines:
+///
+/// - with sink: It is a child pipeline(pipeline with parent). We use the `sink operator`
+/// to represent it
+///
+/// - without sink: It is the root pipeline(pipeline without parent). We use the `()` type
+/// to represent it
 ///
 /// As you can see, we can wrap the `Sink` type with [`Option`] to represent these two
 /// kinds of pipelines, why do we use generic here? The advantages of generic:

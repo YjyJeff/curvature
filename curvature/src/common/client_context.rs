@@ -30,12 +30,14 @@ impl ClientContext {
     /// Whether or not this query is cancelled
     #[inline]
     pub fn is_cancelled(&self) -> bool {
+        // We just want to know it is cancelled or not, do not sync other data. Relaxed is enough
         self.is_cancelled.load(Ordering::Relaxed)
     }
 
     /// Cancel the query
     #[inline]
     pub fn cancel(&self) {
+        // We just want to know it is cancelled or not, do not sync other data. Relaxed is enough
         self.is_cancelled.store(true, Ordering::Relaxed);
     }
 }

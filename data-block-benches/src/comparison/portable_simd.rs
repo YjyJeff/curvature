@@ -1,8 +1,7 @@
 // Looks like it outperforms manually SIMD
 
-use std::simd::{
-    f32x16, f64x8, i16x32, i32x16, i64x8, i8x64, Mask, SimdElement, SimdPartialOrd, ToBitMask,
-};
+use std::simd::cmp::SimdPartialOrd;
+use std::simd::{f32x16, f64x8, i16x32, i32x16, i64x8, i8x64, Mask, SimdElement};
 
 pub trait SimdNative {
     type SimdXLanes: SimdXLanes<Native = Self>;

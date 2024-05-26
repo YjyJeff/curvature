@@ -8,7 +8,8 @@ pub use std::time::Instant;
 #[cfg(not(miri))]
 pub use quanta::Instant;
 
-/// Guard for profiling
+/// Guard for profiling. When the guard goes out of scope, it will and its duration
+/// into the `accumulation` metric
 #[derive(Debug)]
 pub struct ScopedTimerGuard<'a> {
     now: Instant,

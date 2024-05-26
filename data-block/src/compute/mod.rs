@@ -1,4 +1,11 @@
 //! Computation of arrays
+
+macro_rules! debug_assert_selection_is_valid {
+    ($selection:ident, $array:ident) => {
+        debug_assert!($selection.is_empty() || $selection.len() == $array.len());
+    };
+}
+
 pub mod arith;
 pub mod comparison;
 pub mod logical;
@@ -66,7 +73,6 @@ pub use portable_simd::*;
 mod portable_simd {
     use super::IntrinsicType;
     use crate::aligned_vec::AlignedVec;
-    use crate::array::primitive::PrimitiveType;
     use crate::utils::roundup_loops;
     use std::simd::{f32x16, f64x8, i16x32, i32x16, i64x8, i8x64, u16x32, u32x16, u64x8, u8x64};
 

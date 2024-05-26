@@ -5,7 +5,7 @@ use data_block::block::{DataBlock, SendableDataBlock};
 use data_block::types::LogicalType;
 use std::collections::{HashMap, VecDeque};
 use std::fmt::Debug;
-use std::mem::ManuallyDrop;
+use std::mem::take;
 use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::Arc;
 
@@ -42,8 +42,10 @@ pub enum MemoryTableScanError {
 type Result<T> = std::result::Result<T, MemoryTableScanError>;
 
 /// Task queue, that can only consume
+///
+/// TODO: Benchmark the performance
 struct StaticTaskQueue {
-    inner: ManuallyDrop<Vec<SendableDataBlock>>,
+    inner: Vec<SendableDataBlock>,
     /// Ptr to start of the inner
     ptr: *const SendableDataBlock,
 
@@ -65,7 +67,7 @@ impl Drop for StaticTaskQueue {
         let len = std::cmp::max(idx + 1, 0);
         // SAFETY: drop data here, no one can use inner anymore
         unsafe {
-            let mut inner = ManuallyDrop::take(&mut self.inner);
+            let mut inner = take(&mut self.inner);
             // Set the len, such that we can drop the remaining T in queue. Tasks greater than
             // len will be dropped by consumer
             inner.set_len(len as usize);
@@ -78,7 +80,7 @@ impl StaticTaskQueue {
         let idx = blocks.len() as isize - 1;
         let ptr = blocks.as_ptr();
         Self {
-            inner: ManuallyDrop::new(blocks),
+            inner: blocks,
             ptr,
             idx: CachePadded::new(AtomicIsize::new(idx)),
         }

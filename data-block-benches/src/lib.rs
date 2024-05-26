@@ -5,15 +5,6 @@ pub mod bitmap;
 pub mod comparison;
 mod macros;
 
-#[cfg(feature = "portable_simd")]
-pub use comparison::portable_simd::ge_scalar;
-
-/// Wtf
-#[cfg(feature = "portable_simd")]
-pub fn wtf(lhs: &[i8], rhs: i8, dst: &mut [u64]) {
-    unsafe { ge_scalar(lhs, rhs, dst) }
-}
-
 use rand::distributions::{Alphanumeric, DistString, Distribution, Standard};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};

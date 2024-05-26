@@ -23,7 +23,7 @@ use_types_for_impl_sink_for_non_sink!();
     left,
     right
 ))]
-pub struct InputsTypeMismatch {
+pub struct UnionInputError {
     left: Vec<LogicalType>,
     right: Vec<LogicalType>,
 }
@@ -47,12 +47,12 @@ impl Union {
     pub fn try_new(
         left: Arc<dyn PhysicalOperator>,
         right: Arc<dyn PhysicalOperator>,
-    ) -> Result<Self, InputsTypeMismatch> {
+    ) -> Result<Self, UnionInputError> {
         let left_output_types = left.output_types();
         let right_output_types = right.output_types();
         ensure!(
             left_output_types == right_output_types,
-            InputsTypeMismatchSnafu {
+            UnionInputSnafu {
                 left: left_output_types.to_owned(),
                 right: right_output_types.to_owned(),
             }

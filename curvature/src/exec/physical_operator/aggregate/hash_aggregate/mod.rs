@@ -928,7 +928,8 @@ impl<S: Serde> SourceOperatorExt for HashAggregate<S> {
             (*local_state.read_count).fetch_add(local_state.state_ptrs.len(), Relaxed);
         }
 
-        // SAFETY: I know what I'am doing now
+        // SAFETY: We are going to deserialize and take the states into the output array
+        // Manually guarantee the array has same length
         unsafe {
             let mutate_guard = output.mutate();
             let (group_by_arrays, agg_output_arrays) = mutate_guard

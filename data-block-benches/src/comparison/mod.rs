@@ -1,5 +1,5 @@
-#[cfg(feature = "portable_simd")]
-pub mod portable_simd;
+// #[cfg(feature = "portable_simd")]
+// pub mod portable_simd;
 
 #[inline]
 pub fn cmp<T, F>(lhs: &[T], rhs: T, dst: &mut [bool], cmp_func: F)

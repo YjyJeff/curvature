@@ -1,30 +1,21 @@
 //! [`FieldRef`] expression
 
 use data_block::array::ArrayImpl;
+use data_block::bitmap::Bitmap;
 use data_block::block::DataBlock;
-use data_block::types::LogicalType;
-use snafu::Snafu;
+use data_block::compute::logical::and_inplace;
+use data_block::types::{Array, LogicalType};
 use std::sync::Arc;
 
 use super::executor::ExprExecCtx;
 use super::{ExprResult, PhysicalExpr, Stringify};
 
-#[allow(missing_docs)]
-#[derive(Debug, Snafu)]
-pub enum Error {
-    #[snafu(display(
-        "FieldIndex: `{}` is out of range. The input DataChunk only has {} arrays. 
-         Planner should guarantee it never happens, it has fatal bug 😭",
-        field_index,
-        num_fields
-    ))]
-    IndexOutOfRange {
-        field_index: usize,
-        num_fields: usize,
-    },
-}
-
 /// Represents a reference of the field in the `DataBlock` that passed through the executor
+///
+/// # Note
+///
+/// It is the only one expression that do not store the result in the `selection` if the
+/// field has `Boolean` type
 #[derive(Debug)]
 pub struct FieldRef {
     /// Index of the field
@@ -46,6 +37,30 @@ impl FieldRef {
             field,
             children: Vec::new(),
         }
+    }
+
+    /// Copy the filed into the selection array. Only the [`Conjunction`] expression will call it
+    ///
+    /// [`Conjunction`]: crate::exec::physical_expr::conjunction::Conjunction
+    ///
+    /// # Safety
+    ///
+    /// `selection` should be all valid or has the same length with `input.len()`
+    pub(crate) unsafe fn copy_into_selection(&self, input: &DataBlock, selection: &mut Bitmap) {
+        let array = input.get_array(self.field_index).unwrap_or_else(|| {
+            panic!(
+                "`FieldRef` with index {}, however the leaf_input only have `{}` arrays",
+                self.field_index,
+                input.num_arrays(),
+            )
+        });
+
+        let ArrayImpl::Boolean(array) = array else {
+            panic!("`copy_into_selection` requires the input array is an `BooleanArray`, found `{}`Array", array.ident())
+        };
+
+        and_inplace(selection, array.data());
+        and_inplace(selection, array.validity());
     }
 }
 
@@ -87,6 +102,7 @@ impl PhysicalExpr for FieldRef {
     fn execute(
         &self,
         leaf_input: &DataBlock,
+        _selection: &mut Bitmap,
         _exec_ctx: &mut ExprExecCtx,
         output: &mut ArrayImpl,
     ) -> ExprResult<()> {
@@ -101,6 +117,8 @@ impl PhysicalExpr for FieldRef {
         output
             .reference(input)
             .unwrap_or_else(|e| panic!("`FieldRef`'s output is invalid, {}", e));
+
+        debug_assert_eq!(output.len(), leaf_input.len());
 
         Ok(())
     }
@@ -130,7 +148,12 @@ mod tests {
         let output = &mut ArrayImpl::String(StringArray::new(LogicalType::VarChar).unwrap());
 
         field_ref
-            .execute(&input, &mut ExprExecCtx::new(&field_ref), output)
+            .execute(
+                &input,
+                &mut Bitmap::new(),
+                &mut ExprExecCtx::new(&field_ref),
+                output,
+            )
             .unwrap();
 
         let expect = expect![[r#"

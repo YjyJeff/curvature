@@ -20,6 +20,7 @@ pub use crate::compute::IntrinsicSimdType;
 
 pub use crate::array::Array;
 use crate::element::interval::DayTime;
+use crate::element::ElementImpl;
 pub use crate::element::{Element, ElementRef};
 
 /// Physical type has a one-to-one mapping to each struct that implements [`Element`]
@@ -325,5 +326,25 @@ impl LogicalType {
         } else {
             None
         }
+    }
+
+    /// Returns true if the logical type can be put into the [`ElementImpl`]
+    pub fn is_fit(&self, element: &ElementImpl) -> bool {
+        if self.physical_type() != element.physical_type() {
+            return false;
+        }
+
+        if let (
+            Self::List {
+                element_type,
+                is_nullable: _,
+            },
+            ElementImpl::List(list_element),
+        ) = (self, element)
+        {
+            return &**element_type == list_element.child_type();
+        }
+
+        true
     }
 }

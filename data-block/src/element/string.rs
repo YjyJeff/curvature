@@ -254,13 +254,15 @@ impl<'a> PartialEq<StringView<'a>> for StringView<'_> {
 
 impl Eq for StringView<'_> {}
 
-impl PartialOrd for StringView<'_> {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+impl<'a> PartialOrd<StringView<'a>> for StringView<'_> {
+    #[inline]
+    fn partial_cmp(&self, other: &StringView<'a>) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
 impl Ord for StringView<'_> {
+    #[inline]
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         // Compare the ordering of the prefix
         match self
@@ -499,5 +501,75 @@ mod tests {
         string_element.replace_with(StringView::from_static_str(s2));
         assert_eq!(string_element.as_str(), s2);
         assert!(string_element._data.is_some());
+    }
+
+    #[test]
+    fn test_string_view_eq() {
+        fn assert_eq(lhs: &'static str, rhs: &'static str) {
+            let lhs = StringView::from_static_str(lhs);
+            let rhs = StringView::from_static_str(rhs);
+            assert_eq!(lhs, rhs)
+        }
+        // Inlined
+        assert_eq("abc", "abc");
+        // Not inlined
+        assert_eq("StringView comparison", "StringView comparison");
+    }
+
+    #[test]
+    fn test_string_view_ne() {
+        fn assert_ne(lhs: &'static str, rhs: &'static str) {
+            let lhs = StringView::from_static_str(lhs);
+            let rhs = StringView::from_static_str(rhs);
+            assert_ne!(lhs, rhs)
+        }
+
+        // Same prefix, different length
+        assert_ne("http://bb", "http://bbb");
+
+        // Different prefix, same length
+        assert_ne("tcp", "udp");
+
+        // Same prefix, same size, inlined
+        assert_ne("http://bb", "http://aa");
+
+        // Same prefix, same size, not inlined
+        assert_ne("Curvature is fast", "Curvature is slow");
+    }
+
+    #[test]
+    fn test_string_view_cmp() {
+        // Order is determined by prefix
+        let lhs = StringView::from_static_str("hello");
+        let rhs = StringView::from_static_str("https");
+        assert!(lhs < rhs);
+
+        // Prefix is equal, one ends within prefix
+        let lhs = StringView::from_static_str("https");
+        let rhs = StringView::from_static_str("http");
+        assert!(lhs > rhs);
+
+        let lhs = StringView::from_static_str("h\0\0\0ihi");
+        let rhs = StringView::from_static_str("h");
+        assert!(lhs > rhs);
+
+        // Prefix is equal and both of them are inlined
+        let lhs = StringView::from_static_str("haha, oops");
+        let rhs = StringView::from_static_str("haha, oop");
+        assert!(lhs >= rhs);
+
+        let lhs = StringView::from_static_str("haha, oops\0\0");
+        let rhs = StringView::from_static_str("haha, oops");
+        assert!(lhs >= rhs);
+
+        // Prefix is equal, one of them are inlined
+        let lhs = StringView::from_static_str("Curvature is fast");
+        let rhs = StringView::from_static_str("Curvature");
+        assert!(rhs < lhs);
+
+        // Prefix is equal, both of tem are not inlined
+        let lhs = StringView::from_static_str("Curvature is fast");
+        let rhs = StringView::from_static_str("Curvature is slow");
+        assert!(rhs >= lhs);
     }
 }

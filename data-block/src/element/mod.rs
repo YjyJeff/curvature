@@ -261,6 +261,17 @@ macro_rules! element_impl {
                 $variant($element_ty)
             ),+
         }
+
+        impl ElementImpl {
+            /// Get physical type of the element
+            pub fn physical_type(&self) -> PhysicalType {
+                match self {
+                    $(
+                        Self::$variant(_) => <$element_ty>::PHYSICAL_TYPE,
+                    )+
+                }
+            }
+        }
     };
 }
 

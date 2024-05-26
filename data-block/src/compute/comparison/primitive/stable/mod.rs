@@ -12,11 +12,12 @@
 use crate::aligned_vec::AlignedVec;
 use crate::array::primitive::PrimitiveType;
 use crate::array::{Array, BooleanArray, PrimitiveArray};
-use crate::bitmap::BitStore;
+use crate::bitmap::{BitStore, Bitmap};
 use crate::compute::comparison::primitive::{
     eq_scalar_default_, ge_scalar_default_, gt_scalar_default_, le_scalar_default_,
     lt_scalar_default_, ne_scalar_default_,
 };
+use crate::compute::logical::and_inplace;
 
 // TBD: Following implementation heavily depends on the reading intrinsic types from
 // uninitialized  memory optimization. However, it is undefined behavior in the Rust.
@@ -29,121 +30,329 @@ use crate::compute::comparison::primitive::{
 // https://langdev.stackexchange.com/questions/2870/why-would-accessing-uninitialized-memory-necessarily-be-undefined-behavior
 
 /// Miri does not support neon, see [issue](https://github.com/rust-lang/miri/issues/3243)
-#[cfg(all(any(target_arch = "arm", target_arch = "aarch64"), not(miri)))]
+#[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
 mod arm;
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 mod x86;
 
+macro_rules! cmp_scalar {
+    ($func:ident, $op:tt) => {
+        paste::paste! {
+            #[doc = concat!("Perform `", stringify!($op), "` operation between array and scalar, write the result to dst")]
+            /// # Panic
+            ///
+            /// Invariance: `dst.len() = roundup_loops(array.len(), 64)` should hold
+            #[inline]
+            fn $func(array: &AlignedVec<Self>, scalar: Self, dst: &mut [BitStore]) {
+                debug_assert_eq!(dst.len(), crate::utils::roundup_loops(array.len(), 64));
+
+                let uninitialized = dst.as_mut_ptr();
+
+                // SAFETY: The uninitialized slice has adequate valid space via `clear_and_resize`
+                unsafe {
+                    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                    {
+                        if std::arch::is_x86_feature_detected!("avx2") {
+                            return Self::[<$func:upper _AVX2>](array, scalar, uninitialized);
+                        } else {
+                            return Self::[<$func:upper _SSE2>](array, scalar, uninitialized);
+                        }
+                    }
+
+                    #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
+                    {
+                        if std::arch::is_aarch64_feature_detected!("neon") {
+                            return Self::[<$func:upper _NEON>](array, scalar, uninitialized);
+                        }
+                    }
+
+                    [<$func _default_>](array, scalar, uninitialized)
+                }
+            }
+        }
+    };
+}
+
 type CmpFunc<T> = unsafe fn(&AlignedVec<T>, T, *mut BitStore);
 
 /// TODO:
-/// - sse4.1 and neon
+/// - sse4.1 for i64/u64
 /// - Should we provide two traits: IntrinsicCmpElement and PrimitiveCmpElement?
 ///
 /// Comparison array with scalar functions associated with each primitive type
 pub trait PrimitiveCmpElement: PrimitiveType + PartialOrd {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     /// Equal function implemented with avx2
-    const EQ_FUNC_AVX2: CmpFunc<Self>;
+    const EQ_SCALAR_AVX2: CmpFunc<Self>;
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     /// Equal function implemented with sse2
-    const EQ_FUNC_SSE2: CmpFunc<Self>;
+    const EQ_SCALAR_SSE2: CmpFunc<Self>;
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     /// NotEqual function implemented with avx2
-    const NE_FUNC_AVX2: CmpFunc<Self>;
+    const NE_SCALAR_AVX2: CmpFunc<Self>;
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     /// NotEqual function implemented with sse2
-    const NE_FUNC_SSE2: CmpFunc<Self>;
+    const NE_SCALAR_SSE2: CmpFunc<Self>;
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     /// Greater than function implemented with avx2
-    const GT_FUNC_AVX2: CmpFunc<Self>;
+    const GT_SCALAR_AVX2: CmpFunc<Self>;
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     /// Greater than function implemented with sse2
-    const GT_FUNC_SSE2: CmpFunc<Self>;
+    const GT_SCALAR_SSE2: CmpFunc<Self>;
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     /// Greater than or equal to function implemented with avx2
-    const GE_FUNC_AVX2: CmpFunc<Self>;
+    const GE_SCALAR_AVX2: CmpFunc<Self>;
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     /// Greater than or equal to function implemented with sse2
-    const GE_FUNC_SSE2: CmpFunc<Self>;
+    const GE_SCALAR_SSE2: CmpFunc<Self>;
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     /// Less than function implemented with avx2
-    const LT_FUNC_AVX2: CmpFunc<Self>;
+    const LT_SCALAR_AVX2: CmpFunc<Self>;
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     /// Less than function implemented with sse2
-    const LT_FUNC_SSE2: CmpFunc<Self>;
+    const LT_SCALAR_SSE2: CmpFunc<Self>;
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     /// Less than or equal to function implemented with avx2
-    const LE_FUNC_AVX2: CmpFunc<Self>;
+    const LE_SCALAR_AVX2: CmpFunc<Self>;
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     /// Less than or equal to function implemented with sse2
-    const LE_FUNC_SSE2: CmpFunc<Self>;
+    const LE_SCALAR_SSE2: CmpFunc<Self>;
     #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
     /// Equal function implemented with neon
-    const EQ_FUNC_NEON: CmpFunc<Self>;
+    const EQ_SCALAR_NEON: CmpFunc<Self>;
     #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
     /// NotEqual function implemented with neon
-    const NE_FUNC_NEON: CmpFunc<Self>;
+    const NE_SCALAR_NEON: CmpFunc<Self>;
     #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
     /// Greater than function implemented with neon
-    const GT_FUNC_NEON: CmpFunc<Self>;
+    const GT_SCALAR_NEON: CmpFunc<Self>;
     #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
     /// Greater than or equal to function implemented with neon
-    const GE_FUNC_NEON: CmpFunc<Self>;
+    const GE_SCALAR_NEON: CmpFunc<Self>;
     #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
     /// Less than function implemented with neon
-    const LT_FUNC_NEON: CmpFunc<Self>;
+    const LT_SCALAR_NEON: CmpFunc<Self>;
     #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
     /// Less than or equal to function implemented with neon
-    const LE_FUNC_NEON: CmpFunc<Self>;
+    const LE_SCALAR_NEON: CmpFunc<Self>;
+
+    cmp_scalar!(eq_scalar, ==);
+    cmp_scalar!(ne_scalar, !=);
+    cmp_scalar!(gt_scalar, >);
+    cmp_scalar!(ge_scalar, >=);
+    cmp_scalar!(lt_scalar, <);
+    cmp_scalar!(le_scalar, <=);
 }
 
-macro_rules! cmp_scalar {
-    ($func_name:ident, $cmp_avx2:ident, $cmp_sse2:ident, $cmp_neon:ident, $cmp_default:ident, $op:tt) => {
-        #[cfg_attr(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64"), allow(unreachable_code))]
-        #[doc = concat!("Perform `lhs ", stringify!($op), " rhs` between `PrimitiveArray<T>` and `T`")]
-        /// # Safety
-        ///
-        /// - `lhs`'s data and validity should not reference `dst`'s data and validity. In the computation
-        /// graph, `lhs` must be the descendant of `dst`
-        ///
-        /// - No other arrays that reference the `dst`'s data and validity are accessed! In the
-        /// computation graph, it will never happens
-        pub unsafe fn $func_name<T>(lhs: &PrimitiveArray<T>, rhs: T, dst: &mut BooleanArray)
-        where
-            T: PrimitiveCmpElement,
-            PrimitiveArray<T>: Array,
-        {
-            // Reference dst's validity to lhs'validity
-            dst.validity.reference(&lhs.validity);
+/// # Safety
+///
+/// - If the `selection` is not empty, `array` and `selection` should have same length.
+/// Otherwise, undefined behavior happens
+///
+/// - `selection` should not be referenced by any array
+///
+/// - `array`'s data and validity should not reference `dst`'s data and validity. In the computation
+/// graph, `lhs` must be the descendant of `dst`
+///
+/// - No other arrays that reference the `dst`'s data and validity are accessed! In the
+/// computation graph, it will never happens
+#[inline]
+unsafe fn cmp_scalar<T>(
+    selection: &mut Bitmap,
+    array: &PrimitiveArray<T>,
+    scalar: T,
+    dst: &mut BooleanArray,
+    cmp_func: impl FnOnce(&AlignedVec<T>, T, &mut [BitStore]),
+    scalar_cmp_func: impl Fn(T, T) -> bool,
+) where
+    T: PrimitiveCmpElement,
+    PrimitiveArray<T>: Array<Element = T>,
+{
+    debug_assert_selection_is_valid!(selection, array);
 
-            let mut guard = dst.data.as_mut().mutate();
-            let uninitialized = guard.clear_and_resize(lhs.len()).as_mut_ptr();
+    and_inplace(selection, array.validity());
 
-            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            {
-                if std::arch::is_x86_feature_detected!("avx2") {
-                    return T::$cmp_avx2(&lhs.data, rhs, uninitialized);
-                } else {
-                    return T::$cmp_sse2(&lhs.data, rhs, uninitialized);
-                }
-            }
-
-            #[cfg(all(any(target_arch = "arm", target_arch = "aarch64"), not(miri)))]
-            {
-                if std::arch::is_aarch64_feature_detected!("neon"){
-                    return T::$cmp_neon(&lhs.data, rhs, uninitialized);
-                }
-            }
-
-            $cmp_default(&lhs.data, rhs, uninitialized);
-        }
-    };
+    // FIXME: According to selection, determine full or partial. Tune the parameter.
+    if selection.ones_ratio() < 0.0 {
+        // Partial computation
+        selection
+            .mutate()
+            .mutate_ones(|index| scalar_cmp_func(array.get_value_unchecked(index), scalar));
+    } else {
+        // Full computation
+        cmp_func(
+            &array.data,
+            scalar,
+            dst.data_mut().mutate().clear_and_resize(array.len()),
+        );
+        and_inplace(selection, dst.data());
+    }
 }
 
-cmp_scalar!(eq_scalar, EQ_FUNC_AVX2, EQ_FUNC_SSE2, EQ_FUNC_NEON, eq_scalar_default_, ==);
-cmp_scalar!(ne_scalar, NE_FUNC_AVX2, NE_FUNC_SSE2, NE_FUNC_NEON, ne_scalar_default_, !=);
-cmp_scalar!(gt_scalar, GT_FUNC_AVX2, GT_FUNC_SSE2, GT_FUNC_NEON, gt_scalar_default_, >);
-cmp_scalar!(ge_scalar, GE_FUNC_AVX2, GE_FUNC_SSE2, GE_FUNC_NEON, ge_scalar_default_, >=);
-cmp_scalar!(lt_scalar, LT_FUNC_AVX2, LT_FUNC_SSE2, LT_FUNC_NEON, lt_scalar_default_, <);
-cmp_scalar!(le_scalar, LE_FUNC_AVX2, LE_FUNC_SSE2, LE_FUNC_NEON, le_scalar_default_, <=);
+/// Perform `array == scalar` between `PrimitiveArray<T>` and `T`
+///
+/// # Safety
+///
+/// - If the `selection` is not empty, `array` and `selection` should have same length.
+/// Otherwise, undefined behavior happens
+///
+/// - `selection` should not be referenced by any array
+///
+/// - `array`'s data and validity should not reference `dst`'s data and validity. In the computation
+/// graph, `lhs` must be the descendant of `dst`
+///
+/// - No other arrays that reference the `dst`'s data and validity are accessed! In the
+/// computation graph, it will never happens
+pub unsafe fn eq_scalar<T>(
+    selection: &mut Bitmap,
+    array: &PrimitiveArray<T>,
+    scalar: T,
+    dst: &mut BooleanArray,
+) where
+    T: PrimitiveCmpElement,
+    PrimitiveArray<T>: Array<Element = T>,
+{
+    cmp_scalar(selection, array, scalar, dst, T::eq_scalar, |lhs, rhs| {
+        lhs == rhs
+    })
+}
+
+/// Perform `array != scalar` between `PrimitiveArray<T>` and `T`
+///
+/// # Safety
+///
+/// - If the `selection` is not empty, `array` and `selection` should have same length.
+/// Otherwise, undefined behavior happens
+///
+/// - `selection` should not be referenced by any array
+///
+/// - `array`'s data and validity should not reference `dst`'s data and validity. In the computation
+/// graph, `lhs` must be the descendant of `dst`
+///
+/// - No other arrays that reference the `dst`'s data and validity are accessed! In the
+/// computation graph, it will never happens
+pub unsafe fn ne_scalar<T>(
+    selection: &mut Bitmap,
+    array: &PrimitiveArray<T>,
+    scalar: T,
+    dst: &mut BooleanArray,
+) where
+    T: PrimitiveCmpElement,
+    PrimitiveArray<T>: Array<Element = T>,
+{
+    cmp_scalar(selection, array, scalar, dst, T::ne_scalar, |lhs, rhs| {
+        lhs != rhs
+    })
+}
+
+/// Perform `array > scalar` between `PrimitiveArray<T>` and `T`
+///
+/// # Safety
+///
+/// - If the `selection` is not empty, `array` and `selection` should have same length.
+/// Otherwise, undefined behavior happens
+///
+/// - `selection` should not be referenced by any array
+///
+/// - `array`'s data and validity should not reference `dst`'s data and validity. In the computation
+/// graph, `lhs` must be the descendant of `dst`
+///
+/// - No other arrays that reference the `dst`'s data and validity are accessed! In the
+/// computation graph, it will never happens
+pub unsafe fn gt_scalar<T>(
+    selection: &mut Bitmap,
+    array: &PrimitiveArray<T>,
+    scalar: T,
+    dst: &mut BooleanArray,
+) where
+    T: PrimitiveCmpElement,
+    PrimitiveArray<T>: Array<Element = T>,
+{
+    cmp_scalar(selection, array, scalar, dst, T::gt_scalar, |lhs, rhs| {
+        lhs > rhs
+    })
+}
+
+/// Perform `array >= scalar` between `PrimitiveArray<T>` and `T`
+///
+/// # Safety
+///
+/// - If the `selection` is not empty, `array` and `selection` should have same length.
+/// Otherwise, undefined behavior happens
+///
+/// - `selection` should not be referenced by any array
+///
+/// - `array`'s data and validity should not reference `dst`'s data and validity. In the computation
+/// graph, `lhs` must be the descendant of `dst`
+///
+/// - No other arrays that reference the `dst`'s data and validity are accessed! In the
+/// computation graph, it will never happens
+pub unsafe fn ge_scalar<T>(
+    selection: &mut Bitmap,
+    array: &PrimitiveArray<T>,
+    scalar: T,
+    dst: &mut BooleanArray,
+) where
+    T: PrimitiveCmpElement,
+    PrimitiveArray<T>: Array<Element = T>,
+{
+    cmp_scalar(selection, array, scalar, dst, T::ge_scalar, |lhs, rhs| {
+        lhs >= rhs
+    })
+}
+
+/// Perform `array < scalar` between `PrimitiveArray<T>` and `T`
+///
+/// # Safety
+///
+/// - If the `selection` is not empty, `array` and `selection` should have same length.
+/// Otherwise, undefined behavior happens
+///
+/// - `selection` should not be referenced by any array
+///
+/// - `array`'s data and validity should not reference `dst`'s data and validity. In the computation
+/// graph, `lhs` must be the descendant of `dst`
+///
+/// - No other arrays that reference the `dst`'s data and validity are accessed! In the
+/// computation graph, it will never happens
+pub unsafe fn lt_scalar<T>(
+    selection: &mut Bitmap,
+    array: &PrimitiveArray<T>,
+    scalar: T,
+    dst: &mut BooleanArray,
+) where
+    T: PrimitiveCmpElement,
+    PrimitiveArray<T>: Array<Element = T>,
+{
+    cmp_scalar(selection, array, scalar, dst, T::lt_scalar, |lhs, rhs| {
+        lhs < rhs
+    })
+}
+
+/// Perform `array <= scalar` between `PrimitiveArray<T>` and `T`
+///
+/// # Safety
+///
+/// - If the `selection` is not empty, `array` and `selection` should have same length.
+/// Otherwise, undefined behavior happens
+///
+/// - `selection` should not be referenced by any array
+///
+/// - `array`'s data and validity should not reference `dst`'s data and validity. In the computation
+/// graph, `lhs` must be the descendant of `dst`
+///
+/// - No other arrays that reference the `dst`'s data and validity are accessed! In the
+/// computation graph, it will never happens
+pub unsafe fn le_scalar<T>(
+    selection: &mut Bitmap,
+    array: &PrimitiveArray<T>,
+    scalar: T,
+    dst: &mut BooleanArray,
+) where
+    T: PrimitiveCmpElement,
+    PrimitiveArray<T>: Array<Element = T>,
+{
+    cmp_scalar(selection, array, scalar, dst, T::le_scalar, |lhs, rhs| {
+        lhs <= rhs
+    })
+}
