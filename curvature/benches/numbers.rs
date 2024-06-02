@@ -3,7 +3,6 @@
 #![allow(missing_docs)]
 
 use std::num::NonZeroU64;
-use std::ops::DerefMut;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -73,13 +72,21 @@ fn bench_read_numbers(c: &mut Criterion) {
                     let end = (i as u64 + 1) * count_per_thread;
                     while start < end {
                         let end = std::cmp::min(start + STANDARD_VECTOR_SIZE as u64, end);
-                        let mut guard = output.mutate_single_array();
-                        if let ArrayImpl::UInt64(array) = guard.deref_mut() {
-                            unsafe { sequence(array, start, end) }
-                            sum.fetch_add(array.values_iter().sum::<u64>(), Ordering::Relaxed);
-                        } else {
-                            unreachable!()
-                        }
+                        let guard = output.mutate_single_array((end - start) as _);
+                        guard
+                            .mutate(|array| {
+                                if let ArrayImpl::UInt64(array) = array {
+                                    unsafe { sequence(array, start, end) }
+                                    sum.fetch_add(
+                                        array.values_iter().sum::<u64>(),
+                                        Ordering::Relaxed,
+                                    );
+                                    Ok::<_, curvature::error::BangError>(())
+                                } else {
+                                    unreachable!()
+                                }
+                            })
+                            .unwrap();
                         start = end;
                     }
                 });

@@ -21,7 +21,7 @@ use_types_for_impl_sink_for_non_sink!();
 #[derive(Debug)]
 pub struct EmptyTableScan {
     output_types: Vec<LogicalType>,
-    _children: Vec<Arc<dyn PhysicalOperator>>,
+    _children: [Arc<dyn PhysicalOperator>; 0],
 }
 
 impl EmptyTableScan {
@@ -29,7 +29,7 @@ impl EmptyTableScan {
     pub fn new(output_types: Vec<LogicalType>) -> Self {
         Self {
             output_types,
-            _children: Vec::new(),
+            _children: [],
         }
     }
 }
@@ -88,7 +88,7 @@ impl Stringify for EmptyTableScan {
     }
 
     fn display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "EmptyTableScan: output_types={:?}", self.output_types)
+        write!(f, "EmptyTableScan")
     }
 }
 

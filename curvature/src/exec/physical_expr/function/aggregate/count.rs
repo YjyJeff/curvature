@@ -8,7 +8,7 @@ use std::alloc::Layout;
 use super::{AggregationFunction, AggregationStatesPtr, Result, Stringify};
 
 /// Count(*) function
-pub type CountStart = Count<true>;
+pub type CountStar = Count<true>;
 
 /// Aggregation state of the count function
 #[derive(Debug)]
@@ -164,7 +164,7 @@ impl<const STAR: bool> AggregationFunction for Count<STAR> {
     unsafe fn drop_states(&self, _state_ptrs: &[AggregationStatesPtr], _state_offset: usize) {}
 }
 
-impl CountStart {
+impl CountStar {
     /// Create a new `Count(*)`
     #[inline]
     pub fn new() -> Self {
@@ -172,7 +172,7 @@ impl CountStart {
     }
 }
 
-impl Default for CountStart {
+impl Default for CountStar {
     #[inline]
     fn default() -> Self {
         Self::new()

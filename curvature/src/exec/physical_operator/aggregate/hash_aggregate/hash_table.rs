@@ -239,7 +239,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::exec::physical_expr::function::aggregate::count::CountStart;
+    use crate::exec::physical_expr::function::aggregate::count::CountStar;
     use crate::exec::physical_expr::function::aggregate::sum::Sum;
     use crate::exec::physical_expr::function::aggregate::{AggregationError, AggregationFunction};
     use crate::exec::physical_operator::aggregate::hash_aggregate::serde::FixedSizedSerdeKeySerializer;
@@ -250,7 +250,7 @@ mod tests {
         Report::capture(|| {
             let mut table = HashTable::<FixedSizedSerdeKeySerializer<u16>>::new();
             let agg_funcs: Vec<Arc<dyn AggregationFunction>> = vec![
-                Arc::new(CountStart::new()),
+                Arc::new(CountStar::new()),
                 Arc::new(Sum::<Int64Array>::try_new(LogicalType::BigInt)?),
             ];
             let agg_func_list = AggregationFunctionList::new(agg_funcs);
@@ -298,12 +298,11 @@ mod tests {
                 LogicalType::UnsignedBigInt,
                 LogicalType::BigInt,
             ]);
-            let guard = output.mutate_arrays();
-            unsafe {
-                let mutate_func =
-                    |arrays: &mut [ArrayImpl]| agg_func_list.take_states(&table.state_ptrs, arrays);
-                guard.mutate(mutate_func).unwrap();
-            }
+            let guard = output.mutate_arrays(3);
+            let mutate_func = |arrays: &mut [ArrayImpl]| unsafe {
+                agg_func_list.take_states(&table.state_ptrs, arrays)
+            };
+            guard.mutate(mutate_func).unwrap();
 
             assert_data_block(&output, ["4,-14,", "2,Null,", "4,12,"]);
 

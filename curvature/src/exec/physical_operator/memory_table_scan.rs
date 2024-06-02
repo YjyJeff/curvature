@@ -111,7 +111,7 @@ pub struct MemoryTableScan {
     queue: StaticTaskQueue,
     num_blocks: usize,
     output_types: Vec<LogicalType>,
-    _children: Vec<Arc<dyn PhysicalOperator>>,
+    _children: [Arc<dyn PhysicalOperator>; 0],
 }
 
 /// We can not display the data block in the memory table scan. Some threads may fetching
@@ -161,7 +161,7 @@ impl MemoryTableScan {
             queue: StaticTaskQueue::new(blocks),
             num_blocks,
             output_types,
-            _children: Vec::new(),
+            _children: [],
         })
     }
 }
@@ -220,7 +220,7 @@ impl Stringify for MemoryTableScan {
     }
 
     fn display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "MemoryTableScan: output_types={:?}", self.output_types)
+        write!(f, "MemoryTableScan")
     }
 }
 
@@ -367,8 +367,11 @@ mod tests {
         let blocks = (0..2 * MORSEL_SIZE)
             .map(|_| unsafe {
                 SendableDataBlock::new(
-                    DataBlock::try_new(vec![ArrayImpl::Int32(Int32Array::from_values_iter([1]))])
-                        .unwrap(),
+                    DataBlock::try_new(
+                        vec![ArrayImpl::Int32(Int32Array::from_values_iter([1]))],
+                        1,
+                    )
+                    .unwrap(),
                 )
             })
             .collect::<Vec<_>>();

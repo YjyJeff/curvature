@@ -1,30 +1,58 @@
 //! [`DataBlock`] is a collection of [`ArrayImpl`]
 
 use std::fmt::Display;
-use std::ops::{Deref, DerefMut};
 
-use snafu::{ensure, Snafu};
+use snafu::{ensure, AsErrorSource, ResultExt, Snafu};
 
-use crate::array::ArrayImpl;
+use crate::array::{ArrayError, ArrayImpl};
+use crate::bitmap::Bitmap;
 use crate::types::LogicalType;
 use tabled::builder::Builder as TableBuilder;
 
-#[allow(missing_docs)]
+/// The length of array does not equal to the length of the data block
 #[derive(Debug, Snafu)]
-#[snafu(display("Arrays have different length. Arrays: {arrays:?}"))]
+#[snafu(display("The `{index}`th FlatArray has length: `{array_len}`, it does not equal to the specified length: `{length}`"))]
 pub struct InconsistentLengthError {
-    arrays: Vec<ArrayImpl>,
+    /// Index of the array in data block
+    pub index: usize,
+    /// length of the array
+    pub array_len: usize,
+    /// length of the data block
+    pub length: usize,
 }
 
-type Result<T> = std::result::Result<T, InconsistentLengthError>;
+/// Error happened when mutating the array
+#[derive(Debug, Snafu)]
+pub enum MutateArrayError<E: AsErrorSource> {
+    /// Inner error when mutating the array
+    Inner {
+        /// Source
+        source: E,
+    },
+    /// The array's length after mutation is invalid
+    Length {
+        /// inner
+        inner: InconsistentLengthError,
+    },
+}
 
 /// [`DataBlock`] is a collection of [`ArrayImpl`]
 ///
 /// FIXME: All of the mutation should know its length in advance!
 #[derive(Debug)]
 pub struct DataBlock {
+    /// Arrays in the data block. There are two kinds of arrays here:
+    ///
+    /// - `FlatArray`: array with length > 1
+    ///
+    /// - `ConstantArray`: array with length = 1. It is physically represented as a
+    /// `FlatArray` with length = 1. It represents all of the elements in the
+    /// array has same value. It can represent array with any length
+    ///
+    /// All of the `FlatArray`s must have length equal to `self.length`
     arrays: Vec<ArrayImpl>,
-    /// Number of element in the data block. All of the arrays should have same length.
+    /// Number of element in the data block.
+    ///
     /// If the [`Self::arrays`] is empty and num_rows > 0, it means we only pass the
     /// length to other operator
     length: usize,
@@ -32,16 +60,19 @@ pub struct DataBlock {
 
 impl DataBlock {
     /// Create a new [`DataBlock`] with all of the arrays have same length
-    pub fn try_new(arrays: Vec<ArrayImpl>) -> Result<Self> {
-        let mut iter = arrays.iter();
-        let Some(length) = iter.next().map(|array| array.len()) else {
-            return Ok(Self { arrays, length: 0 });
-        };
-
-        ensure!(
-            iter.all(|array| array.len() == length),
-            InconsistentLengthSnafu { arrays }
-        );
+    pub fn try_new(arrays: Vec<ArrayImpl>, length: usize) -> Result<Self, InconsistentLengthError> {
+        arrays.iter().enumerate().try_for_each(|(index, array)| {
+            let array_len = array.len();
+            ensure!(
+                array_len == length || array_len == 1,
+                InconsistentLengthSnafu {
+                    index,
+                    array_len,
+                    length,
+                }
+            );
+            Ok::<_, InconsistentLengthError>(())
+        })?;
 
         Ok(Self { arrays, length })
     }
@@ -50,7 +81,7 @@ impl DataBlock {
     ///
     /// # Safety
     ///
-    /// All of the arrays must have the given length
+    /// All of the `FlatArray`s must have the given length
     #[inline]
     pub unsafe fn new_unchecked(arrays: Vec<ArrayImpl>, length: usize) -> Self {
         Self { arrays, length }
@@ -107,18 +138,6 @@ impl DataBlock {
         self.arrays.get_unchecked(index)
     }
 
-    /// Get a mutable reference to the array. Caller should guarantee the data block
-    /// only has single array
-    #[inline]
-    pub fn mutate_single_array(&mut self) -> MutateArrayGuard<'_> {
-        debug_assert_eq!(self.num_arrays(), 1);
-
-        MutateArrayGuard {
-            length: &mut self.length,
-            array: &mut self.arrays[0],
-        }
-    }
-
     /// Get arrays
     #[inline]
     pub fn arrays(&self) -> &[ArrayImpl] {
@@ -131,27 +150,85 @@ impl DataBlock {
         self.arrays.iter().map(|array| array.logical_type())
     }
 
-    /// Get mutable arrays
+    /// Get a mutable reference to the array
+    ///
+    /// # Notes
+    ///
+    /// - The data block should only has single array
+    ///
+    /// - Before mutation, the length of the array after mutation is know. Caller should
+    /// guarantee if the array after mutation is a `FlatArray`, it should have same length
+    /// with the specified `length` argument
     #[inline]
-    pub fn mutate_arrays(&mut self) -> MutateArraysGuard<'_> {
+    pub fn mutate_single_array(&mut self, length: usize) -> MutateArrayGuard<'_> {
+        debug_assert_eq!(self.num_arrays(), 1);
+
+        self.length = length;
+
+        MutateArrayGuard {
+            length,
+            array: &mut self.arrays[0],
+        }
+    }
+
+    /// Get mutable arrays
+    ///
+    /// # Notes
+    ///
+    /// Before mutation, the length of the array after mutation is know. Caller should
+    /// guarantee if the array after mutation is a `FlatArray`, it should have same length
+    /// with the specified `length` argument
+    #[inline]
+    pub fn mutate_arrays(&mut self, length: usize) -> MutateArraysGuard<'_> {
+        self.length = length;
+
         MutateArraysGuard {
-            length: &mut self.length,
+            length,
             arrays: &mut self.arrays,
         }
     }
 
-    /// Get the guard to mutate the data block
+    /// Get the mutable array without check. It is totally unsafe! It will not preserve
+    /// the length invariance of the data block
     ///
     /// # Safety
     ///
-    /// Caller should guarantee after the mutation, all of the arrays have same length
-    /// and the length field is calibrated
-    #[inline]
-    pub unsafe fn mutate(&mut self) -> MutateDataBlockGuard<'_> {
-        MutateDataBlockGuard {
-            arrays: &mut self.arrays,
-            length: &mut self.length,
-        }
+    /// Only use it when you know the length invariance can be broken
+    pub unsafe fn arrays_mut_unchecked(&mut self) -> &mut [ArrayImpl] {
+        &mut self.arrays
+    }
+
+    /// Set the length to new_len
+    ///
+    /// # Safety
+    ///
+    /// The arrays in the data block should be empty. Otherwise, the invariance
+    /// may break
+    pub unsafe fn set_len(&mut self, new_len: usize) {
+        debug_assert_eq!(self.num_arrays(), 0);
+        self.length = new_len;
+    }
+
+    /// # Safety
+    ///
+    /// - If the `selection` is not empty, `source` and `selection` should have same length.
+    /// Otherwise, undefined behavior happens
+    ///
+    /// - If the `selection` is not empty, its count_ones must equal to length
+    ///
+    /// - `selection` should not be referenced by any array
+    pub unsafe fn filter(
+        &mut self,
+        selection: &Bitmap,
+        source: &Self,
+        length: usize,
+    ) -> Result<(), ArrayError> {
+        debug_assert!(selection.is_empty() || selection.count_ones() == Some(length));
+        self.length = length;
+        self.arrays
+            .iter_mut()
+            .zip(&source.arrays)
+            .try_for_each(|(lhs, rhs)| lhs.filter(selection, rhs))
     }
 
     /// Format the data block with given table builder
@@ -165,10 +242,14 @@ impl DataBlock {
             );
         }
 
-        (0..self.length).for_each(|index| unsafe {
+        (0..self.length).for_each(|mut index| {
             table_builder.push_record(self.arrays.iter().map(|array| {
+                if array.len() == 1 {
+                    // Constant Array
+                    index = 0;
+                }
                 array
-                    .get_unchecked(index)
+                    .get(index)
                     .map_or_else(|| "Null".to_string(), |element| element.to_string())
             }));
         });
@@ -192,83 +273,79 @@ impl Display for DataBlock {
 /// Struct for mutate the data block with single array
 #[derive(Debug)]
 pub struct MutateArrayGuard<'a> {
-    length: &'a mut usize,
+    length: usize,
     array: &'a mut ArrayImpl,
 }
 
-impl Deref for MutateArrayGuard<'_> {
-    type Target = ArrayImpl;
-
+impl MutateArrayGuard<'_> {
+    /// Mutate the array
+    ///
+    /// The function passed to mutate the array must guarantee the arrays after
+    /// mutation is a `ConstantArray` or `FlatArray` that has same length with the length
+    /// passed to create the guard
     #[inline]
-    fn deref(&self) -> &Self::Target {
-        self.array
-    }
-}
+    pub fn mutate<F, E>(self, mutate_func: F) -> Result<(), MutateArrayError<E>>
+    where
+        E: AsErrorSource + snafu::Error,
+        F: FnOnce(&mut ArrayImpl) -> Result<(), E>,
+    {
+        mutate_func(self.array).context(InnerSnafu)?;
 
-impl DerefMut for MutateArrayGuard<'_> {
-    #[inline]
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.array
-    }
-}
+        let array_len = self.array.len();
+        ensure!(
+            array_len == self.length || array_len == 1,
+            LengthSnafu {
+                inner: InconsistentLengthError {
+                    index: 0_usize,
+                    array_len,
+                    length: self.length
+                }
+            }
+        );
 
-/// Set DataBlock's length when array has mutated
-impl Drop for MutateArrayGuard<'_> {
-    #[inline]
-    fn drop(&mut self) {
-        *self.length = self.array.len();
+        Ok(())
     }
 }
 
 /// Struct for mutate the data block
 #[derive(Debug)]
 pub struct MutateArraysGuard<'a> {
-    length: &'a mut usize,
+    length: usize,
     arrays: &'a mut [ArrayImpl],
 }
 
 impl MutateArraysGuard<'_> {
     /// Mutate the arrays
     ///
-    /// # Safety
-    ///
     /// The function passed to mutate the arrays must guarantee all of the arrays after
-    /// mutation should have same length
+    /// mutation is a `ConstantArray` or `FlatArray` that has same length with the length
+    /// passed to create the guard
     #[inline]
-    pub unsafe fn mutate<F, E>(self, mutate_func: F) -> std::result::Result<(), E>
+    pub fn mutate<F, E>(self, mutate_func: F) -> std::result::Result<(), MutateArrayError<E>>
     where
+        E: AsErrorSource + snafu::Error,
         F: FnOnce(&mut [ArrayImpl]) -> std::result::Result<(), E>,
     {
-        mutate_func(self.arrays)?;
-        if let Some(array) = self.arrays.first() {
-            *self.length = array.len();
-        }
-        #[cfg(debug_assertions)]
-        {
-            self.arrays.iter().enumerate().for_each(|(i, array)| {
-                if array.len() != *self.length {
-                    panic!(
-                        "Mutate arrays in the data block should produce same length. First len: {}, {}th len: {}", 
-                        *self.length,
-                        i,
-                        array.len()
-                    )
-                }
-            });
-        }
-        Ok(())
-    }
-}
+        mutate_func(self.arrays).context(InnerSnafu)?;
 
-/// Struct for mutate the data block, it will expose the inner arrays. This struct is
-/// totally unsafe, more danger than [`MutateArraysGuard`]. User should calibrate the
-/// length manually. Only use it when you want the maximum freedom
-#[derive(Debug)]
-pub struct MutateDataBlockGuard<'a> {
-    /// Inner arrays
-    pub arrays: &'a mut [ArrayImpl],
-    /// Used to calibrate the length
-    pub length: &'a mut usize,
+        self.arrays
+            .iter()
+            .enumerate()
+            .try_for_each(|(index, array)| {
+                let array_len = array.len();
+                ensure!(
+                    array_len == self.length || array_len == 1,
+                    LengthSnafu {
+                        inner: InconsistentLengthError {
+                            index,
+                            array_len,
+                            length: self.length
+                        }
+                    }
+                );
+                Ok::<_, MutateArrayError<E>>(())
+            })
+    }
 }
 
 /// DataBlock that can be sent between threads
@@ -309,10 +386,13 @@ mod tests {
 
     #[test]
     fn test_display_data_block() {
-        let block = DataBlock::try_new(vec![
-            ArrayImpl::Int32([Some(10), None, Some(-1)].into_iter().collect()),
-            ArrayImpl::Float32([None, Some(-1.0), Some(9.9)].into_iter().collect()),
-        ])
+        let block = DataBlock::try_new(
+            vec![
+                ArrayImpl::Int32([Some(10), None, Some(-1)].into_iter().collect()),
+                ArrayImpl::Float32([None, Some(-1.0), Some(9.9)].into_iter().collect()),
+            ],
+            3,
+        )
         .unwrap();
 
         let expect = expect_test::expect![[r#"

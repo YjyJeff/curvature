@@ -2,4 +2,5 @@
 /Cargo.lock
 /.vscode
 /data-block-benches/target/
+/data-block-benches/flamegraph/
 

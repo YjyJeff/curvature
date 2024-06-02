@@ -1,0 +1,491 @@
+<?xml version="1.0" standalone="no"?><!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd"><svg version="1.1" width="1200" height="486" onload="init(evt)" viewBox="0 0 1200 486" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:fg="http://github.com/jonhoo/inferno"><!--Flame graph stack visualization. See https://github.com/brendangregg/FlameGraph for latest version, and http://www.brendangregg.com/flamegraphs.html for examples.--><!--NOTES: --><defs><linearGradient id="background" y1="0" y2="1" x1="0" x2="0"><stop stop-color="#eeeeee" offset="5%"/><stop stop-color="#eeeeb0" offset="95%"/></linearGradient></defs><style type="text/css">
+text { font-family:monospace; font-size:12px }
+#title { text-anchor:middle; font-size:17px; }
+#matched { text-anchor:end; }
+#search { text-anchor:end; opacity:0.1; cursor:pointer; }
+#search:hover, #search.show { opacity:1; }
+#subtitle { text-anchor:middle; font-color:rgb(160,160,160); }
+#unzoom { cursor:pointer; }
+#frames > *:hover { stroke:black; stroke-width:0.5; cursor:pointer; }
+.hide { display:none; }
+.parent { opacity:0.5; }
+</style><script type="text/ecmascript"><![CDATA[
+        var nametype = 'Function:';
+        var fontsize = 12;
+        var fontwidth = 0.59;
+        var xpad = 10;
+        var inverted = false;
+        var searchcolor = 'rgb(230,0,230)';
+        var fluiddrawing = true;
+        var truncate_text_right = false;
+    ]]><![CDATA["use strict";
+var details, searchbtn, unzoombtn, matchedtxt, svg, searching, frames, known_font_width;
+function init(evt) {
+    details = document.getElementById("details").firstChild;
+    searchbtn = document.getElementById("search");
+    unzoombtn = document.getElementById("unzoom");
+    matchedtxt = document.getElementById("matched");
+    svg = document.getElementsByTagName("svg")[0];
+    frames = document.getElementById("frames");
+    known_font_width = get_monospace_width(frames);
+    total_samples = parseInt(frames.attributes.total_samples.value);
+    searching = 0;
+
+    // Use GET parameters to restore a flamegraph's state.
+    var restore_state = function() {
+        var params = get_params();
+        if (params.x && params.y)
+            zoom(find_group(document.querySelector('[*|x="' + params.x + '"][y="' + params.y + '"]')));
+        if (params.s)
+            search(params.s);
+    };
+
+    if (fluiddrawing) {
+        // Make width dynamic so the SVG fits its parent's width.
+        svg.removeAttribute("width");
+        // Edge requires us to have a viewBox that gets updated with size changes.
+        var isEdge = /Edge\/\d./i.test(navigator.userAgent);
+        if (!isEdge) {
+            svg.removeAttribute("viewBox");
+        }
+        var update_for_width_change = function() {
+            if (isEdge) {
+                svg.attributes.viewBox.value = "0 0 " + svg.width.baseVal.value + " " + svg.height.baseVal.value;
+            }
+
+            // Keep consistent padding on left and right of frames container.
+            frames.attributes.width.value = svg.width.baseVal.value - xpad * 2;
+
+            // Text truncation needs to be adjusted for the current width.
+            update_text_for_elements(frames.children);
+
+            // Keep search elements at a fixed distance from right edge.
+            var svgWidth = svg.width.baseVal.value;
+            searchbtn.attributes.x.value = svgWidth - xpad;
+            matchedtxt.attributes.x.value = svgWidth - xpad;
+        };
+        window.addEventListener('resize', function() {
+            update_for_width_change();
+        });
+        // This needs to be done asynchronously for Safari to work.
+        setTimeout(function() {
+            unzoom();
+            update_for_width_change();
+            restore_state();
+        }, 0);
+    } else {
+        restore_state();
+    }
+}
+// event listeners
+window.addEventListener("click", function(e) {
+    var target = find_group(e.target);
+    if (target) {
+        if (target.nodeName == "a") {
+            if (e.ctrlKey === false) return;
+            e.preventDefault();
+        }
+        if (target.classList.contains("parent")) unzoom();
+        zoom(target);
+
+        // set parameters for zoom state
+        var el = target.querySelector("rect");
+        if (el && el.attributes && el.attributes.y && el.attributes["fg:x"]) {
+            var params = get_params()
+            params.x = el.attributes["fg:x"].value;
+            params.y = el.attributes.y.value;
+            history.replaceState(null, null, parse_params(params));
+        }
+    }
+    else if (e.target.id == "unzoom") {
+        unzoom();
+
+        // remove zoom state
+        var params = get_params();
+        if (params.x) delete params.x;
+        if (params.y) delete params.y;
+        history.replaceState(null, null, parse_params(params));
+    }
+    else if (e.target.id == "search") search_prompt();
+}, false)
+// mouse-over for info
+// show
+window.addEventListener("mouseover", function(e) {
+    var target = find_group(e.target);
+    if (target) details.nodeValue = nametype + " " + g_to_text(target);
+}, false)
+// clear
+window.addEventListener("mouseout", function(e) {
+    var target = find_group(e.target);
+    if (target) details.nodeValue = ' ';
+}, false)
+// ctrl-F for search
+window.addEventListener("keydown",function (e) {
+    if (e.keyCode === 114 || (e.ctrlKey && e.keyCode === 70)) {
+        e.preventDefault();
+        search_prompt();
+    }
+}, false)
+// functions
+function get_params() {
+    var params = {};
+    var paramsarr = window.location.search.substr(1).split('&');
+    for (var i = 0; i < paramsarr.length; ++i) {
+        var tmp = paramsarr[i].split("=");
+        if (!tmp[0] || !tmp[1]) continue;
+        params[tmp[0]]  = decodeURIComponent(tmp[1]);
+    }
+    return params;
+}
+function parse_params(params) {
+    var uri = "?";
+    for (var key in params) {
+        uri += key + '=' + encodeURIComponent(params[key]) + '&';
+    }
+    if (uri.slice(-1) == "&")
+        uri = uri.substring(0, uri.length - 1);
+    if (uri == '?')
+        uri = window.location.href.split('?')[0];
+    return uri;
+}
+function find_child(node, selector) {
+    var children = node.querySelectorAll(selector);
+    if (children.length) return children[0];
+    return;
+}
+function find_group(node) {
+    var parent = node.parentElement;
+    if (!parent) return;
+    if (parent.id == "frames") return node;
+    return find_group(parent);
+}
+function orig_save(e, attr, val) {
+    if (e.attributes["fg:orig_" + attr] != undefined) return;
+    if (e.attributes[attr] == undefined) return;
+    if (val == undefined) val = e.attributes[attr].value;
+    e.setAttribute("fg:orig_" + attr, val);
+}
+function orig_load(e, attr) {
+    if (e.attributes["fg:orig_"+attr] == undefined) return;
+    e.attributes[attr].value = e.attributes["fg:orig_" + attr].value;
+    e.removeAttribute("fg:orig_" + attr);
+}
+function g_to_text(e) {
+    var text = find_child(e, "title").firstChild.nodeValue;
+    return (text)
+}
+function g_to_func(e) {
+    var func = g_to_text(e);
+    // if there's any manipulation we want to do to the function
+    // name before it's searched, do it here before returning.
+    return (func);
+}
+function get_monospace_width(frames) {
+    // Given the id="frames" element, return the width of text characters if
+    // this is a monospace font, otherwise return 0.
+    text = find_child(frames.children[0], "text");
+    originalContent = text.textContent;
+    text.textContent = "!";
+    bangWidth = text.getComputedTextLength();
+    text.textContent = "W";
+    wWidth = text.getComputedTextLength();
+    text.textContent = originalContent;
+    if (bangWidth === wWidth) {
+        return bangWidth;
+    } else {
+        return 0;
+    }
+}
+function update_text_for_elements(elements) {
+    // In order to render quickly in the browser, you want to do one pass of
+    // reading attributes, and one pass of mutating attributes. See
+    // https://web.dev/avoid-large-complex-layouts-and-layout-thrashing/ for details.
+
+    // Fall back to inefficient calculation, if we're variable-width font.
+    // TODO This should be optimized somehow too.
+    if (known_font_width === 0) {
+        for (var i = 0; i < elements.length; i++) {
+            update_text(elements[i]);
+        }
+        return;
+    }
+
+    var textElemNewAttributes = [];
+    for (var i = 0; i < elements.length; i++) {
+        var e = elements[i];
+        var r = find_child(e, "rect");
+        var t = find_child(e, "text");
+        var w = parseFloat(r.attributes.width.value) * frames.attributes.width.value / 100 - 3;
+        var txt = find_child(e, "title").textContent.replace(/\([^(]*\)$/,"");
+        var newX = format_percent((parseFloat(r.attributes.x.value) + (100 * 3 / frames.attributes.width.value)));
+
+        // Smaller than this size won't fit anything
+        if (w < 2 * known_font_width) {
+            textElemNewAttributes.push([newX, ""]);
+            continue;
+        }
+
+        // Fit in full text width
+        if (txt.length * known_font_width < w) {
+            textElemNewAttributes.push([newX, txt]);
+            continue;
+        }
+
+        var substringLength = Math.floor(w / known_font_width) - 2;
+        if (truncate_text_right) {
+            // Truncate the right side of the text.
+            textElemNewAttributes.push([newX, txt.substring(0, substringLength) + ".."]);
+            continue;
+        } else {
+            // Truncate the left side of the text.
+            textElemNewAttributes.push([newX, ".." + txt.substring(txt.length - substringLength, txt.length)]);
+            continue;
+        }
+    }
+
+    console.assert(textElemNewAttributes.length === elements.length, "Resize failed, please file a bug at https://github.com/jonhoo/inferno/");
+
+    // Now that we know new textContent, set it all in one go so we don't refresh a bazillion times.
+    for (var i = 0; i < elements.length; i++) {
+        var e = elements[i];
+        var values = textElemNewAttributes[i];
+        var t = find_child(e, "text");
+        t.attributes.x.value = values[0];
+        t.textContent = values[1];
+    }
+}
+
+function update_text(e) {
+    var r = find_child(e, "rect");
+    var t = find_child(e, "text");
+    var w = parseFloat(r.attributes.width.value) * frames.attributes.width.value / 100 - 3;
+    var txt = find_child(e, "title").textContent.replace(/\([^(]*\)$/,"");
+    t.attributes.x.value = format_percent((parseFloat(r.attributes.x.value) + (100 * 3 / frames.attributes.width.value)));
+
+    // Smaller than this size won't fit anything
+    if (w < 2 * fontsize * fontwidth) {
+        t.textContent = "";
+        return;
+    }
+    t.textContent = txt;
+    // Fit in full text width
+    if (t.getComputedTextLength() < w)
+        return;
+    if (truncate_text_right) {
+        // Truncate the right side of the text.
+        for (var x = txt.length - 2; x > 0; x--) {
+            if (t.getSubStringLength(0, x + 2) <= w) {
+                t.textContent = txt.substring(0, x) + "..";
+                return;
+            }
+        }
+    } else {
+        // Truncate the left side of the text.
+        for (var x = 2; x < txt.length; x++) {
+            if (t.getSubStringLength(x - 2, txt.length) <= w) {
+                t.textContent = ".." + txt.substring(x, txt.length);
+                return;
+            }
+        }
+    }
+    t.textContent = "";
+}
+// zoom
+function zoom_reset(e) {
+    if (e.tagName == "rect") {
+        e.attributes.x.value = format_percent(100 * parseInt(e.attributes["fg:x"].value) / total_samples);
+        e.attributes.width.value = format_percent(100 * parseInt(e.attributes["fg:w"].value) / total_samples);
+    }
+    if (e.childNodes == undefined) return;
+    for(var i = 0, c = e.childNodes; i < c.length; i++) {
+        zoom_reset(c[i]);
+    }
+}
+function zoom_child(e, x, zoomed_width_samples) {
+    if (e.tagName == "text") {
+        var parent_x = parseFloat(find_child(e.parentNode, "rect[x]").attributes.x.value);
+        e.attributes.x.value = format_percent(parent_x + (100 * 3 / frames.attributes.width.value));
+    } else if (e.tagName == "rect") {
+        e.attributes.x.value = format_percent(100 * (parseInt(e.attributes["fg:x"].value) - x) / zoomed_width_samples);
+        e.attributes.width.value = format_percent(100 * parseInt(e.attributes["fg:w"].value) / zoomed_width_samples);
+    }
+    if (e.childNodes == undefined) return;
+    for(var i = 0, c = e.childNodes; i < c.length; i++) {
+        zoom_child(c[i], x, zoomed_width_samples);
+    }
+}
+function zoom_parent(e) {
+    if (e.attributes) {
+        if (e.attributes.x != undefined) {
+            e.attributes.x.value = "0.0%";
+        }
+        if (e.attributes.width != undefined) {
+            e.attributes.width.value = "100.0%";
+        }
+    }
+    if (e.childNodes == undefined) return;
+    for(var i = 0, c = e.childNodes; i < c.length; i++) {
+        zoom_parent(c[i]);
+    }
+}
+function zoom(node) {
+    var attr = find_child(node, "rect").attributes;
+    var width = parseInt(attr["fg:w"].value);
+    var xmin = parseInt(attr["fg:x"].value);
+    var xmax = xmin + width;
+    var ymin = parseFloat(attr.y.value);
+    unzoombtn.classList.remove("hide");
+    var el = frames.children;
+    var to_update_text = [];
+    for (var i = 0; i < el.length; i++) {
+        var e = el[i];
+        var a = find_child(e, "rect").attributes;
+        var ex = parseInt(a["fg:x"].value);
+        var ew = parseInt(a["fg:w"].value);
+        // Is it an ancestor
+        if (!inverted) {
+            var upstack = parseFloat(a.y.value) > ymin;
+        } else {
+            var upstack = parseFloat(a.y.value) < ymin;
+        }
+        if (upstack) {
+            // Direct ancestor
+            if (ex <= xmin && (ex+ew) >= xmax) {
+                e.classList.add("parent");
+                zoom_parent(e);
+                to_update_text.push(e);
+            }
+            // not in current path
+            else
+                e.classList.add("hide");
+        }
+        // Children maybe
+        else {
+            // no common path
+            if (ex < xmin || ex >= xmax) {
+                e.classList.add("hide");
+            }
+            else {
+                zoom_child(e, xmin, width);
+                to_update_text.push(e);
+            }
+        }
+    }
+    update_text_for_elements(to_update_text);
+}
+function unzoom() {
+    unzoombtn.classList.add("hide");
+    var el = frames.children;
+    for(var i = 0; i < el.length; i++) {
+        el[i].classList.remove("parent");
+        el[i].classList.remove("hide");
+        zoom_reset(el[i]);
+    }
+    update_text_for_elements(el);
+}
+// search
+function reset_search() {
+    var el = document.querySelectorAll("#frames rect");
+    for (var i = 0; i < el.length; i++) {
+        orig_load(el[i], "fill")
+    }
+    var params = get_params();
+    delete params.s;
+    history.replaceState(null, null, parse_params(params));
+}
+function search_prompt() {
+    if (!searching) {
+        var term = prompt("Enter a search term (regexp " +
+            "allowed, eg: ^ext4_)", "");
+        if (term != null) {
+            search(term)
+        }
+    } else {
+        reset_search();
+        searching = 0;
+        searchbtn.classList.remove("show");
+        searchbtn.firstChild.nodeValue = "Search"
+        matchedtxt.classList.add("hide");
+        matchedtxt.firstChild.nodeValue = ""
+    }
+}
+function search(term) {
+    var re = new RegExp(term);
+    var el = frames.children;
+    var matches = new Object();
+    var maxwidth = 0;
+    for (var i = 0; i < el.length; i++) {
+        var e = el[i];
+        // Skip over frames which are either not visible, or below the zoomed-to frame
+        if (e.classList.contains("hide") || e.classList.contains("parent")) {
+            continue;
+        }
+        var func = g_to_func(e);
+        var rect = find_child(e, "rect");
+        if (func == null || rect == null)
+            continue;
+        // Save max width. Only works as we have a root frame
+        var w = parseInt(rect.attributes["fg:w"].value);
+        if (w > maxwidth)
+            maxwidth = w;
+        if (func.match(re)) {
+            // highlight
+            var x = parseInt(rect.attributes["fg:x"].value);
+            orig_save(rect, "fill");
+            rect.attributes.fill.value = searchcolor;
+            // remember matches
+            if (matches[x] == undefined) {
+                matches[x] = w;
+            } else {
+                if (w > matches[x]) {
+                    // overwrite with parent
+                    matches[x] = w;
+                }
+            }
+            searching = 1;
+        }
+    }
+    if (!searching)
+        return;
+    var params = get_params();
+    params.s = term;
+    history.replaceState(null, null, parse_params(params));
+
+    searchbtn.classList.add("show");
+    searchbtn.firstChild.nodeValue = "Reset Search";
+    // calculate percent matched, excluding vertical overlap
+    var count = 0;
+    var lastx = -1;
+    var lastw = 0;
+    var keys = Array();
+    for (k in matches) {
+        if (matches.hasOwnProperty(k))
+            keys.push(k);
+    }
+    // sort the matched frames by their x location
+    // ascending, then width descending
+    keys.sort(function(a, b){
+        return a - b;
+    });
+    // Step through frames saving only the biggest bottom-up frames
+    // thanks to the sort order. This relies on the tree property
+    // where children are always smaller than their parents.
+    for (var k in keys) {
+        var x = parseInt(keys[k]);
+        var w = matches[keys[k]];
+        if (x >= lastx + lastw) {
+            count += w;
+            lastx = x;
+            lastw = w;
+        }
+    }
+    // display matched percent
+    matchedtxt.classList.remove("hide");
+    var pct = 100 * count / maxwidth;
+    if (pct != 100) pct = pct.toFixed(1);
+    matchedtxt.firstChild.nodeValue = "Matched: " + pct + "%";
+}
+function format_percent(n) {
+    return n.toFixed(4) + "%";
+}
+]]></script><rect x="0" y="0" width="100%" height="486" fill="url(#background)"/><text id="title" fill="rgb(0,0,0)" x="50.0000%" y="24.00">Flame Graph</text><text id="details" fill="rgb(0,0,0)" x="10" y="469.00"> </text><text id="unzoom" class="hide" fill="rgb(0,0,0)" x="10" y="24.00">Reset Zoom</text><text id="search" fill="rgb(0,0,0)" x="1190" y="24.00">Search</text><text id="matched" fill="rgb(0,0,0)" x="1190" y="469.00"> </text><svg id="frames" x="10" width="1180" total_samples="65531"><g><title>range`&lt;curvature::exec::physical_operator::filter::Filter as curvature::exec::physical_operator::PhysicalOperator&gt;::execute (63 samples, 0.10%)</title><rect x="0.0107%" y="293" width="0.0961%" height="15" fill="rgb(227,0,7)" fg:x="7" fg:w="63"/><text x="0.2607%" y="303.50"></text></g><g><title>range`&lt;curvature::exec::physical_operator::numbers::Numbers as curvature::exec::physical_operator::PhysicalOperator&gt;::read_data (30 samples, 0.05%)</title><rect x="0.1068%" y="293" width="0.0458%" height="15" fill="rgb(217,0,24)" fg:x="70" fg:w="30"/><text x="0.3568%" y="303.50"></text></g><g><title>range`&lt;T as core::any::Any&gt;::type_id (68 samples, 0.10%)</title><rect x="0.5021%" y="277" width="0.1038%" height="15" fill="rgb(221,193,54)" fg:x="329" fg:w="68"/><text x="0.7521%" y="287.50"></text></g><g><title>range`&lt;curvature::exec::physical_expr::comparison::Comparison as curvature::exec::physical_expr::PhysicalExpr&gt;::as_any (17 samples, 0.03%)</title><rect x="0.6058%" y="277" width="0.0259%" height="15" fill="rgb(248,212,6)" fg:x="397" fg:w="17"/><text x="0.8558%" y="287.50"></text></g><g><title>range`&lt;curvature::exec::physical_expr::comparison::Comparison as curvature::exec::physical_expr::PhysicalExpr&gt;::execute (38 samples, 0.06%)</title><rect x="0.6318%" y="277" width="0.0580%" height="15" fill="rgb(208,68,35)" fg:x="414" fg:w="38"/><text x="0.8818%" y="287.50"></text></g><g><title>range`&lt;curvature::exec::physical_expr::function::aggregate::count::Count&lt;_&gt; as curvature::exec::physical_expr::function::Function&gt;::arguments (39 samples, 0.06%)</title><rect x="0.6897%" y="277" width="0.0595%" height="15" fill="rgb(232,128,0)" fg:x="452" fg:w="39"/><text x="0.9397%" y="287.50"></text></g><g><title>libdyld.dylib`tlv_get_addr (128 samples, 0.20%)</title><rect x="1.0377%" y="261" width="0.1953%" height="15" fill="rgb(207,160,47)" fg:x="680" fg:w="128"/><text x="1.2877%" y="271.50"></text></g><g><title>range`&lt;curvature::exec::physical_operator::aggregate::simple_aggregate::SimpleAggregate as curvature::exec::physical_operator::PhysicalOperator&gt;::write_data (519 samples, 0.79%)</title><rect x="0.7523%" y="277" width="0.7920%" height="15" fill="rgb(228,23,34)" fg:x="493" fg:w="519"/><text x="1.0023%" y="287.50"></text></g><g><title>range`quanta::get_now (204 samples, 0.31%)</title><rect x="1.2330%" y="261" width="0.3113%" height="15" fill="rgb(218,30,26)" fg:x="808" fg:w="204"/><text x="1.4830%" y="271.50"></text></g><g><title>range`&lt;curvature::exec::physical_operator::aggregate::simple_aggregate::SimpleAggregateLocalSinkState as curvature::exec::physical_operator::LocalSinkState&gt;::as_mut_any (12 samples, 0.02%)</title><rect x="1.5443%" y="277" width="0.0183%" height="15" fill="rgb(220,122,19)" fg:x="1012" fg:w="12"/><text x="1.7943%" y="287.50"></text></g><g><title>libdyld.dylib`tlv_get_addr (257 samples, 0.39%)</title><rect x="1.9563%" y="261" width="0.3922%" height="15" fill="rgb(250,228,42)" fg:x="1282" fg:w="257"/><text x="2.2063%" y="271.50"></text></g><g><title>range`&lt;curvature::exec::physical_expr::arith::ConstRem&lt;T,U&gt; as curvature::exec::physical_expr::PhysicalExpr&gt;::execute (58 samples, 0.09%)</title><rect x="2.3485%" y="261" width="0.0885%" height="15" fill="rgb(240,193,28)" fg:x="1539" fg:w="58"/><text x="2.5985%" y="271.50"></text></g><g><title>range`&lt;curvature::exec::physical_expr::field_ref::FieldRef as curvature::exec::physical_expr::PhysicalExpr&gt;::execute (146 samples, 0.22%)</title><rect x="11.4404%" y="229" width="0.2228%" height="15" fill="rgb(216,20,37)" fg:x="7497" fg:w="146"/><text x="11.6904%" y="239.50"></text></g><g><title>range`data_block::array::ArrayImpl::reference (77 samples, 0.12%)</title><rect x="11.5457%" y="213" width="0.1175%" height="15" fill="rgb(206,188,39)" fg:x="7566" fg:w="77"/><text x="11.7957%" y="223.50"></text></g><g><title>range`&lt;curvature::exec::physical_expr::arith::ConstRem&lt;T,U&gt; as curvature::exec::physical_expr::PhysicalExpr&gt;::execute (5,792 samples, 8.84%)</title><rect x="2.8460%" y="245" width="8.8386%" height="15" fill="rgb(217,207,13)" fg:x="1865" fg:w="5792"/><text x="3.0960%" y="255.50">range`&lt;curva..</text></g><g><title>range`data_block::array::ArrayImpl::reference (14 samples, 0.02%)</title><rect x="11.6632%" y="229" width="0.0214%" height="15" fill="rgb(231,73,38)" fg:x="7643" fg:w="14"/><text x="11.9132%" y="239.50"></text></g><g><title>range`&lt;curvature::exec::physical_expr::constant::Constant as curvature::exec::physical_expr::PhysicalExpr&gt;::execute (110 samples, 0.17%)</title><rect x="11.6845%" y="245" width="0.1679%" height="15" fill="rgb(225,20,46)" fg:x="7657" fg:w="110"/><text x="11.9345%" y="255.50"></text></g><g><title>range`data_block::array::ArrayImpl::reference (98 samples, 0.15%)</title><rect x="11.7029%" y="229" width="0.1495%" height="15" fill="rgb(210,31,41)" fg:x="7669" fg:w="98"/><text x="11.9529%" y="239.50"></text></g><g><title>range`&lt;curvature::exec::physical_expr::field_ref::FieldRef as curvature::exec::physical_expr::PhysicalExpr&gt;::execute (48 samples, 0.07%)</title><rect x="11.8524%" y="245" width="0.0732%" height="15" fill="rgb(221,200,47)" fg:x="7767" fg:w="48"/><text x="12.1024%" y="255.50"></text></g><g><title>range`data_block::compute::comparison::primitive::stable::cmp_scalar (2,018 samples, 3.08%)</title><rect x="12.1912%" y="229" width="3.0795%" height="15" fill="rgb(226,26,5)" fg:x="7989" fg:w="2018"/><text x="12.4412%" y="239.50">ran..</text></g><g><title>range`data_block::compute::logical::and_inplace (11 samples, 0.02%)</title><rect x="15.2538%" y="213" width="0.0168%" height="15" fill="rgb(249,33,26)" fg:x="9996" fg:w="11"/><text x="15.5038%" y="223.50"></text></g><g><title>range`curvature::exec::physical_expr::comparison::compare_array_with_scalar (2,529 samples, 3.86%)</title><rect x="11.9257%" y="245" width="3.8592%" height="15" fill="rgb(235,183,28)" fg:x="7815" fg:w="2529"/><text x="12.1757%" y="255.50">rang..</text></g><g><title>range`data_block::compute::logical::and_inplace (337 samples, 0.51%)</title><rect x="15.2706%" y="229" width="0.5143%" height="15" fill="rgb(221,5,38)" fg:x="10007" fg:w="337"/><text x="15.5206%" y="239.50"></text></g><g><title>range`data_block::array::ArrayImpl::len (32 samples, 0.05%)</title><rect x="15.7849%" y="245" width="0.0488%" height="15" fill="rgb(247,18,42)" fg:x="10344" fg:w="32"/><text x="16.0349%" y="255.50"></text></g><g><title>range`data_block::array::ArrayImpl::reference (17 samples, 0.03%)</title><rect x="15.8337%" y="245" width="0.0259%" height="15" fill="rgb(241,131,45)" fg:x="10376" fg:w="17"/><text x="16.0837%" y="255.50"></text></g><g><title>range`&lt;curvature::exec::physical_expr::comparison::Comparison as curvature::exec::physical_expr::PhysicalExpr&gt;::execute (8,831 samples, 13.48%)</title><rect x="2.4370%" y="261" width="13.4761%" height="15" fill="rgb(249,31,29)" fg:x="1597" fg:w="8831"/><text x="2.6870%" y="271.50">range`&lt;curvature::ex..</text></g><g><title>range`data_block::compute::logical::and_inplace (33 samples, 0.05%)</title><rect x="15.8627%" y="245" width="0.0504%" height="15" fill="rgb(225,111,53)" fg:x="10395" fg:w="33"/><text x="16.1127%" y="255.50"></text></g><g><title>range`&lt;curvature::exec::physical_expr::constant::Constant as curvature::exec::physical_expr::PhysicalExpr&gt;::execute (151 samples, 0.23%)</title><rect x="15.9131%" y="261" width="0.2304%" height="15" fill="rgb(238,160,17)" fg:x="10428" fg:w="151"/><text x="16.1631%" y="271.50"></text></g><g><title>range`curvature::exec::physical_expr::comparison::compare_array_with_scalar (24 samples, 0.04%)</title><rect x="16.1435%" y="261" width="0.0366%" height="15" fill="rgb(214,148,48)" fg:x="10579" fg:w="24"/><text x="16.3935%" y="271.50"></text></g><g><title>range`data_block::array::ArrayImpl::filter (8,857 samples, 13.52%)</title><rect x="16.1801%" y="261" width="13.5157%" height="15" fill="rgb(232,36,49)" fg:x="10603" fg:w="8857"/><text x="16.4301%" y="271.50">range`data_block::ar..</text></g><g><title>range`data_block::array::ArrayImpl::len (200 samples, 0.31%)</title><rect x="29.6959%" y="261" width="0.3052%" height="15" fill="rgb(209,103,24)" fg:x="19460" fg:w="200"/><text x="29.9459%" y="271.50"></text></g><g><title>range`&lt;curvature::exec::physical_operator::filter::Filter as curvature::exec::physical_operator::PhysicalOperator&gt;::execute (19,065 samples, 29.09%)</title><rect x="1.5626%" y="277" width="29.0931%" height="15" fill="rgb(229,88,8)" fg:x="1024" fg:w="19065"/><text x="1.8126%" y="287.50">range`&lt;curvature::exec::physical_operator::filt..</text></g><g><title>range`quanta::get_now (429 samples, 0.65%)</title><rect x="30.0011%" y="261" width="0.6547%" height="15" fill="rgb(213,181,19)" fg:x="19660" fg:w="429"/><text x="30.2511%" y="271.50"></text></g><g><title>range`&lt;curvature::exec::physical_operator::filter::FilterLocalState as curvature::exec::physical_operator::LocalOperatorState&gt;::as_mut_any (12 samples, 0.02%)</title><rect x="30.6557%" y="277" width="0.0183%" height="15" fill="rgb(254,191,54)" fg:x="20089" fg:w="12"/><text x="30.9057%" y="287.50"></text></g><g><title>libdyld.dylib`tlv_get_addr (131 samples, 0.20%)</title><rect x="38.9037%" y="261" width="0.1999%" height="15" fill="rgb(241,83,37)" fg:x="25494" fg:w="131"/><text x="39.1537%" y="271.50"></text></g><g><title>range`&lt;curvature::exec::physical_operator::numbers::Numbers as curvature::exec::physical_operator::PhysicalOperator&gt;::read_data (5,762 samples, 8.79%)</title><rect x="30.6740%" y="277" width="8.7928%" height="15" fill="rgb(233,36,39)" fg:x="20101" fg:w="5762"/><text x="30.9240%" y="287.50">range`&lt;curva..</text></g><g><title>range`quanta::get_now (238 samples, 0.36%)</title><rect x="39.1036%" y="261" width="0.3632%" height="15" fill="rgb(226,3,54)" fg:x="25625" fg:w="238"/><text x="39.3536%" y="271.50"></text></g><g><title>range`&lt;curvature::exec::physical_operator::numbers::NumbersGlobalSourceState as curvature::exec::physical_operator::GlobalSourceState&gt;::as_any (12 samples, 0.02%)</title><rect x="39.4668%" y="277" width="0.0183%" height="15" fill="rgb(245,192,40)" fg:x="25863" fg:w="12"/><text x="39.7168%" y="287.50"></text></g><g><title>range`&lt;curvature::exec::physical_operator::numbers::NumbersLocalSourceState as curvature::exec::physical_operator::LocalSourceState&gt;::as_mut_any (11 samples, 0.02%)</title><rect x="39.4851%" y="277" width="0.0168%" height="15" fill="rgb(238,167,29)" fg:x="25875" fg:w="11"/><text x="39.7351%" y="287.50"></text></g><g><title>range`data_block::array::ArrayImpl::filter (73 samples, 0.11%)</title><rect x="39.5019%" y="277" width="0.1114%" height="15" fill="rgb(232,182,51)" fg:x="25886" fg:w="73"/><text x="39.7519%" y="287.50"></text></g><g><title>range`data_block::array::ArrayImpl::len (40 samples, 0.06%)</title><rect x="39.6133%" y="277" width="0.0610%" height="15" fill="rgb(231,60,39)" fg:x="25959" fg:w="40"/><text x="39.8633%" y="287.50"></text></g><g><title>range`curvature::exec::query_executor::execute_pipeline (25,982 samples, 39.65%)</title><rect x="0.1526%" y="293" width="39.6484%" height="15" fill="rgb(208,69,12)" fg:x="100" fg:w="25982"/><text x="0.4026%" y="303.50">range`curvature::exec::query_executor::execute_pipeline</text></g><g><title>range`quanta::get_now (83 samples, 0.13%)</title><rect x="39.6744%" y="277" width="0.1267%" height="15" fill="rgb(235,93,37)" fg:x="25999" fg:w="83"/><text x="39.9244%" y="287.50"></text></g><g><title>range`&lt;curvature::exec::physical_operator::filter::Filter as curvature::exec::physical_operator::PhysicalOperator&gt;::execute (56 samples, 0.09%)</title><rect x="39.8102%" y="261" width="0.0855%" height="15" fill="rgb(213,116,39)" fg:x="26088" fg:w="56"/><text x="40.0602%" y="271.50"></text></g><g><title>range`&lt;curvature::exec::physical_operator::numbers::Numbers as curvature::exec::physical_operator::PhysicalOperator&gt;::read_data (34 samples, 0.05%)</title><rect x="39.8956%" y="261" width="0.0519%" height="15" fill="rgb(222,207,29)" fg:x="26144" fg:w="34"/><text x="40.1456%" y="271.50"></text></g><g><title>range`&lt;T as core::any::Any&gt;::type_id (67 samples, 0.10%)</title><rect x="40.3107%" y="245" width="0.1022%" height="15" fill="rgb(206,96,30)" fg:x="26416" fg:w="67"/><text x="40.5607%" y="255.50"></text></g><g><title>range`&lt;curvature::exec::physical_expr::comparison::Comparison as curvature::exec::physical_expr::PhysicalExpr&gt;::as_any (18 samples, 0.03%)</title><rect x="40.4129%" y="245" width="0.0275%" height="15" fill="rgb(218,138,4)" fg:x="26483" fg:w="18"/><text x="40.6629%" y="255.50"></text></g><g><title>range`&lt;curvature::exec::physical_expr::comparison::Comparison as curvature::exec::physical_expr::PhysicalExpr&gt;::execute (36 samples, 0.05%)</title><rect x="40.4404%" y="245" width="0.0549%" height="15" fill="rgb(250,191,14)" fg:x="26501" fg:w="36"/><text x="40.6904%" y="255.50"></text></g><g><title>range`&lt;curvature::exec::physical_expr::function::aggregate::count::Count&lt;_&gt; as curvature::exec::physical_expr::function::Function&gt;::arguments (39 samples, 0.06%)</title><rect x="40.4953%" y="245" width="0.0595%" height="15" fill="rgb(239,60,40)" fg:x="26537" fg:w="39"/><text x="40.7453%" y="255.50"></text></g><g><title>libdyld.dylib`tlv_get_addr (130 samples, 0.20%)</title><rect x="40.8372%" y="229" width="0.1984%" height="15" fill="rgb(206,27,48)" fg:x="26761" fg:w="130"/><text x="41.0872%" y="239.50"></text></g><g><title>range`&lt;curvature::exec::physical_operator::aggregate::simple_aggregate::SimpleAggregate as curvature::exec::physical_operator::PhysicalOperator&gt;::write_data (511 samples, 0.78%)</title><rect x="40.5564%" y="245" width="0.7798%" height="15" fill="rgb(225,35,8)" fg:x="26577" fg:w="511"/><text x="40.8064%" y="255.50"></text></g><g><title>range`quanta::get_now (197 samples, 0.30%)</title><rect x="41.0355%" y="229" width="0.3006%" height="15" fill="rgb(250,213,24)" fg:x="26891" fg:w="197"/><text x="41.2855%" y="239.50"></text></g><g><title>range`&lt;curvature::exec::physical_operator::aggregate::simple_aggregate::SimpleAggregateLocalSinkState as curvature::exec::physical_operator::LocalSinkState&gt;::as_mut_any (14 samples, 0.02%)</title><rect x="41.3362%" y="245" width="0.0214%" height="15" fill="rgb(247,123,22)" fg:x="27088" fg:w="14"/><text x="41.5862%" y="255.50"></text></g><g><title>libdyld.dylib`tlv_get_addr (314 samples, 0.48%)</title><rect x="41.7100%" y="229" width="0.4792%" height="15" fill="rgb(231,138,38)" fg:x="27333" fg:w="314"/><text x="41.9600%" y="239.50"></text></g><g><title>range`&lt;curvature::exec::physical_expr::arith::ConstRem&lt;T,U&gt; as curvature::exec::physical_expr::PhysicalExpr&gt;::execute (51 samples, 0.08%)</title><rect x="42.1892%" y="229" width="0.0778%" height="15" fill="rgb(231,145,46)" fg:x="27647" fg:w="51"/><text x="42.4392%" y="239.50"></text></g><g><title>range`&lt;curvature::exec::physical_expr::field_ref::FieldRef as curvature::exec::physical_expr::PhysicalExpr&gt;::execute (143 samples, 0.22%)</title><rect x="51.2780%" y="197" width="0.2182%" height="15" fill="rgb(251,118,11)" fg:x="33603" fg:w="143"/><text x="51.5280%" y="207.50"></text></g><g><title>range`data_block::array::ArrayImpl::reference (84 samples, 0.13%)</title><rect x="51.3681%" y="181" width="0.1282%" height="15" fill="rgb(217,147,25)" fg:x="33662" fg:w="84"/><text x="51.6181%" y="191.50"></text></g><g><title>range`&lt;curvature::exec::physical_expr::arith::ConstRem&lt;T,U&gt; as curvature::exec::physical_expr::PhysicalExpr&gt;::execute (5,820 samples, 8.88%)</title><rect x="42.6348%" y="213" width="8.8813%" height="15" fill="rgb(247,81,37)" fg:x="27939" fg:w="5820"/><text x="42.8848%" y="223.50">range`&lt;curvat..</text></g><g><title>range`data_block::array::ArrayImpl::reference (13 samples, 0.02%)</title><rect x="51.4962%" y="197" width="0.0198%" height="15" fill="rgb(209,12,38)" fg:x="33746" fg:w="13"/><text x="51.7462%" y="207.50"></text></g><g><title>range`&lt;curvature::exec::physical_expr::constant::Constant as curvature::exec::physical_expr::PhysicalExpr&gt;::execute (91 samples, 0.14%)</title><rect x="51.5161%" y="213" width="0.1389%" height="15" fill="rgb(227,1,9)" fg:x="33759" fg:w="91"/><text x="51.7661%" y="223.50"></text></g><g><title>range`data_block::array::ArrayImpl::reference (78 samples, 0.12%)</title><rect x="51.5359%" y="197" width="0.1190%" height="15" fill="rgb(248,47,43)" fg:x="33772" fg:w="78"/><text x="51.7859%" y="207.50"></text></g><g><title>range`&lt;curvature::exec::physical_expr::field_ref::FieldRef as curvature::exec::physical_expr::PhysicalExpr&gt;::execute (59 samples, 0.09%)</title><rect x="51.6549%" y="213" width="0.0900%" height="15" fill="rgb(221,10,30)" fg:x="33850" fg:w="59"/><text x="51.9049%" y="223.50"></text></g><g><title>range`data_block::compute::comparison::primitive::stable::cmp_scalar (2,007 samples, 3.06%)</title><rect x="51.9922%" y="197" width="3.0627%" height="15" fill="rgb(210,229,1)" fg:x="34071" fg:w="2007"/><text x="52.2422%" y="207.50">ran..</text></g><g><title>range`data_block::compute::logical::and_inplace (15 samples, 0.02%)</title><rect x="55.0320%" y="181" width="0.0229%" height="15" fill="rgb(222,148,37)" fg:x="36063" fg:w="15"/><text x="55.2820%" y="191.50"></text></g><g><title>range`curvature::exec::physical_expr::comparison::compare_array_with_scalar (2,471 samples, 3.77%)</title><rect x="51.7450%" y="213" width="3.7707%" height="15" fill="rgb(234,67,33)" fg:x="33909" fg:w="2471"/><text x="51.9950%" y="223.50">rang..</text></g><g><title>range`data_block::compute::logical::and_inplace (302 samples, 0.46%)</title><rect x="55.0549%" y="197" width="0.4609%" height="15" fill="rgb(247,98,35)" fg:x="36078" fg:w="302"/><text x="55.3049%" y="207.50"></text></g><g><title>range`data_block::array::ArrayImpl::len (34 samples, 0.05%)</title><rect x="55.5157%" y="213" width="0.0519%" height="15" fill="rgb(247,138,52)" fg:x="36380" fg:w="34"/><text x="55.7657%" y="223.50"></text></g><g><title>range`data_block::array::ArrayImpl::reference (19 samples, 0.03%)</title><rect x="55.5676%" y="213" width="0.0290%" height="15" fill="rgb(213,79,30)" fg:x="36414" fg:w="19"/><text x="55.8176%" y="223.50"></text></g><g><title>range`&lt;curvature::exec::physical_expr::comparison::Comparison as curvature::exec::physical_expr::PhysicalExpr&gt;::execute (8,772 samples, 13.39%)</title><rect x="42.2670%" y="229" width="13.3860%" height="15" fill="rgb(246,177,23)" fg:x="27698" fg:w="8772"/><text x="42.5170%" y="239.50">range`&lt;curvature::ex..</text></g><g><title>range`data_block::compute::logical::and_inplace (37 samples, 0.06%)</title><rect x="55.5966%" y="213" width="0.0565%" height="15" fill="rgb(230,62,27)" fg:x="36433" fg:w="37"/><text x="55.8466%" y="223.50"></text></g><g><title>range`&lt;curvature::exec::physical_expr::constant::Constant as curvature::exec::physical_expr::PhysicalExpr&gt;::execute (183 samples, 0.28%)</title><rect x="55.6530%" y="229" width="0.2793%" height="15" fill="rgb(216,154,8)" fg:x="36470" fg:w="183"/><text x="55.9030%" y="239.50"></text></g><g><title>range`curvature::exec::physical_expr::comparison::compare_array_with_scalar (26 samples, 0.04%)</title><rect x="55.9323%" y="229" width="0.0397%" height="15" fill="rgb(244,35,45)" fg:x="36653" fg:w="26"/><text x="56.1823%" y="239.50"></text></g><g><title>range`data_block::array::ArrayImpl::filter (8,822 samples, 13.46%)</title><rect x="55.9720%" y="229" width="13.4623%" height="15" fill="rgb(251,115,12)" fg:x="36679" fg:w="8822"/><text x="56.2220%" y="239.50">range`data_block::ar..</text></g><g><title>range`data_block::array::ArrayImpl::len (174 samples, 0.27%)</title><rect x="69.4343%" y="229" width="0.2655%" height="15" fill="rgb(240,54,50)" fg:x="45501" fg:w="174"/><text x="69.6843%" y="239.50"></text></g><g><title>range`&lt;curvature::exec::physical_operator::filter::Filter as curvature::exec::physical_operator::PhysicalOperator&gt;::execute (19,035 samples, 29.05%)</title><rect x="41.3575%" y="245" width="29.0473%" height="15" fill="rgb(233,84,52)" fg:x="27102" fg:w="19035"/><text x="41.6075%" y="255.50">range`&lt;curvature::exec::physical_operator::filt..</text></g><g><title>range`quanta::get_now (462 samples, 0.71%)</title><rect x="69.6998%" y="229" width="0.7050%" height="15" fill="rgb(207,117,47)" fg:x="45675" fg:w="462"/><text x="69.9498%" y="239.50"></text></g><g><title>range`&lt;curvature::exec::physical_operator::filter::FilterLocalState as curvature::exec::physical_operator::LocalOperatorState&gt;::as_mut_any (11 samples, 0.02%)</title><rect x="70.4048%" y="245" width="0.0168%" height="15" fill="rgb(249,43,39)" fg:x="46137" fg:w="11"/><text x="70.6548%" y="255.50"></text></g><g><title>libdyld.dylib`tlv_get_addr (150 samples, 0.23%)</title><rect x="78.7795%" y="229" width="0.2289%" height="15" fill="rgb(209,38,44)" fg:x="51625" fg:w="150"/><text x="79.0295%" y="239.50"></text></g><g><title>range`&lt;curvature::exec::physical_operator::numbers::Numbers as curvature::exec::physical_operator::PhysicalOperator&gt;::read_data (5,888 samples, 8.99%)</title><rect x="70.4216%" y="245" width="8.9851%" height="15" fill="rgb(236,212,23)" fg:x="46148" fg:w="5888"/><text x="70.6716%" y="255.50">range`&lt;curvat..</text></g><g><title>range`quanta::get_now (260 samples, 0.40%)</title><rect x="79.0099%" y="229" width="0.3968%" height="15" fill="rgb(242,79,21)" fg:x="51776" fg:w="260"/><text x="79.2599%" y="239.50"></text></g><g><title>range`&lt;curvature::exec::physical_operator::numbers::NumbersGlobalSourceState as curvature::exec::physical_operator::GlobalSourceState&gt;::as_any (13 samples, 0.02%)</title><rect x="79.4067%" y="245" width="0.0198%" height="15" fill="rgb(211,96,35)" fg:x="52036" fg:w="13"/><text x="79.6567%" y="255.50"></text></g><g><title>range`&lt;curvature::exec::physical_operator::numbers::NumbersLocalSourceState as curvature::exec::physical_operator::LocalSourceState&gt;::as_mut_any (14 samples, 0.02%)</title><rect x="79.4265%" y="245" width="0.0214%" height="15" fill="rgb(253,215,40)" fg:x="52049" fg:w="14"/><text x="79.6765%" y="255.50"></text></g><g><title>range`data_block::array::ArrayImpl::filter (64 samples, 0.10%)</title><rect x="79.4479%" y="245" width="0.0977%" height="15" fill="rgb(211,81,21)" fg:x="52063" fg:w="64"/><text x="79.6979%" y="255.50"></text></g><g><title>range`data_block::array::ArrayImpl::len (30 samples, 0.05%)</title><rect x="79.5456%" y="245" width="0.0458%" height="15" fill="rgb(208,190,38)" fg:x="52127" fg:w="30"/><text x="79.7956%" y="255.50"></text></g><g><title>range`curvature::exec::query_executor::execute_pipeline (26,059 samples, 39.77%)</title><rect x="39.9475%" y="261" width="39.7659%" height="15" fill="rgb(235,213,38)" fg:x="26178" fg:w="26059"/><text x="40.1975%" y="271.50">range`curvature::exec::query_executor::execute_pipeline</text></g><g><title>range`quanta::get_now (80 samples, 0.12%)</title><rect x="79.5913%" y="245" width="0.1221%" height="15" fill="rgb(237,122,38)" fg:x="52157" fg:w="80"/><text x="79.8413%" y="255.50"></text></g><g><title>range`&lt;curvature::exec::physical_operator::filter::Filter as curvature::exec::physical_operator::PhysicalOperator&gt;::execute (13 samples, 0.02%)</title><rect x="79.7195%" y="229" width="0.0198%" height="15" fill="rgb(244,218,35)" fg:x="52241" fg:w="13"/><text x="79.9695%" y="239.50"></text></g><g><title>range`&lt;curvature::exec::physical_operator::numbers::Numbers as curvature::exec::physical_operator::PhysicalOperator&gt;::read_data (13 samples, 0.02%)</title><rect x="79.7394%" y="229" width="0.0198%" height="15" fill="rgb(240,68,47)" fg:x="52254" fg:w="13"/><text x="79.9894%" y="239.50"></text></g><g><title>range`&lt;T as core::any::Any&gt;::type_id (17 samples, 0.03%)</title><rect x="79.8508%" y="213" width="0.0259%" height="15" fill="rgb(210,16,53)" fg:x="52327" fg:w="17"/><text x="80.1008%" y="223.50"></text></g><g><title>range`&lt;curvature::exec::physical_expr::comparison::Comparison as curvature::exec::physical_expr::PhysicalExpr&gt;::as_any (12 samples, 0.02%)</title><rect x="79.8767%" y="213" width="0.0183%" height="15" fill="rgb(235,124,12)" fg:x="52344" fg:w="12"/><text x="80.1267%" y="223.50"></text></g><g><title>range`&lt;curvature::exec::physical_expr::comparison::Comparison as curvature::exec::physical_expr::PhysicalExpr&gt;::execute (10 samples, 0.02%)</title><rect x="79.8950%" y="213" width="0.0153%" height="15" fill="rgb(224,169,11)" fg:x="52356" fg:w="10"/><text x="80.1450%" y="223.50"></text></g><g><title>range`&lt;curvature::exec::physical_expr::function::aggregate::count::Count&lt;_&gt; as curvature::exec::physical_expr::function::Function&gt;::arguments (8 samples, 0.01%)</title><rect x="79.9103%" y="213" width="0.0122%" height="15" fill="rgb(250,166,2)" fg:x="52366" fg:w="8"/><text x="80.1603%" y="223.50"></text></g><g><title>libdyld.dylib`tlv_get_addr (38 samples, 0.06%)</title><rect x="79.9911%" y="197" width="0.0580%" height="15" fill="rgb(242,216,29)" fg:x="52419" fg:w="38"/><text x="80.2411%" y="207.50"></text></g><g><title>range`&lt;curvature::exec::physical_operator::aggregate::simple_aggregate::SimpleAggregate as curvature::exec::physical_operator::PhysicalOperator&gt;::write_data (140 samples, 0.21%)</title><rect x="79.9225%" y="213" width="0.2136%" height="15" fill="rgb(230,116,27)" fg:x="52374" fg:w="140"/><text x="80.1725%" y="223.50"></text></g><g><title>range`quanta::get_now (57 samples, 0.09%)</title><rect x="80.0491%" y="197" width="0.0870%" height="15" fill="rgb(228,99,48)" fg:x="52457" fg:w="57"/><text x="80.2991%" y="207.50"></text></g><g><title>libdyld.dylib`tlv_get_addr (70 samples, 0.11%)</title><rect x="80.2262%" y="197" width="0.1068%" height="15" fill="rgb(253,11,6)" fg:x="52573" fg:w="70"/><text x="80.4762%" y="207.50"></text></g><g><title>range`&lt;curvature::exec::physical_expr::arith::ConstRem&lt;T,U&gt; as curvature::exec::physical_expr::PhysicalExpr&gt;::execute (13 samples, 0.02%)</title><rect x="80.3330%" y="197" width="0.0198%" height="15" fill="rgb(247,143,39)" fg:x="52643" fg:w="13"/><text x="80.5830%" y="207.50"></text></g><g><title>range`&lt;curvature::exec::physical_expr::field_ref::FieldRef as curvature::exec::physical_expr::PhysicalExpr&gt;::execute (36 samples, 0.05%)</title><rect x="82.6586%" y="165" width="0.0549%" height="15" fill="rgb(236,97,10)" fg:x="54167" fg:w="36"/><text x="82.9086%" y="175.50"></text></g><g><title>range`data_block::array::ArrayImpl::reference (17 samples, 0.03%)</title><rect x="82.6876%" y="149" width="0.0259%" height="15" fill="rgb(233,208,19)" fg:x="54186" fg:w="17"/><text x="82.9376%" y="159.50"></text></g><g><title>range`&lt;curvature::exec::physical_expr::arith::ConstRem&lt;T,U&gt; as curvature::exec::physical_expr::PhysicalExpr&gt;::execute (1,488 samples, 2.27%)</title><rect x="80.4474%" y="181" width="2.2707%" height="15" fill="rgb(216,164,2)" fg:x="52718" fg:w="1488"/><text x="80.6974%" y="191.50">r..</text></g><g><title>range`&lt;curvature::exec::physical_expr::constant::Constant as curvature::exec::physical_expr::PhysicalExpr&gt;::execute (21 samples, 0.03%)</title><rect x="82.7181%" y="181" width="0.0320%" height="15" fill="rgb(220,129,5)" fg:x="54206" fg:w="21"/><text x="82.9681%" y="191.50"></text></g><g><title>range`data_block::array::ArrayImpl::reference (19 samples, 0.03%)</title><rect x="82.7212%" y="165" width="0.0290%" height="15" fill="rgb(242,17,10)" fg:x="54208" fg:w="19"/><text x="82.9712%" y="175.50"></text></g><g><title>range`&lt;curvature::exec::physical_expr::field_ref::FieldRef as curvature::exec::physical_expr::PhysicalExpr&gt;::execute (11 samples, 0.02%)</title><rect x="82.7501%" y="181" width="0.0168%" height="15" fill="rgb(242,107,0)" fg:x="54227" fg:w="11"/><text x="83.0001%" y="191.50"></text></g><g><title>range`data_block::compute::comparison::primitive::stable::cmp_scalar (483 samples, 0.74%)</title><rect x="82.8249%" y="165" width="0.7371%" height="15" fill="rgb(251,28,31)" fg:x="54276" fg:w="483"/><text x="83.0749%" y="175.50"></text></g><g><title>range`curvature::exec::physical_expr::comparison::compare_array_with_scalar (601 samples, 0.92%)</title><rect x="82.7669%" y="181" width="0.9171%" height="15" fill="rgb(233,223,10)" fg:x="54238" fg:w="601"/><text x="83.0169%" y="191.50"></text></g><g><title>range`data_block::compute::logical::and_inplace (80 samples, 0.12%)</title><rect x="83.5620%" y="165" width="0.1221%" height="15" fill="rgb(215,21,27)" fg:x="54759" fg:w="80"/><text x="83.8120%" y="175.50"></text></g><g><title>range`&lt;curvature::exec::physical_expr::comparison::Comparison as curvature::exec::physical_expr::PhysicalExpr&gt;::execute (2,202 samples, 3.36%)</title><rect x="80.3528%" y="197" width="3.3602%" height="15" fill="rgb(232,23,21)" fg:x="52656" fg:w="2202"/><text x="80.6028%" y="207.50">ran..</text></g><g><title>range`data_block::compute::logical::and_inplace (10 samples, 0.02%)</title><rect x="83.6978%" y="181" width="0.0153%" height="15" fill="rgb(244,5,23)" fg:x="54848" fg:w="10"/><text x="83.9478%" y="191.50"></text></g><g><title>range`&lt;curvature::exec::physical_expr::constant::Constant as curvature::exec::physical_expr::PhysicalExpr&gt;::execute (43 samples, 0.07%)</title><rect x="83.7131%" y="197" width="0.0656%" height="15" fill="rgb(226,81,46)" fg:x="54858" fg:w="43"/><text x="83.9631%" y="207.50"></text></g><g><title>range`curvature::exec::physical_expr::comparison::compare_array_with_scalar (9 samples, 0.01%)</title><rect x="83.7787%" y="197" width="0.0137%" height="15" fill="rgb(247,70,30)" fg:x="54901" fg:w="9"/><text x="84.0287%" y="207.50"></text></g><g><title>range`data_block::array::ArrayImpl::filter (2,231 samples, 3.40%)</title><rect x="83.7924%" y="197" width="3.4045%" height="15" fill="rgb(212,68,19)" fg:x="54910" fg:w="2231"/><text x="84.0424%" y="207.50">ran..</text></g><g><title>range`data_block::array::ArrayImpl::len (30 samples, 0.05%)</title><rect x="87.1969%" y="197" width="0.0458%" height="15" fill="rgb(240,187,13)" fg:x="57141" fg:w="30"/><text x="87.4469%" y="207.50"></text></g><g><title>range`&lt;curvature::exec::physical_operator::filter::Filter as curvature::exec::physical_operator::PhysicalOperator&gt;::execute (4,754 samples, 7.25%)</title><rect x="80.1392%" y="213" width="7.2546%" height="15" fill="rgb(223,113,26)" fg:x="52516" fg:w="4754"/><text x="80.3892%" y="223.50">range`&lt;cur..</text></g><g><title>range`quanta::get_now (99 samples, 0.15%)</title><rect x="87.2427%" y="197" width="0.1511%" height="15" fill="rgb(206,192,2)" fg:x="57171" fg:w="99"/><text x="87.4927%" y="207.50"></text></g><g><title>libdyld.dylib`tlv_get_addr (42 samples, 0.06%)</title><rect x="89.4020%" y="197" width="0.0641%" height="15" fill="rgb(241,108,4)" fg:x="58586" fg:w="42"/><text x="89.6520%" y="207.50"></text></g><g><title>range`&lt;curvature::exec::physical_operator::numbers::Numbers as curvature::exec::physical_operator::PhysicalOperator&gt;::read_data (1,431 samples, 2.18%)</title><rect x="87.4029%" y="213" width="2.1837%" height="15" fill="rgb(247,173,49)" fg:x="57276" fg:w="1431"/><text x="87.6529%" y="223.50">r..</text></g><g><title>range`quanta::get_now (79 samples, 0.12%)</title><rect x="89.4661%" y="197" width="0.1206%" height="15" fill="rgb(224,114,35)" fg:x="58628" fg:w="79"/><text x="89.7161%" y="207.50"></text></g><g><title>range`data_block::array::ArrayImpl::filter (19 samples, 0.03%)</title><rect x="89.5958%" y="213" width="0.0290%" height="15" fill="rgb(245,159,27)" fg:x="58713" fg:w="19"/><text x="89.8458%" y="223.50"></text></g><g><title>range`data_block::array::ArrayImpl::len (11 samples, 0.02%)</title><rect x="89.6248%" y="213" width="0.0168%" height="15" fill="rgb(245,172,44)" fg:x="58732" fg:w="11"/><text x="89.8748%" y="223.50"></text></g><g><title>range`rayon::iter::plumbing::bridge_producer_consumer::helper (58,760 samples, 89.67%)</title><rect x="0.0061%" y="309" width="89.6675%" height="15" fill="rgb(236,23,11)" fg:x="4" fg:w="58760"/><text x="0.2561%" y="319.50">range`rayon::iter::plumbing::bridge_producer_consumer::helper</text></g><g><title>range`rayon_core::join::join_context::_{{closure}} (32,682 samples, 49.87%)</title><rect x="39.8010%" y="293" width="49.8726%" height="15" fill="rgb(205,117,38)" fg:x="26082" fg:w="32682"/><text x="40.0510%" y="303.50">range`rayon_core::join::join_context::_{{closure}}</text></g><g><title>range`rayon::iter::plumbing::bridge_producer_consumer::helper (32,682 samples, 49.87%)</title><rect x="39.8010%" y="277" width="49.8726%" height="15" fill="rgb(237,72,25)" fg:x="26082" fg:w="32682"/><text x="40.0510%" y="287.50">range`rayon::iter::plumbing::bridge_producer_consumer::helper</text></g><g><title>range`rayon_core::join::join_context::_{{closure}} (6,527 samples, 9.96%)</title><rect x="79.7134%" y="261" width="9.9602%" height="15" fill="rgb(244,70,9)" fg:x="52237" fg:w="6527"/><text x="79.9634%" y="271.50">range`rayon_co..</text></g><g><title>range`rayon::iter::plumbing::bridge_producer_consumer::helper (6,527 samples, 9.96%)</title><rect x="79.7134%" y="245" width="9.9602%" height="15" fill="rgb(217,125,39)" fg:x="52237" fg:w="6527"/><text x="79.9634%" y="255.50">range`rayon::i..</text></g><g><title>range`curvature::exec::query_executor::execute_pipeline (6,497 samples, 9.91%)</title><rect x="79.7592%" y="229" width="9.9144%" height="15" fill="rgb(235,36,10)" fg:x="52267" fg:w="6497"/><text x="80.0092%" y="239.50">range`curvatur..</text></g><g><title>range`quanta::get_now (21 samples, 0.03%)</title><rect x="89.6415%" y="213" width="0.0320%" height="15" fill="rgb(251,123,47)" fg:x="58743" fg:w="21"/><text x="89.8915%" y="223.50"></text></g><g><title>range`&lt;curvature::exec::physical_operator::filter::Filter as curvature::exec::physical_operator::PhysicalOperator&gt;::execute (10 samples, 0.02%)</title><rect x="89.6766%" y="213" width="0.0153%" height="15" fill="rgb(221,13,13)" fg:x="58766" fg:w="10"/><text x="89.9266%" y="223.50"></text></g><g><title>range`&lt;T as core::any::Any&gt;::type_id (26 samples, 0.04%)</title><rect x="89.7972%" y="197" width="0.0397%" height="15" fill="rgb(238,131,9)" fg:x="58845" fg:w="26"/><text x="90.0472%" y="207.50"></text></g><g><title>range`&lt;curvature::exec::physical_expr::comparison::Comparison as curvature::exec::physical_expr::PhysicalExpr&gt;::execute (9 samples, 0.01%)</title><rect x="89.8414%" y="197" width="0.0137%" height="15" fill="rgb(211,50,8)" fg:x="58874" fg:w="9"/><text x="90.0914%" y="207.50"></text></g><g><title>range`&lt;curvature::exec::physical_expr::function::aggregate::count::Count&lt;_&gt; as curvature::exec::physical_expr::function::Function&gt;::arguments (12 samples, 0.02%)</title><rect x="89.8552%" y="197" width="0.0183%" height="15" fill="rgb(245,182,24)" fg:x="58883" fg:w="12"/><text x="90.1052%" y="207.50"></text></g><g><title>libdyld.dylib`tlv_get_addr (20 samples, 0.03%)</title><rect x="89.9345%" y="181" width="0.0305%" height="15" fill="rgb(242,14,37)" fg:x="58935" fg:w="20"/><text x="90.1845%" y="191.50"></text></g><g><title>range`&lt;curvature::exec::physical_operator::aggregate::simple_aggregate::SimpleAggregate as curvature::exec::physical_operator::PhysicalOperator&gt;::write_data (96 samples, 0.15%)</title><rect x="89.8735%" y="197" width="0.1465%" height="15" fill="rgb(246,228,12)" fg:x="58895" fg:w="96"/><text x="90.1235%" y="207.50"></text></g><g><title>range`quanta::get_now (36 samples, 0.05%)</title><rect x="89.9651%" y="181" width="0.0549%" height="15" fill="rgb(213,55,15)" fg:x="58955" fg:w="36"/><text x="90.2151%" y="191.50"></text></g><g><title>libdyld.dylib`tlv_get_addr (78 samples, 0.12%)</title><rect x="90.1207%" y="181" width="0.1190%" height="15" fill="rgb(209,9,3)" fg:x="59057" fg:w="78"/><text x="90.3707%" y="191.50"></text></g><g><title>range`&lt;curvature::exec::physical_expr::arith::ConstRem&lt;T,U&gt; as curvature::exec::physical_expr::PhysicalExpr&gt;::execute (15 samples, 0.02%)</title><rect x="90.2397%" y="181" width="0.0229%" height="15" fill="rgb(230,59,30)" fg:x="59135" fg:w="15"/><text x="90.4897%" y="191.50"></text></g><g><title>range`&lt;curvature::exec::physical_expr::field_ref::FieldRef as curvature::exec::physical_expr::PhysicalExpr&gt;::execute (34 samples, 0.05%)</title><rect x="92.6157%" y="149" width="0.0519%" height="15" fill="rgb(209,121,21)" fg:x="60692" fg:w="34"/><text x="92.8657%" y="159.50"></text></g><g><title>range`data_block::array::ArrayImpl::reference (22 samples, 0.03%)</title><rect x="92.6340%" y="133" width="0.0336%" height="15" fill="rgb(220,109,13)" fg:x="60704" fg:w="22"/><text x="92.8840%" y="143.50"></text></g><g><title>range`&lt;curvature::exec::physical_expr::arith::ConstRem&lt;T,U&gt; as curvature::exec::physical_expr::PhysicalExpr&gt;::execute (1,520 samples, 2.32%)</title><rect x="90.3572%" y="165" width="2.3195%" height="15" fill="rgb(232,18,1)" fg:x="59212" fg:w="1520"/><text x="90.6072%" y="175.50">r..</text></g><g><title>range`&lt;curvature::exec::physical_expr::constant::Constant as curvature::exec::physical_expr::PhysicalExpr&gt;::execute (31 samples, 0.05%)</title><rect x="92.6767%" y="165" width="0.0473%" height="15" fill="rgb(215,41,42)" fg:x="60732" fg:w="31"/><text x="92.9267%" y="175.50"></text></g><g><title>range`data_block::array::ArrayImpl::reference (26 samples, 0.04%)</title><rect x="92.6844%" y="149" width="0.0397%" height="15" fill="rgb(224,123,36)" fg:x="60737" fg:w="26"/><text x="92.9344%" y="159.50"></text></g><g><title>range`&lt;curvature::exec::physical_expr::field_ref::FieldRef as curvature::exec::physical_expr::PhysicalExpr&gt;::execute (15 samples, 0.02%)</title><rect x="92.7241%" y="165" width="0.0229%" height="15" fill="rgb(240,125,3)" fg:x="60763" fg:w="15"/><text x="92.9741%" y="175.50"></text></g><g><title>range`data_block::compute::comparison::primitive::stable::cmp_scalar (484 samples, 0.74%)</title><rect x="92.7958%" y="149" width="0.7386%" height="15" fill="rgb(205,98,50)" fg:x="60810" fg:w="484"/><text x="93.0458%" y="159.50"></text></g><g><title>range`curvature::exec::physical_expr::comparison::compare_array_with_scalar (587 samples, 0.90%)</title><rect x="92.7469%" y="165" width="0.8958%" height="15" fill="rgb(205,185,37)" fg:x="60778" fg:w="587"/><text x="92.9969%" y="175.50"></text></g><g><title>range`data_block::compute::logical::and_inplace (71 samples, 0.11%)</title><rect x="93.5344%" y="149" width="0.1083%" height="15" fill="rgb(238,207,15)" fg:x="61294" fg:w="71"/><text x="93.7844%" y="159.50"></text></g><g><title>range`data_block::array::ArrayImpl::len (12 samples, 0.02%)</title><rect x="93.6427%" y="165" width="0.0183%" height="15" fill="rgb(213,199,42)" fg:x="61365" fg:w="12"/><text x="93.8927%" y="175.50"></text></g><g><title>range`data_block::array::ArrayImpl::reference (10 samples, 0.02%)</title><rect x="93.6610%" y="165" width="0.0153%" height="15" fill="rgb(235,201,11)" fg:x="61377" fg:w="10"/><text x="93.9110%" y="175.50"></text></g><g><title>range`&lt;curvature::exec::physical_expr::comparison::Comparison as curvature::exec::physical_expr::PhysicalExpr&gt;::execute (2,249 samples, 3.43%)</title><rect x="90.2626%" y="181" width="3.4320%" height="15" fill="rgb(207,46,11)" fg:x="59150" fg:w="2249"/><text x="90.5126%" y="191.50">ran..</text></g><g><title>range`data_block::compute::logical::and_inplace (12 samples, 0.02%)</title><rect x="93.6763%" y="165" width="0.0183%" height="15" fill="rgb(241,35,35)" fg:x="61387" fg:w="12"/><text x="93.9263%" y="175.50"></text></g><g><title>range`&lt;curvature::exec::physical_expr::constant::Constant as curvature::exec::physical_expr::PhysicalExpr&gt;::execute (48 samples, 0.07%)</title><rect x="93.6946%" y="181" width="0.0732%" height="15" fill="rgb(243,32,47)" fg:x="61399" fg:w="48"/><text x="93.9446%" y="191.50"></text></g><g><title>range`curvature::exec::physical_expr::comparison::compare_array_with_scalar (7 samples, 0.01%)</title><rect x="93.7678%" y="181" width="0.0107%" height="15" fill="rgb(247,202,23)" fg:x="61447" fg:w="7"/><text x="94.0178%" y="191.50"></text></g><g><title>range`data_block::array::ArrayImpl::filter (2,247 samples, 3.43%)</title><rect x="93.7785%" y="181" width="3.4289%" height="15" fill="rgb(219,102,11)" fg:x="61454" fg:w="2247"/><text x="94.0285%" y="191.50">ran..</text></g><g><title>range`data_block::array::ArrayImpl::len (42 samples, 0.06%)</title><rect x="97.2074%" y="181" width="0.0641%" height="15" fill="rgb(243,110,44)" fg:x="63701" fg:w="42"/><text x="97.4574%" y="191.50"></text></g><g><title>range`&lt;curvature::exec::physical_operator::filter::Filter as curvature::exec::physical_operator::PhysicalOperator&gt;::execute (4,850 samples, 7.40%)</title><rect x="90.0246%" y="197" width="7.4011%" height="15" fill="rgb(222,74,54)" fg:x="58994" fg:w="4850"/><text x="90.2746%" y="207.50">range`&lt;cur..</text></g><g><title>range`quanta::get_now (101 samples, 0.15%)</title><rect x="97.2715%" y="181" width="0.1541%" height="15" fill="rgb(216,99,12)" fg:x="63743" fg:w="101"/><text x="97.5215%" y="191.50"></text></g><g><title>libdyld.dylib`tlv_get_addr (39 samples, 0.06%)</title><rect x="99.4888%" y="181" width="0.0595%" height="15" fill="rgb(226,22,26)" fg:x="65196" fg:w="39"/><text x="99.7388%" y="191.50"></text></g><g><title>range`&lt;curvature::exec::physical_operator::numbers::Numbers as curvature::exec::physical_operator::PhysicalOperator&gt;::read_data (1,435 samples, 2.19%)</title><rect x="97.4317%" y="197" width="2.1898%" height="15" fill="rgb(217,163,10)" fg:x="63848" fg:w="1435"/><text x="97.6817%" y="207.50">r..</text></g><g><title>range`quanta::get_now (48 samples, 0.07%)</title><rect x="99.5483%" y="181" width="0.0732%" height="15" fill="rgb(213,25,53)" fg:x="65235" fg:w="48"/><text x="99.7983%" y="191.50"></text></g><g><title>range`data_block::array::ArrayImpl::filter (20 samples, 0.03%)</title><rect x="99.6292%" y="197" width="0.0305%" height="15" fill="rgb(252,105,26)" fg:x="65288" fg:w="20"/><text x="99.8792%" y="207.50"></text></g><g><title>libsystem_c.dylib`_mach_boottime_usec (182 samples, 0.28%)</title><rect x="99.7131%" y="69" width="0.2777%" height="15" fill="rgb(220,39,43)" fg:x="65343" fg:w="182"/><text x="99.9631%" y="79.50"></text></g><g><title>libsystem_c.dylib`gettimeofday (182 samples, 0.28%)</title><rect x="99.7131%" y="53" width="0.2777%" height="15" fill="rgb(229,68,48)" fg:x="65343" fg:w="182"/><text x="99.9631%" y="63.50"></text></g><g><title>libsystem_kernel.dylib`mach_absolute_time (173 samples, 0.26%)</title><rect x="99.7268%" y="37" width="0.2640%" height="15" fill="rgb(252,8,32)" fg:x="65352" fg:w="173"/><text x="99.9768%" y="47.50"></text></g><g><title>range`std::sys_common::backtrace::__rust_begin_short_backtrace (65,524 samples, 99.99%)</title><rect x="0.0061%" y="357" width="99.9893%" height="15" fill="rgb(223,20,43)" fg:x="4" fg:w="65524"/><text x="0.2561%" y="367.50">range`std::sys_common::backtrace::__rust_begin_short_backtrace</text></g><g><title>range`rayon_core::registry::WorkerThread::wait_until_cold (65,524 samples, 99.99%)</title><rect x="0.0061%" y="341" width="99.9893%" height="15" fill="rgb(229,81,49)" fg:x="4" fg:w="65524"/><text x="0.2561%" y="351.50">range`rayon_core::registry::WorkerThread::wait_until_cold</text></g><g><title>range`&lt;rayon_core::job::StackJob&lt;L,F,R&gt; as rayon_core::job::Job&gt;::execute (65,524 samples, 99.99%)</title><rect x="0.0061%" y="325" width="99.9893%" height="15" fill="rgb(236,28,36)" fg:x="4" fg:w="65524"/><text x="0.2561%" y="335.50">range`&lt;rayon_core::job::StackJob&lt;L,F,R&gt; as rayon_core::job::Job&gt;::execute</text></g><g><title>range`rayon_core::join::join_context::_{{closure}} (6,764 samples, 10.32%)</title><rect x="89.6736%" y="309" width="10.3218%" height="15" fill="rgb(249,185,26)" fg:x="58764" fg:w="6764"/><text x="89.9236%" y="319.50">range`rayon_cor..</text></g><g><title>range`rayon::iter::plumbing::bridge_producer_consumer::helper (6,764 samples, 10.32%)</title><rect x="89.6736%" y="293" width="10.3218%" height="15" fill="rgb(249,174,33)" fg:x="58764" fg:w="6764"/><text x="89.9236%" y="303.50">range`rayon::it..</text></g><g><title>range`rayon_core::join::join_context::_{{closure}} (6,764 samples, 10.32%)</title><rect x="89.6736%" y="277" width="10.3218%" height="15" fill="rgb(233,201,37)" fg:x="58764" fg:w="6764"/><text x="89.9236%" y="287.50">range`rayon_cor..</text></g><g><title>range`rayon::iter::plumbing::bridge_producer_consumer::helper (6,764 samples, 10.32%)</title><rect x="89.6736%" y="261" width="10.3218%" height="15" fill="rgb(221,78,26)" fg:x="58764" fg:w="6764"/><text x="89.9236%" y="271.50">range`rayon::it..</text></g><g><title>range`rayon_core::join::join_context::_{{closure}} (6,764 samples, 10.32%)</title><rect x="89.6736%" y="245" width="10.3218%" height="15" fill="rgb(250,127,30)" fg:x="58764" fg:w="6764"/><text x="89.9236%" y="255.50">range`rayon_cor..</text></g><g><title>range`rayon::iter::plumbing::bridge_producer_consumer::helper (6,764 samples, 10.32%)</title><rect x="89.6736%" y="229" width="10.3218%" height="15" fill="rgb(230,49,44)" fg:x="58764" fg:w="6764"/><text x="89.9236%" y="239.50">range`rayon::it..</text></g><g><title>range`curvature::exec::query_executor::execute_pipeline (6,747 samples, 10.30%)</title><rect x="89.6995%" y="213" width="10.2959%" height="15" fill="rgb(229,67,23)" fg:x="58781" fg:w="6747"/><text x="89.9495%" y="223.50">range`curvature..</text></g><g><title>range`quanta::get_now (215 samples, 0.33%)</title><rect x="99.6673%" y="197" width="0.3281%" height="15" fill="rgb(249,83,47)" fg:x="65313" fg:w="215"/><text x="99.9173%" y="207.50"></text></g><g><title>range`once_cell::imp::OnceCell&lt;T&gt;::initialize (199 samples, 0.30%)</title><rect x="99.6917%" y="181" width="0.3037%" height="15" fill="rgb(215,43,3)" fg:x="65329" fg:w="199"/><text x="99.9417%" y="191.50"></text></g><g><title>range`once_cell::imp::initialize_or_wait (199 samples, 0.30%)</title><rect x="99.6917%" y="165" width="0.3037%" height="15" fill="rgb(238,154,13)" fg:x="65329" fg:w="199"/><text x="99.9417%" y="175.50"></text></g><g><title>range`once_cell::imp::OnceCell&lt;T&gt;::initialize::_{{closure}} (199 samples, 0.30%)</title><rect x="99.6917%" y="149" width="0.3037%" height="15" fill="rgb(219,56,2)" fg:x="65329" fg:w="199"/><text x="99.9417%" y="159.50"></text></g><g><title>range`once_cell::imp::OnceCell&lt;T&gt;::initialize (199 samples, 0.30%)</title><rect x="99.6917%" y="133" width="0.3037%" height="15" fill="rgb(233,0,4)" fg:x="65329" fg:w="199"/><text x="99.9417%" y="143.50"></text></g><g><title>range`once_cell::imp::initialize_or_wait (199 samples, 0.30%)</title><rect x="99.6917%" y="117" width="0.3037%" height="15" fill="rgb(235,30,7)" fg:x="65329" fg:w="199"/><text x="99.9417%" y="127.50"></text></g><g><title>range`once_cell::imp::OnceCell&lt;T&gt;::initialize::_{{closure}} (198 samples, 0.30%)</title><rect x="99.6933%" y="101" width="0.3021%" height="15" fill="rgb(250,79,13)" fg:x="65330" fg:w="198"/><text x="99.9433%" y="111.50"></text></g><g><title>libsystem_c.dylib`clock_gettime (190 samples, 0.29%)</title><rect x="99.7055%" y="85" width="0.2899%" height="15" fill="rgb(211,146,34)" fg:x="65338" fg:w="190"/><text x="99.9555%" y="95.50"></text></g><g><title>all (65,531 samples, 100%)</title><rect x="0.0000%" y="437" width="100.0000%" height="15" fill="rgb(228,22,38)" fg:x="0" fg:w="65531"/><text x="0.2500%" y="447.50"></text></g><g><title>libsystem_pthread.dylib`thread_start (65,529 samples, 100.00%)</title><rect x="0.0031%" y="421" width="99.9969%" height="15" fill="rgb(235,168,5)" fg:x="2" fg:w="65529"/><text x="0.2531%" y="431.50">libsystem_pthread.dylib`thread_start</text></g><g><title>libsystem_pthread.dylib`_pthread_start (65,528 samples, 100.00%)</title><rect x="0.0046%" y="405" width="99.9954%" height="15" fill="rgb(221,155,16)" fg:x="3" fg:w="65528"/><text x="0.2546%" y="415.50">libsystem_pthread.dylib`_pthread_start</text></g><g><title>range`std::sys::pal::unix::thread::Thread::new::thread_start (65,528 samples, 100.00%)</title><rect x="0.0046%" y="389" width="99.9954%" height="15" fill="rgb(215,215,53)" fg:x="3" fg:w="65528"/><text x="0.2546%" y="399.50">range`std::sys::pal::unix::thread::Thread::new::thread_start</text></g><g><title>range`core::ops::function::FnOnce::call_once{{vtable.shim}} (65,527 samples, 99.99%)</title><rect x="0.0061%" y="373" width="99.9939%" height="15" fill="rgb(223,4,10)" fg:x="4" fg:w="65527"/><text x="0.2561%" y="383.50">range`core::ops::function::FnOnce::call_once{{vtable.shim}}</text></g></svg></svg>

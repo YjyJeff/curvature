@@ -50,3 +50,7 @@ harness = false
 [[bench]]
 name = "mutate_bitmap"
 harness = false
+
+[[bench]]
+name = "filter"
+harness = false

@@ -529,6 +529,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::error::BangError;
     use data_block::{array::PrimitiveArray, block::DataBlock, types::LogicalType};
 
     use super::*;
@@ -618,15 +619,15 @@ mod tests {
         let mut block =
             DataBlock::with_logical_types(vec![LogicalType::TinyInt, LogicalType::SmallInt]);
 
-        let guard = block.mutate_arrays();
-        unsafe {
-            let mutate_func = |arrays: &mut [ArrayImpl]| {
+        let guard = block.mutate_arrays(5);
+        let mutate_func = |arrays: &mut [ArrayImpl]| {
+            unsafe {
                 FixedSizedSerdeKeySerializer::<u32>::deserialize(arrays, &keys);
-                Ok::<_, ()>(())
-            };
+            }
+            Ok::<_, BangError>(())
+        };
 
-            guard.mutate(mutate_func).unwrap();
-        }
+        guard.mutate(mutate_func).unwrap();
 
         match (array0, block.arrays().first().unwrap()) {
             (ArrayImpl::Int8(l), ArrayImpl::Int8(r)) => {
@@ -692,15 +693,15 @@ mod tests {
             LogicalType::VarBinary,
         ]);
 
-        let guard = block.mutate_arrays();
-        unsafe {
-            let mutate_func = |arrays: &mut [ArrayImpl]| {
+        let guard = block.mutate_arrays(5);
+        let mutate_func = |arrays: &mut [ArrayImpl]| {
+            unsafe {
                 GeneralSerializer::deserialize(arrays, &keys);
-                Ok::<_, ()>(())
-            };
+            }
+            Ok::<_, BangError>(())
+        };
 
-            guard.mutate(mutate_func).unwrap();
-        }
+        guard.mutate(mutate_func).unwrap();
 
         let arrays = block.arrays();
         match (array0, &arrays[0]) {

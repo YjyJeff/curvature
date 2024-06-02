@@ -1,20 +1,19 @@
 //! Perform regex match on a `StringArray`
 
-use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 
 use data_block::bitmap::Bitmap;
 use regex::{Error as RegexError, Regex, RegexBuilder};
-use snafu::{ensure, ResultExt, Snafu};
+use snafu::{ensure, Snafu};
 
-use data_block::array::{ArrayImpl, StringArray};
+use data_block::array::{Array, ArrayImpl, StringArray};
 use data_block::block::DataBlock;
 use data_block::compute::regex_match::regex_match_scalar;
 use data_block::types::{LogicalType, PhysicalType};
 
 use super::executor::ExprExecCtx;
 use super::utils::CompactExprDisplayWrapper;
-use super::{ExecuteSnafu, ExprResult, PhysicalExpr, Stringify};
+use super::{execute_single_child, ExprResult, PhysicalExpr, Stringify};
 
 /// Error returned by creating the [`RegexMatch`]
 #[derive(Debug, Snafu)]
@@ -43,7 +42,7 @@ pub struct RegexMatch<const NEGATED: bool, const CASE_INSENSITIVE: bool> {
     regex: Regex,
     pattern: String,
     output_type: LogicalType,
-    children: Vec<Arc<dyn PhysicalExpr>>,
+    children: [Arc<dyn PhysicalExpr>; 1],
 }
 
 impl<const NEGATED: bool, const CASE_INSENSITIVE: bool> RegexMatch<NEGATED, CASE_INSENSITIVE> {
@@ -66,7 +65,7 @@ impl<const NEGATED: bool, const CASE_INSENSITIVE: bool> RegexMatch<NEGATED, CASE
                 regex,
                 pattern,
                 output_type: LogicalType::Boolean,
-                children: vec![input],
+                children: [input],
             }),
 
             Err(error) => Err(RegexMatchError::ConstructRegex {
@@ -130,40 +129,42 @@ impl<const NEGATED: bool, const CASE_INSENSITIVE: bool> PhysicalExpr
         _output: &mut ArrayImpl,
     ) -> ExprResult<()> {
         // Execute input
-        let mut guard = exec_ctx.intermediate_block.mutate_single_array();
+        execute_single_child(self, leaf_input, selection, exec_ctx)?;
 
-        self.children[0]
-            .execute(
-                leaf_input,
-                selection,
-                &mut exec_ctx.children[0],
-                guard.deref_mut(),
-            )
-            .boxed()
-            .with_context(|_| ExecuteSnafu {
-                expr: CompactExprDisplayWrapper::new(self).to_string(),
-            })?;
+        // Execute self
+        let array = unsafe { exec_ctx.intermediate_block.get_array_unchecked(0) };
+        let array: &StringArray = array.try_into().unwrap_or_else(|_| {
+                panic!(
+                    "`{}` expect the input have `StringArray`, however the input array `{}Array` has logical type: `{:?}` with `{}`",
+                    CompactExprDisplayWrapper::new(self),
+                    array.ident(),
+                    array.logical_type(),
+                    array.logical_type().physical_type(),
+                );
+            });
 
-        let input: &StringArray = guard.deref().try_into().unwrap_or_else(|_| {
-            panic!(
-                "`{}` expect the input have `StringArray`, however the input array `{}Array` has logical type: `{:?}` with `{}`",
-                CompactExprDisplayWrapper::new(self),
-                guard.ident(),
-                guard.logical_type(),
-                guard.logical_type().physical_type(),
-            );
-        });
+        if array.len() == 1 {
+            let element = unsafe { array.get_value_unchecked(0) };
+            let mut matched = self.regex.is_match(element.as_str());
+            if NEGATED {
+                matched = !matched;
+            }
+            if !matched {
+                // All of the elements in the array is not matched
+                selection.mutate().set_all_invalid(leaf_input.len());
+            }
+        } else {
+            // Execute regex match on the FlatArray
+            // SAFETY: Expression executor guarantees the selection is either empty or has same
+            // length with input array(execute expression guarantees the output has same length
+            // with input)
+            unsafe {
+                regex_match_scalar::<NEGATED>(selection, array, &self.regex);
+            }
 
-        // Execute regex match
-        // SAFETY: Expression executor guarantees the selection is either empty or has same
-        // length with input array(execute expression guarantees the output has same length
-        // with input)
-        unsafe {
-            regex_match_scalar::<NEGATED>(selection, input, &self.regex);
+            // Boolean expression, check the selection
+            debug_assert!(selection.is_empty() || selection.len() == leaf_input.len());
         }
-
-        // Boolean expression, check the selection
-        debug_assert!(selection.is_empty() || selection.len() == leaf_input.len());
 
         Ok(())
     }
@@ -184,12 +185,15 @@ mod tests {
         let mut exec_ctx = ExprExecCtx::new(&regex_match);
         let mut output = ArrayImpl::Boolean(BooleanArray::try_new(LogicalType::Boolean).unwrap());
 
-        let leaf_input = DataBlock::try_new(vec![ArrayImpl::String(StringArray::from_iter([
-            None,
-            Some("Regex expression"),
-            Some("HaHa"),
-            Some("HAHA"),
-        ]))])
+        let leaf_input = DataBlock::try_new(
+            vec![ArrayImpl::String(StringArray::from_iter([
+                None,
+                Some("Regex expression"),
+                Some("HaHa"),
+                Some("HAHA"),
+            ]))],
+            4,
+        )
         .unwrap();
 
         {

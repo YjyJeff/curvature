@@ -83,6 +83,12 @@ impl Debug for ListElementRef<'_> {
     }
 }
 
+impl<'a> PartialEq<ListElementRef<'a>> for ListElementRef<'_> {
+    fn eq(&self, other: &ListElementRef<'a>) -> bool {
+        todo!()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::array::Float32Array;

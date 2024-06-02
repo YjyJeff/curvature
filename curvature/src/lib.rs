@@ -11,7 +11,7 @@ pub mod exec;
 pub mod tree_node;
 
 /// The default vector size used by the curvature
-pub const STANDARD_VECTOR_SIZE: usize = 1024;
+pub const STANDARD_VECTOR_SIZE: usize = 4096;
 
 mod private {
     /// Sealed trait protect against downstream implementations

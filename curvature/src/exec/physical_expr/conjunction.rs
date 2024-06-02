@@ -11,6 +11,7 @@ use snafu::{ensure, ResultExt, Snafu};
 
 use crate::exec::physical_expr::field_ref::FieldRef;
 
+use super::constant::Constant as ConstantExpr;
 use super::executor::ExprExecCtx;
 use super::utils::{compact_display_expressions, CompactExprDisplayWrapper};
 use super::{ExecuteSnafu, ExprResult, PhysicalExpr, Stringify};
@@ -39,6 +40,8 @@ pub enum ConjunctionError {
         conjunction: &'static str,
         input: String,
     },
+    #[snafu(display("Conjunction requires that input should not be constant expression, because it can be optimized away. Planner/Optimizer should handle it in advance"))]
+    ConstantExpr,
 }
 
 /// Conjunct boolean expressions
@@ -90,6 +93,11 @@ impl<const IS_AND: bool> Conjunction<IS_AND> {
                     conjunction: if IS_AND { "And" } else { "Or" },
                     input: CompactExprDisplayWrapper::new(&**expr).to_string()
                 }
+            );
+
+            ensure!(
+                expr.as_any().downcast_ref::<ConstantExpr>().is_none(),
+                ConstantExprSnafu
             );
 
             Ok::<(), ConjunctionError>(())
@@ -151,8 +159,13 @@ impl<const IS_AND: bool> PhysicalExpr for Conjunction<IS_AND> {
             exec_ctx.intermediate_block.num_arrays()
         );
 
-        // SAFETY: the array in this context will not be modified
-        let guard = unsafe { exec_ctx.intermediate_block.mutate() };
+        // Boolean expression, check the selection
+        debug_assert!(selection.is_empty() || selection.len() == leaf_input.len());
+
+        // SAFETY: The input block of the conjunction expression do not need to hold the
+        // length variance. The reason is that: children expressions will write the result
+        // to selection array. It is only used to store the temporal result!
+        let arrays = unsafe { exec_ctx.intermediate_block.arrays_mut_unchecked() };
 
         if IS_AND {
             // And conjunction. It is pretty simple, all of the children expressions, except `FieldRef`,
@@ -163,7 +176,7 @@ impl<const IS_AND: bool> PhysicalExpr for Conjunction<IS_AND> {
             for ((child_expr, child_output), child_exec_ctx) in self
                 .children
                 .iter()
-                .zip(guard.arrays)
+                .zip(arrays)
                 .zip(exec_ctx.children.iter_mut())
             {
                 if let Some(field_ref) = child_expr.as_any().downcast_ref::<FieldRef>() {
@@ -200,7 +213,7 @@ impl<const IS_AND: bool> PhysicalExpr for Conjunction<IS_AND> {
                     let child_expr = self.children().get_unchecked(index);
                     let child_selection = exec_ctx.selections.get_unchecked_mut(index);
                     let child_exec_ctx = exec_ctx.children.get_unchecked_mut(index);
-                    let child_output = guard.arrays.get_unchecked_mut(index);
+                    let child_output = arrays.get_unchecked_mut(index);
 
                     // For each block, we need to set it to all valid first
                     child_selection.mutate().clear();
@@ -226,7 +239,9 @@ impl<const IS_AND: bool> PhysicalExpr for Conjunction<IS_AND> {
                     }
 
                     if index != 0 {
-                        // Combine the child selection into the or_selection
+                        // Combine the child selection into the or_selection.
+                        // child selection is not empty here. If it is empty, it will perform
+                        // early return above
                         debug_assert_eq!(or_selection.len(), child_selection.len());
                         or_inplace(or_selection, child_selection);
 
@@ -276,27 +291,30 @@ mod tests {
         let mut selection = Bitmap::new();
         let mut output = ArrayImpl::Boolean(BooleanArray::try_new(LogicalType::Boolean).unwrap());
 
-        let data_block = DataBlock::try_new(vec![
-            ArrayImpl::Boolean(BooleanArray::from_iter([
-                Some(true),
-                Some(false),
-                Some(true),
-                Some(false),
-                None,
-                Some(true),
-            ])),
-            ArrayImpl::Boolean(BooleanArray::from_iter([
-                Some(true),
-                Some(true),
-                Some(true),
-                Some(false),
-                None,
-                None,
-            ])),
-            ArrayImpl::String(StringArray::from_values_iter([
-                "abc", "hi", "h", "haha", "yes", "wtf",
-            ])),
-        ])
+        let data_block = DataBlock::try_new(
+            vec![
+                ArrayImpl::Boolean(BooleanArray::from_iter([
+                    Some(true),
+                    Some(false),
+                    Some(true),
+                    Some(false),
+                    None,
+                    Some(true),
+                ])),
+                ArrayImpl::Boolean(BooleanArray::from_iter([
+                    Some(true),
+                    Some(true),
+                    Some(true),
+                    Some(false),
+                    None,
+                    None,
+                ])),
+                ArrayImpl::String(StringArray::from_values_iter([
+                    "abc", "hi", "h", "haha", "yes", "wtf",
+                ])),
+            ],
+            6,
+        )
         .unwrap();
 
         and_conjunction
@@ -309,27 +327,30 @@ mod tests {
         );
 
         // Early return
-        let data_block = DataBlock::try_new(vec![
-            ArrayImpl::Boolean(BooleanArray::from_iter([
-                Some(false),
-                Some(false),
-                Some(false),
-                Some(false),
-                None,
-                Some(true),
-            ])),
-            ArrayImpl::Boolean(BooleanArray::from_iter([
-                Some(true),
-                Some(true),
-                Some(true),
-                Some(false),
-                None,
-                None,
-            ])),
-            ArrayImpl::String(StringArray::from_values_iter([
-                "abc", "hi", "h", "haha", "yes", "wtf",
-            ])),
-        ])
+        let data_block = DataBlock::try_new(
+            vec![
+                ArrayImpl::Boolean(BooleanArray::from_iter([
+                    Some(false),
+                    Some(false),
+                    Some(false),
+                    Some(false),
+                    None,
+                    Some(true),
+                ])),
+                ArrayImpl::Boolean(BooleanArray::from_iter([
+                    Some(true),
+                    Some(true),
+                    Some(true),
+                    Some(false),
+                    None,
+                    None,
+                ])),
+                ArrayImpl::String(StringArray::from_values_iter([
+                    "abc", "hi", "h", "haha", "yes", "wtf",
+                ])),
+            ],
+            6,
+        )
         .unwrap();
 
         let mut selection = Bitmap::new();
@@ -361,10 +382,13 @@ mod tests {
         let mut selection = Bitmap::new();
         let mut output = ArrayImpl::Boolean(BooleanArray::try_new(LogicalType::Boolean).unwrap());
 
-        let input = DataBlock::try_new(vec![
-            ArrayImpl::Boolean(BooleanArray::from_iter([Some(false), None, Some(true)])),
-            ArrayImpl::String(StringArray::from_values_iter(["hi", "conjunction", "haha"])),
-        ])
+        let input = DataBlock::try_new(
+            vec![
+                ArrayImpl::Boolean(BooleanArray::from_iter([Some(false), None, Some(true)])),
+                ArrayImpl::String(StringArray::from_values_iter(["hi", "conjunction", "haha"])),
+            ],
+            3,
+        )
         .unwrap();
 
         or_conjunction
@@ -376,14 +400,17 @@ mod tests {
         // Early return
         selection.mutate().clear();
 
-        let input = DataBlock::try_new(vec![
-            ArrayImpl::Boolean(BooleanArray::from_iter([
-                Some(true),
-                Some(true),
-                Some(true),
-            ])),
-            ArrayImpl::String(StringArray::from_values_iter(["hi", "conjunction", "haha"])),
-        ])
+        let input = DataBlock::try_new(
+            vec![
+                ArrayImpl::Boolean(BooleanArray::from_iter([
+                    Some(true),
+                    Some(true),
+                    Some(true),
+                ])),
+                ArrayImpl::String(StringArray::from_values_iter(["hi", "conjunction", "haha"])),
+            ],
+            3,
+        )
         .unwrap();
 
         or_conjunction

@@ -21,7 +21,7 @@ pub mod serde;
 
 use curvature_procedural_macro::MetricsSetBuilder;
 use data_block::array::ArrayImpl;
-use data_block::block::DataBlock;
+use data_block::block::{DataBlock, MutateArrayError};
 use data_block::types::{LogicalType, PhysicalSize};
 use hashbrown::raw::{RawIntoIter, RawTable as SwissTable};
 use parking_lot::Mutex;
@@ -108,7 +108,7 @@ const PARTITION_THRESHOLD: usize = 8192;
 #[derive(Debug)]
 pub struct HashAggregate<S: Serde> {
     output_types: Vec<LogicalType>,
-    children: Vec<Arc<dyn PhysicalOperator>>,
+    children: [Arc<dyn PhysicalOperator>; 1],
     group_by_keys_indexes: Vec<usize>,
     agg_func_list: AggregationFunctionList,
     payloads_indexes: Vec<usize>,
@@ -299,7 +299,7 @@ impl<S: Serde> HashAggregate<S> {
 
         Ok(Self {
             output_types,
-            children: vec![input],
+            children: [input],
             group_by_keys_indexes,
             agg_func_list,
             payloads_indexes,
@@ -561,8 +561,8 @@ impl<S: Serde> Stringify for HashAggregate<S> {
     fn display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "HashAggregate: group_by_keys={:?}, aggregation_functions={}, output_types={:?}",
-            self.group_by_keys_indexes, self.agg_func_list, self.output_types
+            "HashAggregate: group_by_keys={:?}, aggregation_functions={}",
+            self.group_by_keys_indexes, self.agg_func_list
         )
     }
 }
@@ -731,7 +731,7 @@ impl<S: Serde> PhysicalOperator for HashAggregate<S> {
             )
         }
         .boxed()
-        .context(WriteDataSnafu {})?;
+        .context(WriteDataSnafu)?;
 
         // Important, otherwise use after free happens. Never deleting following code!!!
         local_state.group_by_keys.clear();
@@ -928,29 +928,34 @@ impl<S: Serde> SourceOperatorExt for HashAggregate<S> {
             (*local_state.read_count).fetch_add(local_state.state_ptrs.len(), Relaxed);
         }
 
-        // SAFETY: We are going to deserialize and take the states into the output array
-        // Manually guarantee the array has same length
-        unsafe {
-            let mutate_guard = output.mutate();
-            let (group_by_arrays, agg_output_arrays) = mutate_guard
-                .arrays
-                .split_at_mut(self.group_by_keys_indexes.len());
+        let guard = output.mutate_arrays(local_state.state_ptrs.len());
+        if let Err(err) = guard.mutate(|arrays| {
+            let (group_by_arrays, agg_output_arrays) =
+                arrays.split_at_mut(self.group_by_keys_indexes.len());
 
-            {
+            // SAFETY: Constructor guarantees the safety
+            unsafe {
                 let _guard = ScopedTimerGuard::new(&mut local_state.metrics.deserialize_time);
                 S::deserialize(group_by_arrays, &local_state.serde_keys);
             }
 
-            {
+            // SAFETY: Constructor guarantees the safety
+            unsafe {
                 let _guard = ScopedTimerGuard::new(&mut local_state.metrics.take_states_time);
                 self.agg_func_list
                     .take_states(&local_state.state_ptrs, agg_output_arrays)
                     .boxed()
-                    .context(ReadDataSnafu {})?;
+                    .context(ReadDataSnafu)
             }
-
-            // Calibrate the length manually
-            *mutate_guard.length = local_state.state_ptrs.len();
+        }) {
+            match err {
+                MutateArrayError::Inner { source } => {
+                    return Err(source);
+                }
+                MutateArrayError::Length { inner } => {
+                    panic!("DataBlock read from HashAggregate's local source state must have same length. Error: `{}`", inner)
+                }
+            }
         }
 
         local_state.state_ptrs.clear();
@@ -1104,7 +1109,7 @@ unsafe fn combine_swiss_table<'a, K: SerdeKey>(
     agg_func_list
         .combine_states(partial_state_ptrs, combined_state_ptrs)
         .boxed()
-        .context(FinalizeSinkSnafu {})
+        .context(FinalizeSinkSnafu)
 }
 
 /// Trait for partitioning the [`HashValue`] into partition index
@@ -1183,13 +1188,13 @@ mod tests {
     use super::*;
     use crate::exec::physical_expr::function::aggregate::min_max::Min;
     use crate::exec::physical_expr::function::aggregate::AggregationFunction;
-    use crate::exec::physical_expr::function::aggregate::{count::CountStart, sum::Sum};
+    use crate::exec::physical_expr::function::aggregate::{count::CountStar, sum::Sum};
     use crate::exec::physical_operator::empty_table_scan::EmptyTableScan;
     use data_block::array::{Float32Array, Int32Array, Int64Array};
 
     fn mock_agg_funcs_list() -> AggregationFunctionList {
         let agg_funcs: Vec<Arc<dyn AggregationFunction>> = vec![
-            Arc::new(CountStart::new()),
+            Arc::new(CountStar::new()),
             Arc::new(Min::<Int64Array>::try_new(LogicalType::BigInt).unwrap()),
         ];
 
@@ -1289,13 +1294,12 @@ mod tests {
                 .collect::<Vec<_>>()
         };
 
-        let guard = output.mutate_arrays();
+        let guard = output.mutate_arrays(6);
 
-        unsafe {
-            let mutate_func =
-                |arrays: &mut [ArrayImpl]| agg_func_list.take_states(&combined_state_ptrs, arrays);
-            guard.mutate(mutate_func).unwrap();
-        }
+        let mutate_func = |arrays: &mut [ArrayImpl]| unsafe {
+            agg_func_list.take_states(&combined_state_ptrs, arrays)
+        };
+        guard.mutate(mutate_func).unwrap();
 
         assert_data_block(
             &output,
@@ -1372,38 +1376,41 @@ mod tests {
         //  3,    N, -7
         //  N,    N, -7
         fn mock_data_block() -> DataBlock {
-            DataBlock::try_new(vec![
-                ArrayImpl::Int32(Int32Array::from_iter([
-                    Some(-1),
-                    Some(-1),
-                    Some(3),
-                    None,
-                    Some(7),
-                    None,
-                    Some(3),
-                    None,
-                ])),
-                ArrayImpl::Float32(Float32Array::from_iter([
-                    Some(-0.0),
-                    Some(0.0),
-                    None,
-                    Some(-7.7),
-                    Some(3.0),
-                    None,
-                    None,
-                    None,
-                ])),
-                ArrayImpl::Int64(Int64Array::from_iter([
-                    Some(-1),
-                    Some(2),
-                    Some(-9),
-                    Some(7),
-                    Some(-2),
-                    None,
-                    Some(-7),
-                    Some(-7),
-                ])),
-            ])
+            DataBlock::try_new(
+                vec![
+                    ArrayImpl::Int32(Int32Array::from_iter([
+                        Some(-1),
+                        Some(-1),
+                        Some(3),
+                        None,
+                        Some(7),
+                        None,
+                        Some(3),
+                        None,
+                    ])),
+                    ArrayImpl::Float32(Float32Array::from_iter([
+                        Some(-0.0),
+                        Some(0.0),
+                        None,
+                        Some(-7.7),
+                        Some(3.0),
+                        None,
+                        None,
+                        None,
+                    ])),
+                    ArrayImpl::Int64(Int64Array::from_iter([
+                        Some(-1),
+                        Some(2),
+                        Some(-9),
+                        Some(7),
+                        Some(-2),
+                        None,
+                        Some(-7),
+                        Some(-7),
+                    ])),
+                ],
+                8,
+            )
             .unwrap()
         }
 
@@ -1422,7 +1429,7 @@ mod tests {
         let count_payloads = [];
         let sum_payloads = [FieldRef::new(2, LogicalType::BigInt, "f2".to_string())];
         let agg_funcs = vec![
-            AggregationFunctionExpr::try_new(&count_payloads, Arc::new(CountStart::new())).unwrap(),
+            AggregationFunctionExpr::try_new(&count_payloads, Arc::new(CountStar::new())).unwrap(),
             AggregationFunctionExpr::try_new(
                 &sum_payloads,
                 Arc::new(Sum::<Int64Array>::try_new(LogicalType::BigInt).unwrap()),

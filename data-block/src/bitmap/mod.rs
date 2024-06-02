@@ -116,6 +116,16 @@ impl Bitmap {
         }
     }
 
+    /// Get the number of ones in the bitmap without check
+    ///
+    /// # Safety
+    ///
+    /// Caller should guarantee `!self.is_empty()`
+    #[inline]
+    pub unsafe fn count_ones_unchecked(&self) -> usize {
+        self.count_ones
+    }
+
     /// Get the ratio of ones
     #[inline]
     pub fn ones_ratio(&self) -> f64 {
@@ -335,6 +345,12 @@ impl MutateBitmapGuard<'_> {
                 *self.0.buffer.get_unchecked_mut(bit_store_index) = new_bit_store;
             }
         }
+    }
+
+    /// Set all of the bits as invalid
+    #[inline]
+    pub fn set_all_invalid(&mut self, len: usize) {
+        self.clear_and_resize(len).iter_mut().for_each(|v| *v = 0);
     }
 }
 

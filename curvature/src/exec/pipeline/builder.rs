@@ -306,7 +306,7 @@ mod tests {
 
     use super::*;
     use crate::exec::physical_expr::field_ref::FieldRef;
-    use crate::exec::physical_expr::function::aggregate::count::CountStart;
+    use crate::exec::physical_expr::function::aggregate::count::CountStar;
     use crate::exec::physical_expr::function::aggregate::AggregationFunctionExpr;
     use crate::exec::physical_operator::aggregate::simple_aggregate::SimpleAggregate;
     use crate::exec::physical_operator::numbers::Numbers;
@@ -339,7 +339,7 @@ mod tests {
         Arc::new(
             SimpleAggregate::try_new(
                 input,
-                vec![AggregationFunctionExpr::try_new(&[], Arc::new(CountStart::new())).unwrap()],
+                vec![AggregationFunctionExpr::try_new(&[], Arc::new(CountStar::new())).unwrap()],
             )
             .unwrap(),
         )

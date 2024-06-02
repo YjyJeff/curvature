@@ -5,14 +5,15 @@ use data_block::bitmap::Bitmap;
 use data_block::block::DataBlock;
 use data_block::compute::null::is_null;
 use data_block::types::{LogicalType, PhysicalType};
-use snafu::{ensure, ResultExt, Snafu};
-use std::ops::DerefMut;
+use snafu::{ensure, Snafu};
 use std::sync::Arc;
+
+use crate::exec::physical_expr::execute_single_child;
 
 use super::executor::ExprExecCtx;
 use super::field_ref::FieldRef;
 use super::utils::CompactExprDisplayWrapper;
-use super::{ExecuteSnafu, ExprResult, PhysicalExpr, Stringify};
+use super::{ExprResult, PhysicalExpr, Stringify};
 
 /// Error returned by creating the [`IsNull`]
 #[derive(Debug, Snafu)]
@@ -26,7 +27,7 @@ pub struct BooleanExprInputError {
 #[derive(Debug)]
 pub struct IsNull<const NOT: bool> {
     output_type: LogicalType,
-    children: Vec<Arc<dyn PhysicalExpr>>,
+    children: [Arc<dyn PhysicalExpr>; 1],
 }
 
 impl<const NOT: bool> IsNull<NOT> {
@@ -42,7 +43,7 @@ impl<const NOT: bool> IsNull<NOT> {
 
         Ok(Self {
             output_type: LogicalType::Boolean,
-            children: vec![input],
+            children: [input],
         })
     }
 }
@@ -91,28 +92,29 @@ impl<const NOT: bool> PhysicalExpr for IsNull<NOT> {
         exec_ctx: &mut ExprExecCtx,
         _output: &mut ArrayImpl,
     ) -> ExprResult<()> {
-        // Execute child
-        let mut guard = exec_ctx.intermediate_block.mutate_single_array();
-        self.children[0]
-            .execute(
-                leaf_input,
-                selection,
-                &mut exec_ctx.children[0],
-                guard.deref_mut(),
-            )
-            .boxed()
-            .with_context(|_| ExecuteSnafu {
-                expr: CompactExprDisplayWrapper::new(self).to_string(),
-            })?;
+        execute_single_child(self, leaf_input, selection, exec_ctx)?;
 
         // Execute is null
-        // SAFETY: Expression executor guarantees the selection is either empty or has same
-        // length with input array(execute expression guarantees the output has same length
-        // with input)
-        unsafe { is_null::<NOT>(selection, &guard) };
+        let array = unsafe { exec_ctx.intermediate_block.get_array_unchecked(0) };
 
-        // Boolean expression, check the selection
-        debug_assert!(selection.is_empty() || selection.len() == leaf_input.len());
+        if array.len() == 1 {
+            let valid = array.validity().all_valid();
+            if NOT {
+                if !valid {
+                    selection.mutate().set_all_invalid(leaf_input.len());
+                }
+            } else if valid {
+                selection.mutate().set_all_invalid(leaf_input.len());
+            }
+        } else {
+            // SAFETY: Expression executor guarantees the selection is either empty or has same
+            // length with input array(execute expression guarantees the output has same length
+            // with input)
+            unsafe { is_null::<NOT>(selection, array) };
+
+            // Boolean expression, check the selection
+            debug_assert!(selection.is_empty() || selection.len() == leaf_input.len());
+        }
 
         Ok(())
     }
@@ -133,12 +135,15 @@ mod tests {
         let mut output = ArrayImpl::Boolean(BooleanArray::try_new(LogicalType::Boolean).unwrap());
         let mut selection = Bitmap::new();
 
-        let leaf_input = DataBlock::try_new(vec![ArrayImpl::Int32(Int32Array::from_iter([
-            Some(-1),
-            None,
-            Some(100),
-            None,
-        ]))])
+        let leaf_input = DataBlock::try_new(
+            vec![ArrayImpl::Int32(Int32Array::from_iter([
+                Some(-1),
+                None,
+                Some(100),
+                None,
+            ]))],
+            4,
+        )
         .unwrap();
 
         is_null

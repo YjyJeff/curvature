@@ -51,6 +51,10 @@ pub enum ArrayError {
         "Can not reference `{array}` to `{target}`, reference requires two arrays have same type"
     ))]
     Reference { array: String, target: String },
+    #[snafu(display(
+        "Can not filter `{other}` to `{array}`, filter requires two arrays have same type"
+    ))]
+    Filter { array: String, other: String },
     #[snafu(display("Can not convert `ArrayImpl::{array}` array into `{target}` array"))]
     Convert {
         array: &'static str,
@@ -61,6 +65,16 @@ pub enum ArrayError {
 type Result<T> = std::result::Result<T, ArrayError>;
 
 /// A trait over all arrays
+///
+/// # Hack
+///
+/// In our current design, we can not distinguish the `ConstantArray` and `FlatArray` that
+/// has length 1. We will treat it as `ConstantArray` 😂. The advantage of this design is
+/// that they have same memory representation, we do not need to allocate/deallocate memory
+/// when mutual transformation is performed. The disadvantage is that we can not distinguish
+/// them in the compiler stage, which means that we may call the incorrect computation function
+/// and the compiler says it is good.... So, when you need to perform computation, remember
+/// to check the length of the array
 pub trait Array: Sealed + Debug + 'static + Sized {
     /// Physical type of the scalar array
     const PHYSICAL_TYPE: PhysicalType;
@@ -112,6 +126,13 @@ pub trait Array: Sealed + Debug + 'static + Sized {
         &self,
         index: usize,
     ) -> <Self::Element as Element>::ElementRef<'_>;
+
+    /// Returns a reference to the element at the given index. It will panic if the index
+    /// out of bounds
+    fn get(&self, index: usize) -> Option<<Self::Element as Element>::ElementRef<'_>> {
+        assert!(index < self.len());
+        unsafe { self.get_unchecked(index) }
+    }
 
     /// Returns a reference to the element at the given index without bound check
     ///
@@ -217,6 +238,25 @@ pub trait Array: Sealed + Debug + 'static + Sized {
         trusted_len_iterator: I,
     ) where
         I: Iterator<Item = Option<<Self::Element as Element>::ElementRef<'a>>> + 'a;
+
+    /// Filter out the elements that are not selected from source, copy the remained
+    /// elements into self
+    ///
+    /// # Safety
+    ///
+    /// - If the `selection` is not empty, `source` and `selection` should have same length.
+    /// Otherwise, undefined behavior happens
+    ///
+    /// - `selection` should not be referenced by any array
+    unsafe fn filter(&mut self, selection: &Bitmap, source: &Self) {
+        debug_assert!(selection.is_empty() || selection.len() == source.len());
+        if selection.all_valid() || source.len() == 1 {
+            // All of the elements are selected or source is a Constant Array
+            self.reference(source)
+        } else {
+            crate::compute::filter::filter(selection, source, self)
+        }
+    }
 }
 
 macro_rules! array_impl {
@@ -298,6 +338,17 @@ macro_rules! array_impl {
                 }
             }
 
+            /// Get element ref. It will panic if the index out of bounds
+            pub fn get(&self, index: usize) -> Option<ElementImplRef<'_>> {
+                match self {
+                    $(
+                        Self::$variant(array) => array.get(index).map(ElementImplRef::$variant),
+                    )+
+                }
+            }
+
+            /// Get element ref without bound check
+            ///
             /// # Safety
             ///
             /// `index < self.len()`
@@ -305,6 +356,19 @@ macro_rules! array_impl {
                 match self {
                     $(
                         Self::$variant(array) => array.get_unchecked(index).map(ElementImplRef::$variant),
+                    )+
+                }
+            }
+
+            /// Get the value of element ref without bound check
+            ///
+            /// # Safety
+            ///
+            /// `index < self.len()`
+            pub unsafe fn get_value_unchecked(&self, index: usize) -> ElementImplRef<'_> {
+                match self {
+                    $(
+                        Self::$variant(array) => ElementImplRef::$variant(array.get_value_unchecked(index)),
                     )+
                 }
             }
@@ -344,6 +408,38 @@ macro_rules! array_impl {
                             (lhs, rhs) => return ReferenceSnafu {
                                 array: self::utils::physical_array_name(lhs),
                                 target: self::utils::physical_array_name(rhs),
+                            }.fail()
+                        }
+                    };
+                }
+
+                reference!();
+                Ok(())
+            }
+
+            /// Filter out elements that are not selected from source, copy the remained
+            /// elemtns into self
+            ///
+            /// If self and other do not have same physical type, return error
+            ///
+            /// # Safety
+            ///
+            /// - If the `selection` is not empty, `source` and `selection` should have same length.
+            /// Otherwise, undefined behavior happens
+            ///
+            /// - `selection` should not be referenced by any array
+            pub unsafe fn filter(&mut self, selection: &Bitmap, source: &Self) -> Result<()> {
+                macro_rules! reference {
+                    () => {
+                        match (self, source) {
+                            $(
+                                (ArrayImpl::$variant(lhs), ArrayImpl::$variant(rhs)) => {
+                                    unsafe { lhs.filter(selection, rhs) };
+                                }
+                            )+
+                            (lhs, rhs) => return FilterSnafu {
+                                array: self::utils::physical_array_name(lhs),
+                                other: self::utils::physical_array_name(rhs),
                             }.fail()
                         }
                     };

@@ -25,7 +25,7 @@ pub struct FieldRef {
     /// Name of the field, only used for debug and display
     field: String,
     /// It should always be empty! It can not have children
-    children: Vec<Arc<dyn PhysicalExpr>>,
+    children: [Arc<dyn PhysicalExpr>; 0],
 }
 
 impl FieldRef {
@@ -35,7 +35,7 @@ impl FieldRef {
             field_index,
             output_type,
             field,
-            children: Vec::new(),
+            children: [],
         }
     }
 
@@ -45,8 +45,10 @@ impl FieldRef {
     ///
     /// # Safety
     ///
-    /// `selection` should be all valid or has the same length with `input.len()`
+    /// `selection` should be empty or has the same length with `input.len()`
     pub(crate) unsafe fn copy_into_selection(&self, input: &DataBlock, selection: &mut Bitmap) {
+        debug_assert!(selection.is_empty() || selection.len() == input.len());
+
         let array = input.get_array(self.field_index).unwrap_or_else(|| {
             panic!(
                 "`FieldRef` with index {}, however the leaf_input only have `{}` arrays",
@@ -59,8 +61,16 @@ impl FieldRef {
             panic!("`copy_into_selection` requires the input array is an `BooleanArray`, found `{}`Array", array.ident())
         };
 
-        and_inplace(selection, array.data());
-        and_inplace(selection, array.validity());
+        if array.len() == 1 {
+            // Flatten it !
+            let valid = array.validity().all_valid();
+            if !valid || !array.data().all_valid() {
+                selection.mutate().set_all_invalid(input.len());
+            }
+        } else {
+            and_inplace(selection, array.data());
+            and_inplace(selection, array.validity());
+        }
     }
 }
 
@@ -134,15 +144,18 @@ mod tests {
     fn test_execute_field_ref() {
         let field_ref = FieldRef::new(1, LogicalType::Integer, "caprice".to_string());
 
-        let input = DataBlock::try_new(vec![
-            ArrayImpl::Int32(Int32Array::from_iter([Some(10), Some(-1), None, Some(2)])),
-            ArrayImpl::String(StringArray::from_iter([
-                None,
-                Some("Curvature"),
-                Some("Curvature is awesome"),
-                Some("DuckDB and morsel driven is awesome"),
-            ])),
-        ])
+        let input = DataBlock::try_new(
+            vec![
+                ArrayImpl::Int32(Int32Array::from_iter([Some(10), Some(-1), None, Some(2)])),
+                ArrayImpl::String(StringArray::from_iter([
+                    None,
+                    Some("Curvature"),
+                    Some("Curvature is awesome"),
+                    Some("DuckDB and morsel driven is awesome"),
+                ])),
+            ],
+            4,
+        )
         .unwrap();
 
         let output = &mut ArrayImpl::String(StringArray::new(LogicalType::VarChar).unwrap());

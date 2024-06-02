@@ -5,6 +5,7 @@
 pub mod aggregate;
 pub mod empty_table_scan;
 pub mod ext_traits;
+pub mod filter;
 pub mod memory_table_scan;
 pub mod metric;
 pub mod numbers;

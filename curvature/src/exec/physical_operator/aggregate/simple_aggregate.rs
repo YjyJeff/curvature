@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use curvature_procedural_macro::MetricsSetBuilder;
 use data_block::array::ArrayImpl;
-use data_block::block::DataBlock;
+use data_block::block::{DataBlock, MutateArrayError};
 use data_block::types::LogicalType;
 use parking_lot::Mutex;
 use snafu::{ensure, ResultExt, Snafu};
@@ -52,7 +52,7 @@ type Result<T> = std::result::Result<T, SimpleAggregateError>;
 /// Aggregation without group by keys
 #[derive(Debug)]
 pub struct SimpleAggregate {
-    children: Vec<Arc<dyn PhysicalOperator>>,
+    children: [Arc<dyn PhysicalOperator>; 1],
     agg_func_list: AggregationFunctionList,
     output_types: Vec<LogicalType>,
     global_states: Mutex<GlobalState>,
@@ -118,7 +118,7 @@ impl SimpleAggregate {
         );
 
         Ok(Self {
-            children: vec![input],
+            children: [input],
             global_states: Mutex::new(GlobalState {
                 ptr: agg_func_list.alloc_states(),
                 have_been_read: false,
@@ -237,8 +237,8 @@ impl Stringify for SimpleAggregate {
     fn display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "SimpleAggregate: aggregation_functions={}, output_types={:?}",
-            self.agg_func_list, self.output_types
+            "SimpleAggregate: aggregation_functions={}",
+            self.agg_func_list
         )
     }
 }
@@ -285,13 +285,23 @@ impl PhysicalOperator for SimpleAggregate {
             Ok(SourceExecStatus::Finished)
         } else {
             global_state.have_been_read = true;
-            let mutate_guard = output.mutate_arrays();
-            // SAFETY: all of the arrays length will be 1
-            unsafe {
-                mutate_guard
-                    .mutate(|output| self.agg_func_list.take_states(&[global_state.ptr], output))
-                    .boxed()
-                    .context(ReadDataSnafu)?;
+            let mutate_guard = output.mutate_arrays(1);
+            // SAFETY: Global state is not read, its ptr is valid
+
+            if let Err(e) = mutate_guard.mutate(|output| unsafe {
+                self.agg_func_list.take_states(&[global_state.ptr], output)
+            }) {
+                match e {
+                    MutateArrayError::Inner { source } => {
+                        Err(Box::new(source) as _).context(ReadDataSnafu)?
+                    }
+                    MutateArrayError::Length { inner } => {
+                        panic!(
+                            "SimpleAggregate should produce array with length 1. Error: `{}`",
+                            inner
+                        )
+                    }
+                }
             }
 
             Ok(SourceExecStatus::HaveMoreOutput)
@@ -425,14 +435,17 @@ mod tests {
 
     #[test]
     fn test_simple_aggregate() {
-        let data_block = DataBlock::try_new(vec![
-            ArrayImpl::Int32(Int32Array::from_iter([Some(-10), None, None])),
-            ArrayImpl::String(StringArray::from_iter([
-                Some("curvature"),
-                Some("curve"),
-                None,
-            ])),
-        ])
+        let data_block = DataBlock::try_new(
+            vec![
+                ArrayImpl::Int32(Int32Array::from_iter([Some(-10), None, None])),
+                ArrayImpl::String(StringArray::from_iter([
+                    Some("curvature"),
+                    Some("curve"),
+                    None,
+                ])),
+            ],
+            3,
+        )
         .unwrap();
 
         let input = Arc::new(EmptyTableScan::new(vec![

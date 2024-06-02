@@ -95,6 +95,7 @@ impl<'a, S: SinkTrait> PipelineExecutor<'a, S> {
         intermediate_blocks.push(DataBlock::with_logical_types(
             pipeline.source.op.output_types().to_owned(),
         ));
+        // FIXME: Optimization: operator may only need the length info
         pipeline.operators.iter().try_for_each(|operator| {
             intermediate_blocks.push(DataBlock::with_logical_types(
                 operator.op.output_types().to_owned(),

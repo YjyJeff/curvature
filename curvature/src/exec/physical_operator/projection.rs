@@ -38,7 +38,7 @@ struct ProjectionError {
 /// Projection operator, it selects the expression from input
 pub struct Projection {
     /// Input of the projection, it can only have single input
-    input: Vec<Arc<dyn PhysicalOperator>>,
+    input: [Arc<dyn PhysicalOperator>; 1],
     /// Projection expression
     exprs: Vec<Arc<dyn PhysicalExpr>>,
     output_types: Vec<LogicalType>,
@@ -53,7 +53,7 @@ impl Projection {
     /// Create a new [`Projection`]
     pub fn new(input: Arc<dyn PhysicalOperator>, exprs: Vec<Arc<dyn PhysicalExpr>>) -> Self {
         Self {
-            input: vec![input],
+            input: [input],
             output_types: exprs
                 .iter()
                 .map(|expr| expr.output_type().clone())

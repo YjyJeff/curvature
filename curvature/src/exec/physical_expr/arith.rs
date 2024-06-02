@@ -8,15 +8,13 @@ use data_block::compute::arith::{
     DefaultSubScalar, RemCast, RemExt,
 };
 use data_block::types::{Array, LogicalType, PrimitiveType};
-use snafu::ResultExt;
 use std::fmt::Debug;
 use std::marker::PhantomData;
-use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 
 use super::executor::ExprExecCtx;
 use super::utils::CompactExprDisplayWrapper;
-use super::{ExecuteSnafu, ExprResult, PhysicalExpr, Stringify};
+use super::{execute_single_child, ExprResult, PhysicalExpr, Stringify};
 
 /// Add primitive array with constant, the element in the primitive array are interpreted as numbers
 pub type DefaultAddConstantArith<T> = ConstantArith<T, DefaultAddScalar>;
@@ -35,7 +33,7 @@ where
     T: PrimitiveType,
     F: ArithFuncTrait<T>,
 {
-    children: Vec<Arc<dyn PhysicalExpr>>,
+    children: [Arc<dyn PhysicalExpr>; 1],
     constant: T,
     name: String,
     output_type: LogicalType,
@@ -52,7 +50,7 @@ where
     pub fn new(input: Arc<dyn PhysicalExpr>, constant: T, name: String) -> Self {
         Self {
             output_type: input.output_type().to_owned(),
-            children: vec![input],
+            children: [input],
             constant,
             name,
             _phantom: PhantomData,
@@ -115,29 +113,18 @@ where
         output: &mut ArrayImpl,
     ) -> ExprResult<()> {
         // Execute input
-        let mut guard = exec_ctx.intermediate_block.mutate_single_array();
-
-        self.children[0]
-            .execute(
-                leaf_input,
-                selection,
-                &mut exec_ctx.children[0],
-                guard.deref_mut(),
-            )
-            .boxed()
-            .with_context(|_| ExecuteSnafu {
-                expr: CompactExprDisplayWrapper::new(self).to_string(),
-            })?;
+        execute_single_child(self, leaf_input, selection, exec_ctx)?;
 
         // Execute self
-        let input: &PrimitiveArray<T> = guard.deref().try_into().unwrap_or_else(|_| {
+        let array = unsafe { exec_ctx.intermediate_block.get_array_unchecked(0) };
+        let input: &PrimitiveArray<T> = array.try_into().unwrap_or_else(|_| {
             panic!(
                 "`{}` expect the input have `{}`, however the input array `{}Array` has logical type: `{:?}` with `{}`",
                 CompactExprDisplayWrapper::new(self),
                 T::PHYSICAL_TYPE,
-                guard.ident(),
-                guard.logical_type(),
-                guard.logical_type().physical_type(),
+                array.ident(),
+                array.logical_type(),
+                array.logical_type().physical_type(),
             )
         });
 
@@ -146,9 +133,9 @@ where
                 "`{}` expect the output have `{}`, however the output array `{}Array` has logical type: `{:?}` with `{}`", 
                 CompactExprDisplayWrapper::new(self),
                 T::PHYSICAL_TYPE,
-                guard.ident(),
-                guard.logical_type(),
-                guard.logical_type().physical_type()
+                array.ident(),
+                array.logical_type(),
+                array.logical_type().physical_type()
             )
         });
 
@@ -164,15 +151,15 @@ where
 
 /// Rem
 #[derive(Debug)]
-pub struct ConstDiv<T, U> {
-    children: Vec<Arc<dyn PhysicalExpr>>,
+pub struct ConstRem<T, U> {
+    children: [Arc<dyn PhysicalExpr>; 1],
     constant: U,
     name: String,
     output_type: LogicalType,
     _phantom: PhantomData<T>,
 }
 
-impl<T, U> ConstDiv<T, U>
+impl<T, U> ConstRem<T, U>
 where
     PrimitiveArray<T>: Array,
     PrimitiveArray<U>: Array,
@@ -183,7 +170,7 @@ where
     pub fn new(input: Arc<dyn PhysicalExpr>, constant: U, name: String) -> Self {
         Self {
             output_type: U::LOGICAL_TYPE,
-            children: vec![input],
+            children: [input],
             constant,
             name,
             _phantom: PhantomData,
@@ -191,7 +178,7 @@ where
     }
 }
 
-impl<T, U> Stringify for ConstDiv<T, U>
+impl<T, U> Stringify for ConstRem<T, U>
 where
     PrimitiveArray<T>: Array,
     PrimitiveArray<U>: Array,
@@ -218,7 +205,7 @@ where
     }
 }
 
-impl<T, U> PhysicalExpr for ConstDiv<T, U>
+impl<T, U> PhysicalExpr for ConstRem<T, U>
 where
     PrimitiveArray<T>: Array,
     PrimitiveArray<U>: Array,
@@ -248,37 +235,34 @@ where
         output: &mut ArrayImpl,
     ) -> ExprResult<()> {
         // Execute input
-        let mut guard = exec_ctx.intermediate_block.mutate_single_array();
-
-        self.children[0].execute(
-            leaf_input,
-            selection,
-            &mut exec_ctx.children[0],
-            guard.deref_mut(),
-        )?;
+        execute_single_child(self, leaf_input, selection, exec_ctx)?;
 
         // Execute self
-        let input: &PrimitiveArray<T> = guard.deref().try_into().unwrap_or_else(|_| {
+        let array = unsafe { exec_ctx.intermediate_block.get_array_unchecked(0) };
+        let input: &PrimitiveArray<T> = array.try_into().unwrap_or_else(|_| {
             panic!(
                 "`{}` expect the input have `{}`, however the input array `{}Array` has logical type: `{:?}` with `{}`",
                 CompactExprDisplayWrapper::new(self),
                 T::PHYSICAL_TYPE,
-                guard.ident(),
-                guard.logical_type(),
-                guard.logical_type().physical_type(),
+                array.ident(),
+                array.logical_type(),
+                array.logical_type().physical_type(),
             )
         });
 
-        let output: &mut PrimitiveArray<U> = output.try_into().unwrap_or_else(|_| {
-            panic!(
-                "`{}` expect the output have `{}`, however the output array `{}Array` has logical type: `{:?}` with `{}`", 
-                CompactExprDisplayWrapper::new(self),
-                T::PHYSICAL_TYPE,
-                guard.ident(),
-                guard.logical_type(),
-                guard.logical_type().physical_type()
-            )
-        });
+        let output: &mut PrimitiveArray<U> = match output.try_into() {
+            Ok(output) => output,
+            Err(_) => {
+                panic!(
+                    "`{}` expect the output have `{}`, however the output array `{}Array` has logical type: `{:?}` with `{}`", 
+                    CompactExprDisplayWrapper::new(self),
+                    U::PHYSICAL_TYPE,
+                    output.ident(),
+                    output.logical_type(),
+                    output.logical_type().physical_type()
+                )
+            }
+        };
 
         unsafe {
             data_block::compute::arith::rem_scalar(selection, input, self.constant, output);
@@ -304,9 +288,12 @@ mod tests {
             "test".to_string(),
         );
 
-        let input = DataBlock::try_new(vec![ArrayImpl::Int32(PrimitiveArray::from_values_iter([
-            -1, 0, 1,
-        ]))])
+        let input = DataBlock::try_new(
+            vec![ArrayImpl::Int32(PrimitiveArray::from_values_iter([
+                -1, 0, 1,
+            ]))],
+            3,
+        )
         .unwrap();
 
         let mut output = ArrayImpl::new(LogicalType::Integer);

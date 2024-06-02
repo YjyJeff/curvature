@@ -4,8 +4,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use data_block::bitmap::{BitStore, Bitmap};
-use data_block::block::DataBlock;
-use data_block::types::Array;
+use data_block::block::{DataBlock, MutateArrayError};
+use data_block::types::{Array, LogicalType};
 use data_block::{array::ArrayImpl, types::PhysicalType};
 
 use super::{ExprResult, PhysicalExpr};
@@ -13,6 +13,7 @@ use crate::common::profiler::ScopedTimerGuard;
 use crate::exec::physical_expr::conjunction::OrConjunction;
 use crate::exec::physical_expr::field_ref::FieldRef;
 use crate::exec::physical_expr::utils::CompactExprDisplayWrapper;
+use crate::exec::physical_expr::ExprError;
 
 /// Executor that executes set of expressions
 ///
@@ -25,28 +26,57 @@ pub struct ExprsExecutor {
     executors: Vec<Executor>,
 }
 
+/// Executor
 #[derive(Debug)]
-struct Executor {
+pub struct Executor {
     /// Execution context
     ctx: ExprExecCtx,
     /// Selection map
     selection: Bitmap,
     /// Metrics to profile the execution time
-    metric: Duration,
+    pub(crate) metric: Duration,
+}
+
+impl Executor {
+    /// Create an [`Executor`]
+    pub fn new(expr: &dyn PhysicalExpr) -> Self {
+        Executor {
+            ctx: ExprExecCtx::new(expr),
+            selection: Bitmap::new(),
+            metric: Duration::default(),
+        }
+    }
+
+    /// Execute a boolean expression. Called by the filter
+    pub fn execute_predicate(
+        &mut self,
+        input: &DataBlock,
+        expr: &dyn PhysicalExpr,
+        output: &mut ArrayImpl,
+    ) -> ExprResult<&Bitmap> {
+        debug_assert_eq!(expr.output_type(), &LogicalType::Boolean);
+        let _guard = ScopedTimerGuard::new(&mut self.metric);
+        // Clear the selection. Such that all of the elements are selected
+        self.selection.mutate().clear();
+
+        if let Some(field_ref) = expr.as_any().downcast_ref::<FieldRef>() {
+            // SAFETY: Selection is empty
+            unsafe {
+                field_ref.copy_into_selection(input, &mut self.selection);
+            }
+        } else {
+            expr.execute(input, &mut self.selection, &mut self.ctx, output)?;
+        }
+
+        Ok(&self.selection)
+    }
 }
 
 impl ExprsExecutor {
     /// Create a new [`ExprsExecutor`] that can execute the input exprs
     pub fn new(exprs: &[Arc<dyn PhysicalExpr>]) -> Self {
         Self {
-            executors: exprs
-                .iter()
-                .map(|expr| Executor {
-                    ctx: ExprExecCtx::new(&**expr),
-                    selection: Bitmap::new(),
-                    metric: Duration::default(),
-                })
-                .collect(),
+            executors: exprs.iter().map(|expr| Executor::new(&**expr)).collect(),
         }
     }
 
@@ -64,7 +94,7 @@ impl ExprsExecutor {
         debug_assert_eq!(self.executors.len(), exprs.len());
         debug_assert_eq!(self.executors.len(), output.num_arrays());
 
-        let guard = output.mutate_arrays();
+        let guard = output.mutate_arrays(input.len());
         let mutate_func = |output: &mut [ArrayImpl]| {
             exprs
                 .iter()
@@ -90,25 +120,32 @@ impl ExprsExecutor {
                                 uninitialized.iter_mut().for_each(|v| *v = BitStore::MAX);
                             }else{
                                 // Compiler will optimize it to memory copy
+                                debug_assert_eq!(executor.selection.len(), input.len());
                                 uninitialized.iter_mut().zip(executor.selection.as_raw_slice()).for_each(|(dst, &src)| {
                                     *dst = src;
                                 })
                             }
                         }
                     }
-                    Ok(())
+                    Ok::<_, ExprError>(())
                 })
         };
 
-        // SAFETY: expressions process arrays with same length will produce arrays with same length
-        unsafe {
-            guard.mutate(mutate_func)?;
-        }
-
-        // Output and input must have same length
-        debug_assert_eq!(output.len(), input.len());
-
-        Ok(())
+        guard.mutate(mutate_func).map_err(|err| match err {
+            MutateArrayError::Inner { source } => source,
+            MutateArrayError::Length { inner } => {
+                let expr = &exprs[inner.index];
+                ExprError::Execute {
+                    expr: CompactExprDisplayWrapper::new(&**expr).to_string(),
+                    source: format!(
+                        "Expression produce FlatArray with length: `{}`, it does not equal to the input data block length: `{}`",
+                        inner.array_len,
+                        inner.length
+                    )
+                    .into(),
+                }
+            }
+        })
     }
 
     /// Get the execution times for each expression
@@ -196,18 +233,21 @@ mod tests {
             Arc::new(FieldRef::new(2, LogicalType::Integer, "col2".to_string())),
         ];
 
-        let input = DataBlock::try_new(vec![
-            ArrayImpl::Boolean(BooleanArray::from_iter([
-                Some(false),
-                None,
-                Some(true),
-                None,
-            ])),
-            ArrayImpl::String(StringArray::from_values_iter([
-                "yes", "no", "expr", "executor",
-            ])),
-            ArrayImpl::Int32(Int32Array::from_iter([Some(-1), Some(2), None, None])),
-        ])
+        let input = DataBlock::try_new(
+            vec![
+                ArrayImpl::Boolean(BooleanArray::from_iter([
+                    Some(false),
+                    None,
+                    Some(true),
+                    None,
+                ])),
+                ArrayImpl::String(StringArray::from_values_iter([
+                    "yes", "no", "expr", "executor",
+                ])),
+                ArrayImpl::Int32(Int32Array::from_iter([Some(-1), Some(2), None, None])),
+            ],
+            4,
+        )
         .unwrap();
 
         let mut output = DataBlock::with_logical_types(vec![
@@ -267,11 +307,14 @@ mod tests {
         "#]];
         expected.assert_debug_eq(&output);
 
-        let input = DataBlock::try_new(vec![
-            ArrayImpl::Boolean(BooleanArray::from_iter([None, Some(true), Some(false)])),
-            ArrayImpl::String(StringArray::from_values_iter(["exprs", "executors", "yes"])),
-            ArrayImpl::Int32(Int32Array::from_iter([None, Some(-1), Some(2)])),
-        ])
+        let input = DataBlock::try_new(
+            vec![
+                ArrayImpl::Boolean(BooleanArray::from_iter([None, Some(true), Some(false)])),
+                ArrayImpl::String(StringArray::from_values_iter(["exprs", "executors", "yes"])),
+                ArrayImpl::Int32(Int32Array::from_iter([None, Some(-1), Some(2)])),
+            ],
+            3,
+        )
         .unwrap();
 
         let mut executor = ExprsExecutor::new(&exprs);

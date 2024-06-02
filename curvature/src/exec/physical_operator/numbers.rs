@@ -6,7 +6,6 @@
 
 use std::cmp::min;
 use std::num::NonZeroU64;
-use std::ops::DerefMut;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
@@ -28,7 +27,7 @@ use crate::exec::physical_operator::metric::{MetricsSet, Time};
 use crate::STANDARD_VECTOR_SIZE;
 use curvature_procedural_macro::MetricsSetBuilder;
 use data_block::array::ArrayImpl;
-use data_block::block::DataBlock;
+use data_block::block::{DataBlock, MutateArrayError};
 use data_block::compute::sequence::sequence;
 use data_block::types::LogicalType;
 
@@ -40,8 +39,8 @@ pub struct Numbers {
     start: u64,
     /// End of the range. Exclusive
     end: u64,
-    output_types: Vec<LogicalType>,
-    _children: Vec<Arc<dyn PhysicalOperator>>,
+    output_types: [LogicalType; 1],
+    _children: [Arc<dyn PhysicalOperator>; 0],
     //// Metrics
     metrics: NumbersMetrics,
 }
@@ -55,13 +54,7 @@ pub struct NumbersMetrics {
 
 impl Numbers {
     /// Each local source state will fetch MORSEL_SIZE numbers from global
-    #[cfg(not(miri))]
     pub const MORSEL_SIZE: u64 = 128 * STANDARD_VECTOR_SIZE as u64;
-
-    /// Each local source state will fetch MORSEL_SIZE numbers from global.
-    /// Running miri is pretty slow......
-    #[cfg(miri)]
-    pub const MORSEL_SIZE: u64 = STANDARD_VECTOR_SIZE as u64;
 
     /// Create a new [`Numbers`]. The count has type [`NonZeroU64`] guarantees
     /// the count is zero. If the count is zero, do not create [`Numbers`],
@@ -72,8 +65,8 @@ impl Numbers {
         Self {
             start,
             end: start.saturating_add(count.get()),
-            output_types: vec![LogicalType::UnsignedBigInt],
-            _children: vec![],
+            output_types: [LogicalType::UnsignedBigInt],
+            _children: [],
             metrics: NumbersMetrics::default(),
         }
     }
@@ -146,11 +139,7 @@ impl Stringify for Numbers {
     }
 
     fn display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "Numbers: ({}..{}), output_types=[UnsignedBitInt]",
-            self.start, self.end,
-        )
+        write!(f, "Numbers: ({}..{})", self.start, self.end,)
     }
 }
 
@@ -289,20 +278,33 @@ impl SourceOperatorExt for Numbers {
         local_state.current += STANDARD_VECTOR_SIZE as u64;
         let end = min(local_state.current, local_state.morsel_end);
 
-        let mut output = output.mutate_single_array();
-        let ArrayImpl::UInt64(array) = output.deref_mut() else {
-            panic!(
-                "Output Array of the `Numbers` should be `UInt64Array`, found: `{}Array`",
-                output.ident()
-            )
-        };
+        let output = output.mutate_single_array((end - start) as usize);
 
-        {
+        let mutate_func = |array: &mut ArrayImpl| {
+            let ArrayImpl::UInt64(array) = array else {
+                panic!(
+                    "Output Array of the `Numbers` should be `UInt64Array`, found: `{}Array`",
+                    array.ident()
+                );
+            };
             let _guard = ScopedTimerGuard::new(&mut local_state.metrics.sequence_time);
+            // SAFETY: Pipeline execution guarantees no one will access the array when executing it
             unsafe {
                 sequence(array, start, end);
             }
+
+            Ok::<_, crate::error::BangError>(())
+        };
+
+        if let Err(e) = output.mutate(mutate_func) {
+            match e {
+                MutateArrayError::Inner { .. } => unsafe { std::hint::unreachable_unchecked() },
+                MutateArrayError::Length { inner } => {
+                    panic!("Array after sequence should have same length with data block len. Array len: `{}`, data block len: `{}`", inner.array_len, inner.length);
+                }
+            }
         }
+
         Ok(SourceExecStatus::HaveMoreOutput)
     }
 }

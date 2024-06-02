@@ -8,6 +8,7 @@ macro_rules! debug_assert_selection_is_valid {
 
 pub mod arith;
 pub mod comparison;
+pub mod filter;
 pub mod logical;
 pub mod null;
 pub mod regex_match;

@@ -36,7 +36,7 @@ pub struct UnionInputError {
 #[derive(Debug)]
 pub struct Union {
     output_types: Vec<LogicalType>,
-    children: Vec<Arc<dyn PhysicalOperator>>,
+    children: [Arc<dyn PhysicalOperator>; 2],
 }
 
 impl Union {
@@ -60,7 +60,7 @@ impl Union {
 
         Ok(Self {
             output_types: left_output_types.to_owned(),
-            children: vec![left, right],
+            children: [left, right],
         })
     }
 

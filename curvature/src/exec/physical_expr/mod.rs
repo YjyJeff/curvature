@@ -1,6 +1,7 @@
 //! PhysicalExpression that can be interpreted/executed
 
 pub mod arith;
+pub mod comparison;
 pub mod conjunction;
 pub mod constant;
 pub mod executor;
@@ -14,13 +15,14 @@ use crate::error::SendableError;
 use crate::tree_node::{handle_visit_recursion, TreeNode, TreeNodeRecursion, Visitor};
 use data_block::array::ArrayImpl;
 use data_block::bitmap::Bitmap;
-use data_block::block::DataBlock;
+use data_block::block::{DataBlock, MutateArrayError};
 use data_block::types::LogicalType;
 use snafu::Snafu;
 use std::fmt::{Debug, Display};
 use std::sync::Arc;
 
 use self::executor::ExprExecCtx;
+use self::utils::CompactExprDisplayWrapper;
 
 #[allow(missing_docs)]
 #[derive(Debug, Snafu)]
@@ -96,6 +98,8 @@ pub trait PhysicalExpr: Stringify + Send + Sync {
     /// the invariance: `output.len() == leaf_input.len()` should always hold.
     /// If the expression is a boolean expression, the selection should hold the invariance:
     /// `selection.is_empty() || selection.len() == leaf_input.len()`
+    ///
+    /// - Implementation should handle the `ConstantArray` and `FlatArray` differently
     fn execute(
         &self,
         leaf_input: &DataBlock,
@@ -134,5 +138,47 @@ impl TreeNode for dyn PhysicalExpr {
 impl<'a> AsRef<dyn PhysicalExpr + 'a> for dyn PhysicalExpr + 'a {
     fn as_ref(&self) -> &(dyn PhysicalExpr + 'a) {
         self
+    }
+}
+
+/// Execute the single child of the expression. Called by the expression that only has
+/// single child
+fn execute_single_child<T: PhysicalExpr>(
+    expr: &T,
+    leaf_input: &DataBlock,
+    selection: &mut Bitmap,
+    exec_ctx: &mut ExprExecCtx,
+) -> Result<()> {
+    let guard = exec_ctx
+        .intermediate_block
+        .mutate_single_array(leaf_input.len());
+
+    guard
+        .mutate(|array: &mut ArrayImpl| {
+            expr.children()[0].execute(leaf_input, selection, &mut exec_ctx.children[0], array)
+        })
+        .map_err(|err| handle_mutate_array_error(expr, err))
+}
+
+fn handle_mutate_array_error<T: PhysicalExpr>(
+    expr: &T,
+    err: MutateArrayError<ExprError>,
+) -> ExprError {
+    let expr_string = CompactExprDisplayWrapper::new(expr as _).to_string();
+    match err {
+        MutateArrayError::Inner { source } => ExprError::Execute {
+            expr: expr_string,
+            source: Box::new(source),
+        },
+        MutateArrayError::Length { inner } => {
+            let err_msg = format!(
+                "Child expression `{}` produce FlatArray with length: `{}`, it does not equal to the leaf_input length: `{}`",
+                CompactExprDisplayWrapper::new(&*expr.children()[0]), inner.array_len, inner.length,
+            );
+            ExprError::Execute {
+                expr: expr_string,
+                source: err_msg.into(),
+            }
+        }
     }
 }
