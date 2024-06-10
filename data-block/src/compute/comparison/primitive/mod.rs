@@ -30,6 +30,8 @@ mod portable_simd;
 #[cfg(feature = "portable_simd")]
 pub use portable_simd::*;
 
+pub mod intrinsic;
+
 use crate::aligned_vec::AlignedVec;
 use crate::array::primitive::PrimitiveType;
 use crate::bitmap::BitStore;

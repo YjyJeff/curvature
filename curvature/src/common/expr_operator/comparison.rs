@@ -55,7 +55,7 @@ impl Display for CmpOperator {
 
 /// Returns true if these two logical types can perform comparison
 ///
-/// TODO: Support comparison between different types?
+/// TODO: Refactor it like arithmetic
 pub fn can_compare(left: &LogicalType, right: &LogicalType, op: CmpOperator) -> bool {
     use LogicalType::*;
     match (left, right) {
