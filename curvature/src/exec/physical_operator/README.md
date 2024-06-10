@@ -8,8 +8,18 @@
 
 ## Regular 
 - `Projection`: Select the expressions from input
-- [ ] `Filter`: Filter out rows that do not satisfy the condition
+- `Filter`: Filter out rows that do not satisfy the condition
+- `Union`: Union two inputs that have same schema. It is a fake physical operator and never appears in the pipeline execution
+
+## Sink
 - Aggregation
     - `SimpleAggregate`: Aggregation without group by
     - `HashAggregate`: Aggregation with group by using hash table
-- `Union`: Union two inputs that have same schema. It is a fake physical operator and never appears in the pipeline execution
+    - [ ] Group by i8/u8, using `[u8; 256]` as hash table
+    - [ ] Group by single key, could we save the serialization time?
+    - [ ] [String hash table](https://www.mdpi.com/2076-3417/10/6/1915)
+
+## Reference
+### Aggregation
+- [Hash tables in ClickHouse](https://clickhouse.com/blog/hash-tables-in-clickhouse-and-zero-cost-abstractions)
+- [Parallel Grouped Aggregation in DuckDB](https://duckdb.org/2022/03/07/aggregate-hashtable.html)

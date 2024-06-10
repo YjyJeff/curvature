@@ -1,274 +1,186 @@
 //! Expression to perform basic arithmetic like `+`/`-`/`*`/`/`/`%`
 
-use data_block::array::{ArrayError, ArrayImpl, PrimitiveArray};
+use data_block::array::ArrayImpl;
 use data_block::bitmap::Bitmap;
 use data_block::block::DataBlock;
-use data_block::compute::arith::{
-    ArithFuncTrait, ArrayRemElement, DefaultAddScalar, DefaultDivScalar, DefaultMulScalar,
-    DefaultSubScalar, RemCast, RemExt,
-};
-use data_block::types::{Array, LogicalType, PrimitiveType};
+use data_block::types::LogicalType;
+use snafu::{ensure, Snafu};
 use std::fmt::Debug;
-use std::marker::PhantomData;
 use std::sync::Arc;
+
+use crate::common::expr_operator::arith::{
+    infer_arithmetic_func_set, ArithFunctionSet, ArithOperator,
+};
+use crate::exec::physical_expr::constant::Constant;
 
 use super::executor::ExprExecCtx;
 use super::utils::CompactExprDisplayWrapper;
-use super::{execute_single_child, ExprResult, PhysicalExpr, Stringify};
+use super::{execute_binary_children, ExprResult, PhysicalExpr, Stringify};
 
-/// Add primitive array with constant, the element in the primitive array are interpreted as numbers
-pub type DefaultAddConstantArith<T> = ConstantArith<T, DefaultAddScalar>;
-/// Sub primitive array with constant, the element in the primitive array are interpreted as numbers
-pub type DefaultSubConstantArith<T> = ConstantArith<T, DefaultSubScalar>;
-/// Mul primitive array with constant, the element in the primitive array are interpreted as numbers
-pub type DefaultMulConstantArith<T> = ConstantArith<T, DefaultMulScalar>;
-/// Div primitive array with constant, the element in the primitive array are interpreted as numbers
-pub type DefaultDivConstantArith<T> = ConstantArith<T, DefaultDivScalar>;
+#[allow(missing_docs)]
+#[derive(Debug, Snafu)]
+pub enum ArithError {
+    #[snafu(display(
+        "Perform `{}` arithmetic between `{:?}` and `{:?}` is not supported",
+        op,
+        left,
+        right
+    ))]
+    UnsupportedInputs {
+        left: LogicalType,
+        right: LogicalType,
+        op: ArithOperator,
+    },
+    #[snafu(display(
+        "Perform `{}` arithmetic between two constants(left: `{}`, right: `{}`) makes no sense. Planner/Optimizer should handle it in advance", 
+        op,
+        left,
+        right
+    ))]
+    TwoConstants {
+        left: String,
+        right: String,
+        op: ArithOperator,
+    },
+}
 
-/// Expression to perform `+`/`-`/`*`/`/`/`%` between Array and constant
+type Result<T> = std::result::Result<T, ArithError>;
+
+/// Arithmetic expression
 #[derive(Debug)]
-pub struct ConstantArith<T, F>
-where
-    PrimitiveArray<T>: Array,
-    T: PrimitiveType,
-    F: ArithFuncTrait<T>,
-{
-    children: [Arc<dyn PhysicalExpr>; 1],
-    constant: T,
-    name: String,
-    output_type: LogicalType,
-    _phantom: PhantomData<F>,
+pub struct Arith {
+    children: [Arc<dyn PhysicalExpr>; 2],
+    op: ArithOperator,
+    /// Function set used to perform arithmetic. It is determined by the children and op in
+    /// the constructor phase
+    ///
+    /// Note that we introduce an extra indirection here by function pointer. Writing code
+    /// this way is elegant and benchmark show that the impact of this extra indirection
+    /// if negligible 😊
+    function_set: ArithFunctionSet,
 }
 
-impl<T, F> ConstantArith<T, F>
-where
-    PrimitiveArray<T>: Array,
-    T: PrimitiveType,
-    F: ArithFuncTrait<T>,
-{
-    /// Create a new constant arithmetic
-    pub fn new(input: Arc<dyn PhysicalExpr>, constant: T, name: String) -> Self {
-        Self {
-            output_type: input.output_type().to_owned(),
-            children: [input],
-            constant,
-            name,
-            _phantom: PhantomData,
-        }
-    }
-}
-
-impl<T, F> Stringify for ConstantArith<T, F>
-where
-    PrimitiveArray<T>: Array,
-    T: PrimitiveType,
-    F: ArithFuncTrait<T>,
-    Self: Debug,
-{
-    /// FIXME: Generic info
-    fn name(&self) -> &'static str {
-        "ConstantArith"
-    }
-
-    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
-    }
-
-    fn compact_display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.children[0].compact_display(f)?;
-        write!(f, " {} {}", F::SYMBOL, self.constant)
-    }
-
-    fn display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} {} -> {:?}", F::NAME, self.constant, self.output_type)
-    }
-}
-
-impl<T, F> PhysicalExpr for ConstantArith<T, F>
-where
-    PrimitiveArray<T>: Array,
-    T: PrimitiveType,
-    F: ArithFuncTrait<T>,
-    for<'a> &'a PrimitiveArray<T>: TryFrom<&'a ArrayImpl, Error = ArrayError>,
-    for<'a> &'a mut PrimitiveArray<T>: TryFrom<&'a mut ArrayImpl, Error = ArrayError>,
-    Self: Debug,
-{
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-
-    fn output_type(&self) -> &LogicalType {
-        &self.output_type
-    }
-
-    fn children(&self) -> &[Arc<dyn PhysicalExpr>] {
-        &self.children
-    }
-
-    fn execute(
-        &self,
-        leaf_input: &DataBlock,
-        selection: &mut Bitmap,
-        exec_ctx: &mut ExprExecCtx,
-        output: &mut ArrayImpl,
-    ) -> ExprResult<()> {
-        // Execute input
-        execute_single_child(self, leaf_input, selection, exec_ctx)?;
-
-        // Execute self
-        let array = unsafe { exec_ctx.intermediate_block.get_array_unchecked(0) };
-        let input: &PrimitiveArray<T> = array.try_into().unwrap_or_else(|_| {
-            panic!(
-                "`{}` expect the input have `{}`, however the input array `{}Array` has logical type: `{:?}` with `{}`",
-                CompactExprDisplayWrapper::new(self),
-                T::PHYSICAL_TYPE,
-                array.ident(),
-                array.logical_type(),
-                array.logical_type().physical_type(),
-            )
-        });
-
-        let output: &mut PrimitiveArray<T> = output.try_into().unwrap_or_else(|_| {
-            panic!(
-                "`{}` expect the output have `{}`, however the output array `{}Array` has logical type: `{:?}` with `{}`", 
-                CompactExprDisplayWrapper::new(self),
-                T::PHYSICAL_TYPE,
-                array.ident(),
-                array.logical_type(),
-                array.logical_type().physical_type()
-            )
-        });
-
-        unsafe {
-            F::SCALAR_FUNC(selection, input, self.constant, output);
-        }
-
-        debug_assert_eq!(output.len(), leaf_input.len());
-
-        Ok(())
-    }
-}
-
-/// Rem
-#[derive(Debug)]
-pub struct ConstRem<T, U> {
-    children: [Arc<dyn PhysicalExpr>; 1],
-    constant: U,
-    name: String,
-    output_type: LogicalType,
-    _phantom: PhantomData<T>,
-}
-
-impl<T, U> ConstRem<T, U>
-where
-    PrimitiveArray<T>: Array,
-    PrimitiveArray<U>: Array,
-    T: PrimitiveType + RemExt,
-    U: PrimitiveType + RemCast<T>,
-{
-    /// Create a new constant arithmetic
-    pub fn new(input: Arc<dyn PhysicalExpr>, constant: U, name: String) -> Self {
-        Self {
-            output_type: U::LOGICAL_TYPE,
-            children: [input],
-            constant,
-            name,
-            _phantom: PhantomData,
-        }
-    }
-}
-
-impl<T, U> Stringify for ConstRem<T, U>
-where
-    PrimitiveArray<T>: Array,
-    PrimitiveArray<U>: Array,
-    T: PrimitiveType + ArrayRemElement<U>,
-    U: PrimitiveType + RemCast<T>,
-    Self: Debug,
-{
-    /// FIXME: Generic info
-    fn name(&self) -> &'static str {
-        "ConstantArith"
-    }
-
-    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
-    }
-
-    fn compact_display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.children[0].compact_display(f)?;
-        write!(f, " % {}", self.constant)
-    }
-
-    fn display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "% {} -> {:?}", self.constant, self.output_type)
-    }
-}
-
-impl<T, U> PhysicalExpr for ConstRem<T, U>
-where
-    PrimitiveArray<T>: Array,
-    PrimitiveArray<U>: Array,
-    T: PrimitiveType + ArrayRemElement<U>,
-    U: PrimitiveType + RemCast<T>,
-    for<'a> &'a PrimitiveArray<T>: TryFrom<&'a ArrayImpl, Error = ArrayError>,
-    for<'a> &'a mut PrimitiveArray<U>: TryFrom<&'a mut ArrayImpl, Error = ArrayError>,
-    Self: Debug,
-{
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-
-    fn output_type(&self) -> &LogicalType {
-        &self.output_type
-    }
-
-    fn children(&self) -> &[Arc<dyn PhysicalExpr>] {
-        &self.children
-    }
-
-    fn execute(
-        &self,
-        leaf_input: &DataBlock,
-        selection: &mut Bitmap,
-        exec_ctx: &mut ExprExecCtx,
-        output: &mut ArrayImpl,
-    ) -> ExprResult<()> {
-        // Execute input
-        execute_single_child(self, leaf_input, selection, exec_ctx)?;
-
-        // Execute self
-        let array = unsafe { exec_ctx.intermediate_block.get_array_unchecked(0) };
-        let input: &PrimitiveArray<T> = array.try_into().unwrap_or_else(|_| {
-            panic!(
-                "`{}` expect the input have `{}`, however the input array `{}Array` has logical type: `{:?}` with `{}`",
-                CompactExprDisplayWrapper::new(self),
-                T::PHYSICAL_TYPE,
-                array.ident(),
-                array.logical_type(),
-                array.logical_type().physical_type(),
-            )
-        });
-
-        let output: &mut PrimitiveArray<U> = match output.try_into() {
-            Ok(output) => output,
-            Err(_) => {
-                panic!(
-                    "`{}` expect the output have `{}`, however the output array `{}Array` has logical type: `{:?}` with `{}`", 
-                    CompactExprDisplayWrapper::new(self),
-                    U::PHYSICAL_TYPE,
-                    output.ident(),
-                    output.logical_type(),
-                    output.logical_type().physical_type()
-                )
+impl Arith {
+    /// Create a new [`Arith`] expression
+    pub fn try_new(
+        left: Arc<dyn PhysicalExpr>,
+        op: ArithOperator,
+        right: Arc<dyn PhysicalExpr>,
+    ) -> Result<Self> {
+        let function_set = if let Some(function_set) =
+            infer_arithmetic_func_set(left.output_type(), right.output_type(), op)
+        {
+            function_set
+        } else {
+            return UnsupportedInputsSnafu {
+                left: left.output_type().to_owned(),
+                right: right.output_type().to_owned(),
+                op,
             }
+            .fail();
         };
 
-        unsafe {
-            data_block::compute::arith::rem_scalar(selection, input, self.constant, output);
+        ensure!(
+            left.as_any().downcast_ref::<Constant>().is_none()
+                || right.as_any().downcast_ref::<Constant>().is_none(),
+            TwoConstantsSnafu {
+                left: CompactExprDisplayWrapper::new(&*left).to_string(),
+                right: CompactExprDisplayWrapper::new(&*right).to_string(),
+                op
+            }
+        );
+
+        Ok(Self {
+            children: [left, right],
+            op,
+            function_set,
+        })
+    }
+
+    /// Get left child
+    pub fn left_child(&self) -> &Arc<dyn PhysicalExpr> {
+        &self.children[0]
+    }
+
+    /// Get right child
+    pub fn right_child(&self) -> &Arc<dyn PhysicalExpr> {
+        &self.children[1]
+    }
+}
+
+impl Stringify for Arith {
+    fn name(&self) -> &'static str {
+        self.op.ident()
+    }
+
+    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+
+    fn display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.op.ident())
+    }
+
+    fn compact_display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.left_child().compact_display(f)?;
+        write!(f, " {} ", self.op.symbol_ident())?;
+        self.right_child().compact_display(f)
+    }
+}
+
+impl PhysicalExpr for Arith {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn output_type(&self) -> &LogicalType {
+        &self.function_set.output_type
+    }
+
+    fn children(&self) -> &[Arc<dyn PhysicalExpr>] {
+        &self.children
+    }
+
+    fn execute(
+        &self,
+        leaf_input: &DataBlock,
+        selection: &mut Bitmap,
+        exec_ctx: &mut ExprExecCtx,
+        output: &mut ArrayImpl,
+    ) -> ExprResult<()> {
+        // Execute children
+        execute_binary_children(self, leaf_input, selection, exec_ctx)?;
+
+        // Execute arith
+        let left_array = unsafe { exec_ctx.intermediate_block.get_array_unchecked(0) };
+        let right_array = unsafe { exec_ctx.intermediate_block.get_array_unchecked(1) };
+
+        match (left_array.len(), right_array.len()) {
+            (1, 1) => (self.function_set.arith_scalars)(left_array, right_array, output),
+            (1, _) => {
+                if matches!(self.op, ArithOperator::Add | ArithOperator::Mul) {
+                    // commutative
+                    (self.function_set.array_arith_scalar)(
+                        selection,
+                        right_array,
+                        left_array,
+                        output,
+                    );
+                } else {
+                    todo!()
+                }
+            }
+            (_, 1) => {
+                (self.function_set.array_arith_scalar)(selection, left_array, right_array, output);
+            }
+            (_, _) => {
+                // Both of them are array, they must have same length.
+                // Actually, we do do need this check, `execute_binary_children` already checked it
+                (self.function_set.arith_arrays)(selection, left_array, right_array, output);
+            }
         }
 
-        debug_assert_eq!(output.len(), leaf_input.len());
+        debug_assert!(output.len() == 1 || output.len() == leaf_input.len());
 
         Ok(())
     }
@@ -276,22 +188,79 @@ where
 
 #[cfg(test)]
 mod tests {
+    use data_block::{array::Int32Array, types::Array};
+
     use crate::exec::physical_expr::field_ref::FieldRef;
 
     use super::*;
 
-    #[test]
-    fn test_execute_constant_arithmetic() {
-        let arith = ConstantArith::<i32, DefaultAddScalar>::new(
+    fn create_arith() -> Arith {
+        Arith::try_new(
             Arc::new(FieldRef::new(0, LogicalType::Integer, "f0".to_string())),
-            3,
-            "test".to_string(),
-        );
+            ArithOperator::Add,
+            Arc::new(FieldRef::new(1, LogicalType::Integer, "f1".to_string())),
+        )
+        .unwrap()
+    }
+
+    fn assert_integer_array(output: &ArrayImpl, gt: &[Option<i32>]) {
+        if let ArrayImpl::Int32(output) = &output {
+            assert_eq!(output.iter().collect::<Vec<_>>(), gt);
+        } else {
+            panic!("Output must be Int32")
+        }
+    }
+
+    #[test]
+    fn test_arith_scalars() {
+        let arith = create_arith();
+        let mut selection = Bitmap::new();
+        let mut exec_ctx = ExprExecCtx::new(&arith);
 
         let input = DataBlock::try_new(
-            vec![ArrayImpl::Int32(PrimitiveArray::from_values_iter([
-                -1, 0, 1,
-            ]))],
+            vec![
+                ArrayImpl::Int32(Int32Array::from_values_iter([-4])),
+                ArrayImpl::Int32(Int32Array::from_values_iter([8])),
+            ],
+            100,
+        )
+        .unwrap();
+
+        let mut output = ArrayImpl::new(LogicalType::Integer);
+
+        arith
+            .execute(&input, &mut selection, &mut exec_ctx, &mut output)
+            .unwrap();
+
+        assert_integer_array(&output, &[Some(4)]);
+
+        // One of them is null
+        let input = DataBlock::try_new(
+            vec![
+                ArrayImpl::Int32(Int32Array::from_values_iter([1])),
+                ArrayImpl::Int32(Int32Array::from_iter([None])),
+            ],
+            3,
+        )
+        .unwrap();
+        arith
+            .execute(&input, &mut selection, &mut exec_ctx, &mut output)
+            .unwrap();
+
+        assert_integer_array(&output, &[None]);
+    }
+
+    #[test]
+    fn test_array_arith_scalar() {
+        let arith = create_arith();
+        let mut selection = Bitmap::new();
+        let mut exec_ctx = ExprExecCtx::new(&arith);
+
+        let input = DataBlock::try_new(
+            vec![
+                ArrayImpl::Int32(Int32Array::from_values_iter([-1, 0, 1])),
+                ArrayImpl::Int32(Int32Array::from_values_iter([1])),
+            ],
             3,
         )
         .unwrap();
@@ -299,29 +268,25 @@ mod tests {
         let mut output = ArrayImpl::new(LogicalType::Integer);
 
         arith
-            .execute(
-                &input,
-                &mut Bitmap::new(),
-                &mut ExprExecCtx::new(&arith),
-                &mut output,
-            )
+            .execute(&input, &mut selection, &mut exec_ctx, &mut output)
             .unwrap();
 
-        let expect = expect_test::expect![[r#"
-            Int32(
-                Int32Array { logical_type: Integer, len: 3, data: [
-                    Some(
-                        2,
-                    ),
-                    Some(
-                        3,
-                    ),
-                    Some(
-                        4,
-                    ),
-                ]},
-            )
-        "#]];
-        expect.assert_debug_eq(&output);
+        assert_integer_array(&output, &[Some(0), Some(1), Some(2)]);
+
+        // Add null
+        let input = DataBlock::try_new(
+            vec![
+                ArrayImpl::Int32(Int32Array::from_values_iter([-1, 0, 1])),
+                ArrayImpl::Int32(Int32Array::from_iter([None])),
+            ],
+            3,
+        )
+        .unwrap();
+
+        arith
+            .execute(&input, &mut selection, &mut exec_ctx, &mut output)
+            .unwrap();
+
+        assert_integer_array(&output, &[None, None, None]);
     }
 }

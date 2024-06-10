@@ -8,7 +8,7 @@ use data_block::types::{LogicalType, PhysicalType};
 use snafu::{ensure, Snafu};
 use std::sync::Arc;
 
-use crate::exec::physical_expr::execute_single_child;
+use crate::exec::physical_expr::execute_unary_child;
 
 use super::executor::ExprExecCtx;
 use super::field_ref::FieldRef;
@@ -92,7 +92,7 @@ impl<const NOT: bool> PhysicalExpr for IsNull<NOT> {
         exec_ctx: &mut ExprExecCtx,
         _output: &mut ArrayImpl,
     ) -> ExprResult<()> {
-        execute_single_child(self, leaf_input, selection, exec_ctx)?;
+        execute_unary_child(self, leaf_input, selection, exec_ctx)?;
 
         // Execute is null
         let array = unsafe { exec_ctx.intermediate_block.get_array_unchecked(0) };

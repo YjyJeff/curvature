@@ -11,16 +11,15 @@ use snafu::{ensure, ResultExt, Snafu};
 
 use super::executor::ExprExecCtx;
 use super::utils::CompactExprDisplayWrapper;
-use super::{ExecuteSnafu, ExprResult, PhysicalExpr, Stringify};
+use super::{execute_binary_children, ExecuteSnafu, ExprResult, PhysicalExpr, Stringify};
 use crate::common::expr_operator::comparison::{can_compare, CmpOperator};
 use crate::exec::physical_expr::constant::Constant;
-use crate::exec::physical_expr::handle_mutate_array_error;
 
 #[allow(missing_docs)]
-/// Error returned by creating the comparison
+/// Error returned by comparison expression
 #[derive(Debug, Snafu)]
 pub enum ComparisonError {
-    #[snafu(display("Can not perform `{:?}` comparison between {:?} and {:?}", op.symbol_ident(), left,right))]
+    #[snafu(display("Perform `{}` comparison between `{:?}` and `{:?}` is not supported", op.symbol_ident(), left,right))]
     UnsupportedInputs {
         left: LogicalType,
         right: LogicalType,
@@ -28,7 +27,7 @@ pub enum ComparisonError {
     },
     #[snafu(display(
         "Perform `{}` between two constants(left: `{}`, right: `{}`) makes no sense. Planner/Optimizer should handle it in advance", 
-        op.symbol_ident(),
+        op,
         left,
         right
     ))]
@@ -37,7 +36,12 @@ pub enum ComparisonError {
         right: String,
         op: CmpOperator,
     },
-    #[snafu(display("Perform `{}` between {:?} and {:?} is supported but not implemented", op.symbol_ident(), left, right))]
+    #[snafu(display(
+        "Perform `{}` between {:?} and {:?} is supported but not implemented",
+        op,
+        left,
+        right
+    ))]
     NotImplemented {
         left: LogicalType,
         right: LogicalType,
@@ -57,6 +61,10 @@ type Result<T> = std::result::Result<T, ComparisonError>;
 
 impl Comparison {
     /// Create a new [`Comparison`] expression
+    ///
+    /// FIXME: We knew the variants and functions that should be called in this phase.
+    /// Thus, we can avoid the redundant code and the inconsistent implementation between
+    /// them
     pub fn try_new(
         left: Arc<dyn PhysicalExpr>,
         op: CmpOperator,
@@ -130,6 +138,7 @@ impl PhysicalExpr for Comparison {
         &self.children
     }
 
+    // FIXME: The equality comparison between `DayTime` can be optimized by by comparing `i64`
     fn execute(
         &self,
         leaf_input: &DataBlock,
@@ -137,22 +146,8 @@ impl PhysicalExpr for Comparison {
         exec_ctx: &mut ExprExecCtx,
         output: &mut ArrayImpl,
     ) -> ExprResult<()> {
-        // Execute input
-        {
-            let guard = exec_ctx.intermediate_block.mutate_arrays(leaf_input.len());
-            guard
-                .mutate(|arrays| {
-                    (0..2).try_for_each(|index| {
-                        self.children[index].execute(
-                            leaf_input,
-                            selection,
-                            &mut exec_ctx.children[index],
-                            &mut arrays[index],
-                        )
-                    })
-                })
-                .map_err(|err| handle_mutate_array_error(self, err))?;
-        }
+        // Execute children
+        execute_binary_children(self, leaf_input, selection, exec_ctx)?;
 
         // Execute comparison
         let left_array = unsafe { exec_ctx.intermediate_block.get_array_unchecked(0) };
@@ -211,7 +206,12 @@ impl PhysicalExpr for Comparison {
         .boxed()
         .with_context(|_| ExecuteSnafu {
             expr: CompactExprDisplayWrapper::new(self as _).to_string(),
-        })
+        })?;
+
+        // Boolean expression, check the selection
+        debug_assert!(selection.is_empty() || selection.len() == leaf_input.len());
+
+        Ok(())
     }
 }
 

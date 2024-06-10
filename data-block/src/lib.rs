@@ -11,14 +11,15 @@
 //!
 //! - optimize the speed in the use case of the query engine
 //!
-//! [`Arrow`]: https://github.com/apache/arrow-rs
-//! [`Type Exercise in Rust`]: https://github.com/skyzh/type-exercise-in-rust
 //!
 //! # Run
 //!
-//! `DataBlock` does not support x86 CPUs that do not support `sse2`, run the code
-//! in these CPUs will cause undefined behavior. Almost all of the x86 CPUs support
-//! `sse2`, if not, the cpu is too old
+//! `DataBlock` requires the x86-64 CPUs must new than [`x86-64-v2`] microarchitecture.
+//! Because we will use `sse4.1` by default
+//!
+//! [`Arrow`]: https://github.com/apache/arrow-rs
+//! [`Type Exercise in Rust`]: https://github.com/skyzh/type-exercise-in-rust
+//! [`x86-64-v2`]: https://en.wikipedia.org/wiki/X86-64#Microarchitecture_levels
 
 pub mod aligned_vec;
 pub mod array;

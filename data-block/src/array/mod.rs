@@ -95,8 +95,8 @@ pub trait Array: Sealed + Debug + 'static + Sized {
     /// offset + length <= self.len()
     fn values_slice_iter(&self, offset: usize, length: usize) -> Self::ValuesIter<'_>;
 
-    /// Get the validity. If the validity is not empty, the length must equal to
-    /// [`Self::len`]
+    /// Get the validity. **If the validity is not empty, the length must equal to
+    /// [`Self::len`]**
     fn validity(&self) -> &Bitmap;
 
     /// Get the mutable validity.
@@ -183,6 +183,18 @@ pub trait Array: Sealed + Debug + 'static + Sized {
 
     /// Reference self to other array
     fn reference(&mut self, other: &Self);
+
+    /// Resize the array to `len` and set all the elements be `NULL`
+    ///
+    /// # Note
+    ///
+    /// We do not provide the default implementation based on the `replace` methods because
+    /// it is not optimal
+    ///
+    /// # Safety
+    ///
+    /// - Satisfy the mutate condition
+    unsafe fn set_all_invalid(&mut self, len: usize);
 
     /// Replace the array with the trusted_len values iterator that has `len` items
     ///

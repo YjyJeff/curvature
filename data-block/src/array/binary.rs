@@ -204,6 +204,17 @@ impl Array for BinaryArray {
         self.validity.reference(&other.validity);
     }
 
+    #[inline]
+    unsafe fn set_all_invalid(&mut self, len: usize) {
+        self.validity.as_mut().mutate().set_all_invalid(len);
+        self.offsets
+            .as_mut()
+            .clear_and_resize(len + 1)
+            .iter_mut()
+            .for_each(|offset| *offset = 0);
+        self.bytes.as_mut().clear();
+    }
+
     unsafe fn replace_with_trusted_len_values_iterator<I>(
         &mut self,
         len: usize,

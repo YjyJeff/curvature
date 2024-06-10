@@ -128,7 +128,7 @@ impl PhysicalExpr for FieldRef {
             .reference(input)
             .unwrap_or_else(|e| panic!("`FieldRef`'s output is invalid, {}", e));
 
-        debug_assert_eq!(output.len(), leaf_input.len());
+        debug_assert!(output.len() == 1 || output.len() == leaf_input.len());
 
         Ok(())
     }

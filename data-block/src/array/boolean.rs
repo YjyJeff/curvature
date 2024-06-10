@@ -129,6 +129,12 @@ impl Array for BooleanArray {
         self.validity.reference(&other.validity);
     }
 
+    #[inline]
+    unsafe fn set_all_invalid(&mut self, len: usize) {
+        self.validity.as_mut().mutate().set_all_invalid(len);
+        self.data.as_mut().mutate().set_all_invalid(len);
+    }
+
     unsafe fn replace_with_trusted_len_values_iterator<I>(
         &mut self,
         len: usize,

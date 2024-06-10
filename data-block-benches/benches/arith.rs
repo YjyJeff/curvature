@@ -3,10 +3,10 @@ use std::ops::{Add, Div};
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use data_block::array::{Array, PrimitiveArray};
 use data_block::bitmap::Bitmap;
-use data_block::compute::arith::{
-    ArrayAddElement, ArrayDivElement, ArrayMulElement, ArraySubElement,
+use data_block::compute::arith::intrinsic::{
+    add_scalar, div_scalar, mul_scalar, sub_scalar, AddExt, DivExt, MulExt, RemExt, SubExt,
 };
-use data_block::compute::{arith, IntrinsicType};
+use data_block::compute::IntrinsicType;
 use data_block::element::Element;
 use data_block_benches::create_primitive_array_with_seed;
 use rand::distributions::{Distribution, Standard};
@@ -18,10 +18,11 @@ where
         + Div<Output = T>
         + PartialEq
         + Default
-        + ArrayDivElement
-        + ArrayAddElement
-        + ArraySubElement
-        + ArrayMulElement
+        + DivExt
+        + AddExt
+        + SubExt
+        + MulExt
+        + RemExt
         + for<'a> Element<ElementRef<'a> = T>
         + arrow2::compute::arithmetics::basic::NativeArithmetics
         + arrow2::types::NativeType
@@ -36,7 +37,7 @@ where
         let mut dst = PrimitiveArray::<T>::default();
         let selection = Bitmap::from_slice_and_len(&vec![u64::MAX; size / 64], size);
 
-        unsafe { arith::div_scalar(&selection, &lhs, rhs, &mut dst) };
+        unsafe { div_scalar(&selection, &lhs, rhs, &mut dst) };
 
         let arr_a = arrow2::util::bench_util::create_primitive_array_with_seed::<T>(
             size,
@@ -68,25 +69,25 @@ where
 
         group.bench_function(BenchmarkId::new("DataBlock: add scalar", size), |b| {
             b.iter(|| unsafe {
-                arith::add_scalar(&selection, &lhs, rhs, &mut dst);
+                add_scalar(&selection, &lhs, rhs, &mut dst);
             });
         });
 
         group.bench_function(BenchmarkId::new("DataBlock: sub scalar", size), |b| {
             b.iter(|| unsafe {
-                arith::sub_scalar(&selection, &lhs, rhs, &mut dst);
+                sub_scalar(&selection, &lhs, rhs, &mut dst);
             });
         });
 
         group.bench_function(BenchmarkId::new("DataBlock: mul scalar", size), |b| {
             b.iter(|| unsafe {
-                arith::mul_scalar(&selection, &lhs, rhs, &mut dst);
+                mul_scalar(&selection, &lhs, rhs, &mut dst);
             });
         });
 
         group.bench_function(BenchmarkId::new("DataBlock: div scalar", size), |b| {
             b.iter(|| unsafe {
-                arith::div_scalar(&selection, &lhs, rhs, &mut dst);
+                div_scalar(&selection, &lhs, rhs, &mut dst);
             });
         });
     });

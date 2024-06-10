@@ -1,4 +1,6 @@
 //! Comparison between primitive arrays
+//!
+//! TODO: Separate intrinsic with others
 
 #[cfg(test)]
 macro_rules! cmp_assert {

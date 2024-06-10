@@ -1,10 +1,10 @@
-//! Compare expressions
+//! Comparison operator
 
 use std::fmt::Display;
 
 use data_block::types::LogicalType;
 
-/// Comparison operators
+/// Comparison operator
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CmpOperator {
     /// ==
@@ -55,12 +55,7 @@ impl Display for CmpOperator {
 
 /// Returns true if these two logical types can perform comparison
 ///
-/// FIXME: Support comparison between different types?
-///
-/// # Notes
-///
-/// If comparison between different types is supported, you should also support it in the
-/// [`Comparison`](crate::exec::physical_expr::comparison::Comparison) expression
+/// TODO: Support comparison between different types?
 pub fn can_compare(left: &LogicalType, right: &LogicalType, op: CmpOperator) -> bool {
     use LogicalType::*;
     match (left, right) {

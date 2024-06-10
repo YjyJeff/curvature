@@ -219,6 +219,13 @@ where
     }
 
     #[inline]
+    unsafe fn set_all_invalid(&mut self, len: usize) {
+        // Just resize and leave the memory uninitialized
+        let _ = self.data.as_mut().clear_and_resize(len);
+        self.validity.as_mut().mutate().set_all_invalid(len);
+    }
+
+    #[inline]
     unsafe fn replace_with_trusted_len_values_iterator<I>(
         &mut self,
         len: usize,

@@ -194,6 +194,18 @@ impl Array for StringArray {
     }
 
     #[inline]
+    unsafe fn set_all_invalid(&mut self, len: usize) {
+        self.validity.as_mut().mutate().set_all_invalid(len);
+        // Reset all of the string view with default
+        self.views
+            .as_mut()
+            .clear_and_resize(len)
+            .iter_mut()
+            .for_each(|view| *view = StringView::default());
+        self._bytes.as_mut().clear();
+    }
+
+    #[inline]
     unsafe fn replace_with_trusted_len_values_iterator<I>(
         &mut self,
         len: usize,

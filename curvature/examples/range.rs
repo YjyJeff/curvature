@@ -4,15 +4,16 @@ use std::num::NonZeroU64;
 use std::sync::Arc;
 
 use curvature::common::client_context::{ClientContext, ExecArgs};
+use curvature::common::expr_operator::arith::ArithOperator;
 use curvature::common::expr_operator::comparison::CmpOperator;
 use curvature::common::types::ParallelismDegree;
 use curvature::common::uuid::QueryId;
-use curvature::exec::physical_expr::arith::ConstRem;
+use curvature::exec::physical_expr::arith::Arith;
 use curvature::exec::physical_expr::comparison::Comparison;
 use curvature::exec::physical_expr::constant::Constant;
 use curvature::exec::physical_expr::field_ref::FieldRef;
 use curvature::exec::physical_expr::function::aggregate::avg::Avg;
-use curvature::exec::physical_expr::function::aggregate::count::CountStar;
+use curvature::exec::physical_expr::function::aggregate::count::Count;
 use curvature::exec::physical_expr::function::aggregate::min_max::Max;
 use curvature::exec::physical_expr::function::aggregate::sum::Sum;
 use curvature::exec::physical_expr::function::aggregate::AggregationFunctionExpr;
@@ -58,29 +59,29 @@ fn main() {
     //     "number".to_string(),
     // )];
 
-    // let physical_plan: Arc<dyn PhysicalOperator> = Arc::new(
-    //     SimpleAggregate::try_new(
-    //         physical_plan,
-    //         vec![
-    //             AggregationFunctionExpr::try_new(
-    //                 &payloads_ref,
-    //                 Arc::new(Sum::<UInt64Array>::try_new(LogicalType::UnsignedBigInt).unwrap()),
-    //             )
-    //             .unwrap(),
-    //             AggregationFunctionExpr::try_new(
-    //                 &payloads_ref,
-    //                 Arc::new(Max::<UInt64Array>::try_new(LogicalType::UnsignedBigInt).unwrap()),
-    //             )
-    //             .unwrap(),
-    //             AggregationFunctionExpr::try_new(
-    //                 &payloads_ref,
-    //                 Arc::new(Avg::<UInt64Array>::try_new(LogicalType::UnsignedBigInt).unwrap()),
-    //             )
-    //             .unwrap(),
-    //         ],
-    //     )
-    //     .unwrap(),
-    // );
+    // // let physical_plan: Arc<dyn PhysicalOperator> = Arc::new(
+    // //     SimpleAggregate::try_new(
+    // //         physical_plan,
+    // //         vec![
+    // //             AggregationFunctionExpr::try_new(
+    // //                 &payloads_ref,
+    // //                 Arc::new(Sum::<UInt64Array>::try_new(LogicalType::UnsignedBigInt).unwrap()),
+    // //             )
+    // //             .unwrap(),
+    // //             AggregationFunctionExpr::try_new(
+    // //                 &payloads_ref,
+    // //                 Arc::new(Max::<UInt64Array>::try_new(LogicalType::UnsignedBigInt).unwrap()),
+    // //             )
+    // //             .unwrap(),
+    // //             AggregationFunctionExpr::try_new(
+    // //                 &payloads_ref,
+    // //                 Arc::new(Avg::<UInt64Array>::try_new(LogicalType::UnsignedBigInt).unwrap()),
+    // //             )
+    // //             .unwrap(),
+    // //         ],
+    // //     )
+    // //     .unwrap(),
+    // // );
 
     // let field_ref: Arc<dyn PhysicalExpr> = Arc::new(FieldRef::new(
     //     0,
@@ -93,12 +94,20 @@ fn main() {
     //         physical_plan,
     //         Arc::new(
     //             Comparison::try_new(
-    //                 Arc::new(ConstRem::<u64, u8>::new(
-    //                     Arc::clone(&field_ref),
-    //                     4,
-    //                     "number % 4".to_string(),
-    //                 )),
-    //                 CmpOperator::NotEqual,
+    //                 Arc::new(
+    //                     Arith::try_new(
+    //                         Arc::clone(&field_ref),
+    //                         ArithOperator::Rem,
+    //                         Arc::new(unsafe {
+    //                             Constant::try_new(ArrayImpl::UInt8(UInt8Array::from_values_iter([
+    //                                 4,
+    //                             ])))
+    //                             .unwrap()
+    //                         }),
+    //                     )
+    //                     .unwrap(),
+    //                 ),
+    //                 CmpOperator::Equal,
     //                 Arc::new(
     //                     unsafe {
     //                         Constant::try_new(ArrayImpl::UInt8(UInt8Array::from_values_iter([0])))
@@ -116,7 +125,11 @@ fn main() {
     //     SimpleAggregate::try_new(
     //         physical_plan,
     //         vec![
-    //             AggregationFunctionExpr::try_new(&[], Arc::new(CountStar::new())).unwrap(),
+    //             AggregationFunctionExpr::try_new(
+    //                 &payloads_ref,
+    //                 Arc::new(Count::<false>::new(LogicalType::UnsignedBigInt)),
+    //             )
+    //             .unwrap(),
     //             // AggregationFunctionExpr::try_new(
     //             //     &payloads_ref,
     //             //     Arc::new(Max::<UInt64Array>::try_new(LogicalType::UnsignedBigInt).unwrap()),
@@ -141,21 +154,39 @@ fn main() {
         physical_plan,
         vec![
             Arc::clone(&field_ref),
-            Arc::new(ConstRem::<u64, u8>::new(
-                Arc::clone(&field_ref),
-                3,
-                "number % 3".to_string(),
-            )),
-            Arc::new(ConstRem::<u64, u8>::new(
-                Arc::clone(&field_ref),
-                4,
-                "number % 4".to_string(),
-            )),
-            Arc::new(ConstRem::<u64, u8>::new(
-                Arc::clone(&field_ref),
-                5,
-                "number % 5".to_string(),
-            )),
+            Arc::new(
+                Arith::try_new(
+                    Arc::clone(&field_ref),
+                    ArithOperator::Rem,
+                    Arc::new(unsafe {
+                        Constant::try_new(ArrayImpl::UInt8(UInt8Array::from_values_iter([3])))
+                            .unwrap()
+                    }),
+                )
+                .unwrap(),
+            ),
+            Arc::new(
+                Arith::try_new(
+                    Arc::clone(&field_ref),
+                    ArithOperator::Rem,
+                    Arc::new(unsafe {
+                        Constant::try_new(ArrayImpl::UInt8(UInt8Array::from_values_iter([4])))
+                            .unwrap()
+                    }),
+                )
+                .unwrap(),
+            ),
+            Arc::new(
+                Arith::try_new(
+                    Arc::clone(&field_ref),
+                    ArithOperator::Rem,
+                    Arc::new(unsafe {
+                        Constant::try_new(ArrayImpl::UInt8(UInt8Array::from_values_iter([5])))
+                            .unwrap()
+                    }),
+                )
+                .unwrap(),
+            ),
         ],
     ));
 

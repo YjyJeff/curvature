@@ -15,6 +15,9 @@ use crate::private::Sealed;
 use crate::utils::roundup_to_multiple_of_pow_of_two_base;
 
 /// Size of the cache line in bytes
+///
+/// FIXME: From the simd view, 128 is better. If we change it to 128, manually simd
+/// should also changed
 pub const CACHE_LINE_SIZE: usize = 64;
 
 /// Trait for types that can be allocated on the [`AlignedVec`]. This trait is

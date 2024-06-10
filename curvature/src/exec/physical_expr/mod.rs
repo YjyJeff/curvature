@@ -94,12 +94,15 @@ pub trait PhysicalExpr: Stringify + Send + Sync {
     /// - If the expression is a boolean expression, it will not write the result to the output.
     /// It should update the `selection` argument instead !!!!!
     ///
-    /// - Except the boolean expression, after executing the expressions,
-    /// the invariance: `output.len() == leaf_input.len()` should always hold.
-    /// If the expression is a boolean expression, the selection should hold the invariance:
-    /// `selection.is_empty() || selection.len() == leaf_input.len()`
-    ///
     /// - Implementation should handle the `ConstantArray` and `FlatArray` differently
+    ///
+    /// # Invariance
+    ///
+    /// For boolean expression, the selection should hold the invariance:
+    /// `selection.is_empty() || selection.len() = leaf_input.len()`
+    ///
+    /// For other expressions, the output should hold the invariance:
+    /// `output.len() = leaf_input.len() || output.len() = 1`
     fn execute(
         &self,
         leaf_input: &DataBlock,
@@ -142,8 +145,8 @@ impl<'a> AsRef<dyn PhysicalExpr + 'a> for dyn PhysicalExpr + 'a {
 }
 
 /// Execute the single child of the expression. Called by the expression that only has
-/// single child
-fn execute_single_child<T: PhysicalExpr>(
+/// single child(unary expression)
+fn execute_unary_child<T: PhysicalExpr>(
     expr: &T,
     leaf_input: &DataBlock,
     selection: &mut Bitmap,
@@ -156,6 +159,29 @@ fn execute_single_child<T: PhysicalExpr>(
     guard
         .mutate(|array: &mut ArrayImpl| {
             expr.children()[0].execute(leaf_input, selection, &mut exec_ctx.children[0], array)
+        })
+        .map_err(|err| handle_mutate_array_error(expr, err))
+}
+
+/// Execute the two children of the expression. Called by the expression that only has
+/// two children(binary expression)
+fn execute_binary_children<T: PhysicalExpr>(
+    expr: &T,
+    leaf_input: &DataBlock,
+    selection: &mut Bitmap,
+    exec_ctx: &mut ExprExecCtx,
+) -> Result<()> {
+    let guard = exec_ctx.intermediate_block.mutate_arrays(leaf_input.len());
+    guard
+        .mutate(|arrays| {
+            (0..2).try_for_each(|index| {
+                expr.children()[index].execute(
+                    leaf_input,
+                    selection,
+                    &mut exec_ctx.children[index],
+                    &mut arrays[index],
+                )
+            })
         })
         .map_err(|err| handle_mutate_array_error(expr, err))
 }

@@ -66,12 +66,9 @@ impl Stringify for Constant {
     }
 
     fn display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "Constant(logical_type = {:?}, value = {:?})",
-            self.constant.logical_type(),
-            unsafe { self.constant.get_value_unchecked(0) }
-        )
+        write!(f, "Constant({:?})", unsafe {
+            self.constant.get_value_unchecked(0)
+        })
     }
 
     fn compact_display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

@@ -13,7 +13,7 @@ use data_block::types::{LogicalType, PhysicalType};
 
 use super::executor::ExprExecCtx;
 use super::utils::CompactExprDisplayWrapper;
-use super::{execute_single_child, ExprResult, PhysicalExpr, Stringify};
+use super::{execute_unary_child, ExprResult, PhysicalExpr, Stringify};
 
 /// Error returned by creating the [`RegexMatch`]
 #[derive(Debug, Snafu)]
@@ -129,7 +129,7 @@ impl<const NEGATED: bool, const CASE_INSENSITIVE: bool> PhysicalExpr
         _output: &mut ArrayImpl,
     ) -> ExprResult<()> {
         // Execute input
-        execute_single_child(self, leaf_input, selection, exec_ctx)?;
+        execute_unary_child(self, leaf_input, selection, exec_ctx)?;
 
         // Execute self
         let array = unsafe { exec_ctx.intermediate_block.get_array_unchecked(0) };

@@ -159,6 +159,10 @@ impl Array for ListArray {
         self.validity.reference(&other.validity);
     }
 
+    unsafe fn set_all_invalid(&mut self, _len: usize) {
+        todo!()
+    }
+
     unsafe fn replace_with_trusted_len_values_iterator<I>(
         &mut self,
         _len: usize,
