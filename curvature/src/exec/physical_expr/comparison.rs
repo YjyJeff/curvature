@@ -324,47 +324,47 @@ fn compare_array_with_scalar(
     }
 
     macro_rules! cmp {
-        ($primitive_cmp_func:path, $string_cmp_func:path, $boolean_cmp_func:path, $default_cmp_func:path) => {
+        ($intrinsic_cmp_func:path, $primitive_cmp_func:path, $string_cmp_func:path, $boolean_cmp_func:path, $default_cmp_func:path) => {
             match (array, constant_array) {
                 (ArrayImpl::Int8(array), ArrayImpl::Int8(constant_array)) => {
                     let scalar = constant_array.get_value_unchecked(0);
-                    $primitive_cmp_func(selection, array, scalar, temp);
+                    $intrinsic_cmp_func(selection, array, scalar, temp);
                 }
                 (ArrayImpl::UInt8(array), ArrayImpl::UInt8(constant_array)) => {
                     let scalar = constant_array.get_value_unchecked(0);
-                    $primitive_cmp_func(selection, array, scalar, temp);
+                    $intrinsic_cmp_func(selection, array, scalar, temp);
                 }
                 (ArrayImpl::Int16(array), ArrayImpl::Int16(constant_array)) => {
                     let scalar = constant_array.get_value_unchecked(0);
-                    $primitive_cmp_func(selection, array, scalar, temp);
+                    $intrinsic_cmp_func(selection, array, scalar, temp);
                 }
                 (ArrayImpl::UInt16(array), ArrayImpl::UInt16(constant_array)) => {
                     let scalar = constant_array.get_value_unchecked(0);
-                    $primitive_cmp_func(selection, array, scalar, temp);
+                    $intrinsic_cmp_func(selection, array, scalar, temp);
                 }
                 (ArrayImpl::Int32(array), ArrayImpl::Int32(constant_array)) => {
                     let scalar = constant_array.get_value_unchecked(0);
-                    $primitive_cmp_func(selection, array, scalar, temp);
+                    $intrinsic_cmp_func(selection, array, scalar, temp);
                 }
                 (ArrayImpl::UInt32(array), ArrayImpl::UInt32(constant_array)) => {
                     let scalar = constant_array.get_value_unchecked(0);
-                    $primitive_cmp_func(selection, array, scalar, temp);
+                    $intrinsic_cmp_func(selection, array, scalar, temp);
                 }
                 (ArrayImpl::Int64(array), ArrayImpl::Int64(constant_array)) => {
                     let scalar = constant_array.get_value_unchecked(0);
-                    $primitive_cmp_func(selection, array, scalar, temp);
+                    $intrinsic_cmp_func(selection, array, scalar, temp);
                 }
                 (ArrayImpl::UInt64(array), ArrayImpl::UInt64(constant_array)) => {
                     let scalar = constant_array.get_value_unchecked(0);
-                    $primitive_cmp_func(selection, array, scalar, temp);
+                    $intrinsic_cmp_func(selection, array, scalar, temp);
                 }
                 (ArrayImpl::Float32(array), ArrayImpl::Float32(constant_array)) => {
                     let scalar = constant_array.get_value_unchecked(0);
-                    $primitive_cmp_func(selection, array, scalar, temp);
+                    $intrinsic_cmp_func(selection, array, scalar, temp);
                 }
                 (ArrayImpl::Float64(array), ArrayImpl::Float64(constant_array)) => {
                     let scalar = constant_array.get_value_unchecked(0);
-                    $primitive_cmp_func(selection, array, scalar, temp);
+                    $intrinsic_cmp_func(selection, array, scalar, temp);
                 }
                 (ArrayImpl::Int128(array), ArrayImpl::Int128(constant_array)) => {
                     let scalar = constant_array.get_value_unchecked(0);
@@ -401,36 +401,42 @@ fn compare_array_with_scalar(
     unsafe {
         match op {
             CmpOperator::Equal => cmp!(
+                data_block::compute::comparison::primitive::intrinsic::eq_scalar,
                 data_block::compute::comparison::primitive::eq_scalar,
                 data_block::compute::comparison::string::eq_scalar,
                 data_block::compute::comparison::boolean::eq_scalar,
                 data_block::compute::comparison::eq_scalar
             ),
             CmpOperator::NotEqual => cmp!(
+                data_block::compute::comparison::primitive::intrinsic::ne_scalar,
                 data_block::compute::comparison::primitive::ne_scalar,
                 data_block::compute::comparison::string::ne_scalar,
                 data_block::compute::comparison::boolean::ne_scalar,
                 data_block::compute::comparison::ne_scalar
             ),
             CmpOperator::GreaterThan => cmp!(
+                data_block::compute::comparison::primitive::intrinsic::gt_scalar,
                 data_block::compute::comparison::primitive::gt_scalar,
                 data_block::compute::comparison::string::gt_scalar,
                 data_block::compute::comparison::boolean::gt_scalar,
                 data_block::compute::comparison::gt_scalar
             ),
             CmpOperator::GreaterThanOrEqualTo => cmp!(
+                data_block::compute::comparison::primitive::intrinsic::ge_scalar,
                 data_block::compute::comparison::primitive::ge_scalar,
                 data_block::compute::comparison::string::ge_scalar,
                 data_block::compute::comparison::boolean::ge_scalar,
                 data_block::compute::comparison::ge_scalar
             ),
             CmpOperator::LessThan => cmp!(
+                data_block::compute::comparison::primitive::intrinsic::lt_scalar,
                 data_block::compute::comparison::primitive::lt_scalar,
                 data_block::compute::comparison::string::lt_scalar,
                 data_block::compute::comparison::boolean::lt_scalar,
                 data_block::compute::comparison::lt_scalar
             ),
             CmpOperator::LessThanOrEqualTo => cmp!(
+                data_block::compute::comparison::primitive::intrinsic::le_scalar,
                 data_block::compute::comparison::primitive::le_scalar,
                 data_block::compute::comparison::string::le_scalar,
                 data_block::compute::comparison::boolean::le_scalar,

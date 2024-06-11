@@ -28,6 +28,8 @@ default = []
 # type that is 512 bits no matter what target_feature is used. LLVM will choose the 
 # best instruction for you based on the target feature
 portable_simd = []
+avx512 = []
+
 
 [lints]
 workspace = true

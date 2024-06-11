@@ -52,6 +52,7 @@ unsafe fn cmp_scalar<T: PartialOrdExt>(
     PrimitiveArray<T>: Array<Element = T>,
 {
     debug_assert_selection_is_valid!(selection, array);
+    // Benchmark shows and_inplace costs lots of time
 
     and_inplace(selection, array.validity());
     if selection.ones_ratio() < partial_arith_threshold {
@@ -59,6 +60,7 @@ unsafe fn cmp_scalar<T: PartialOrdExt>(
             .mutate()
             .mutate_ones(|index| cmp_scalars_func(array.get_value_unchecked(index), scalar))
     } else {
+        // Benchmark shows clear_and_resize may cost lots of time
         cmp_func(
             &array.data,
             scalar,
@@ -118,7 +120,10 @@ macro_rules! impl_partial_ord_ext {
                     }
                 }
 
-                cmp_scalar_default(selection, array, scalar, dst, $ty::PARTIAL_CMP_THRESHOLD, $cmp_func);
+                #[cfg_attr(any(target_arch = "x86", target_arch = "x86_64"), allow(unreachable_code))]
+                {
+                    cmp_scalar_default(selection, array, scalar, dst, $ty::PARTIAL_CMP_THRESHOLD, $cmp_func);
+                }
             }
         }
     }

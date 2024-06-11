@@ -59,7 +59,8 @@ for_all_primitive_types!(impl_primitive_type);
 /// [`PrimitiveArray`] that stores fixed byte-width data, such as `i32` or `f64`
 pub struct PrimitiveArray<T: PrimitiveType> {
     logical_type: LogicalType,
-    pub(crate) data: SwarPtr<AlignedVec<T>>,
+    /// wtf
+    pub data: SwarPtr<AlignedVec<T>>,
     pub(crate) validity: SwarPtr<Bitmap>,
 }
 

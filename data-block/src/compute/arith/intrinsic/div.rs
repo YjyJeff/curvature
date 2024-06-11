@@ -182,6 +182,7 @@ pub unsafe fn div_scalar<T>(
     {
         // Note that this `unsafe` block is safe because we're testing
         // that the `avx512` feature is indeed available on our CPU.
+        #[cfg(feature = "avx512")]
         if std::arch::is_x86_feature_detected!("avx512f") {
             return div_scalar_avx512(selection, array, scalar, dst);
         }
@@ -213,6 +214,7 @@ pub unsafe fn div_scalar<T>(
     )
 }
 
+#[cfg(feature = "avx512")]
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[target_feature(enable = "avx512f")]
 #[inline]
@@ -309,6 +311,7 @@ pub unsafe fn div<T>(
     {
         // Note that this `unsafe` block is safe because we're testing
         // that the `avx512` feature is indeed available on our CPU.
+        #[cfg(feature = "avx512")]
         if std::arch::is_x86_feature_detected!("avx512f") {
             return div_avx512(selection, lhs, rhs, dst);
         }
@@ -339,6 +342,7 @@ pub unsafe fn div<T>(
     )
 }
 
+#[cfg(feature = "avx512")]
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[target_feature(enable = "avx512f")]
 #[inline]

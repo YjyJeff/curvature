@@ -7,35 +7,35 @@ use crate::bitmap::Bitmap;
 use crate::compute::logical::and_inplace;
 
 mod private {
-    use crate::types::IntrinsicType;
+    use crate::array::PrimitiveType;
 
     #[inline]
-    pub(super) fn eq<T: IntrinsicType + PartialEq>(lhs: T, rhs: T) -> bool {
+    pub(super) fn eq<T: PrimitiveType + PartialEq>(lhs: T, rhs: T) -> bool {
         lhs == rhs
     }
 
     #[inline]
-    pub(super) fn ne<T: IntrinsicType + PartialEq>(lhs: T, rhs: T) -> bool {
+    pub(super) fn ne<T: PrimitiveType + PartialEq>(lhs: T, rhs: T) -> bool {
         lhs != rhs
     }
 
     #[inline]
-    pub(super) fn gt<T: IntrinsicType + PartialOrd>(lhs: T, rhs: T) -> bool {
+    pub(super) fn gt<T: PrimitiveType + PartialOrd>(lhs: T, rhs: T) -> bool {
         lhs > rhs
     }
 
     #[inline]
-    pub(super) fn ge<T: IntrinsicType + PartialOrd>(lhs: T, rhs: T) -> bool {
+    pub(super) fn ge<T: PrimitiveType + PartialOrd>(lhs: T, rhs: T) -> bool {
         lhs >= rhs
     }
 
     #[inline]
-    pub(super) fn lt<T: IntrinsicType + PartialOrd>(lhs: T, rhs: T) -> bool {
+    pub(super) fn lt<T: PrimitiveType + PartialOrd>(lhs: T, rhs: T) -> bool {
         lhs < rhs
     }
 
     #[inline]
-    pub(super) fn le<T: IntrinsicType + PartialOrd>(lhs: T, rhs: T) -> bool {
+    pub(super) fn le<T: PrimitiveType + PartialOrd>(lhs: T, rhs: T) -> bool {
         lhs <= rhs
     }
 }
@@ -57,46 +57,10 @@ macro_rules! cmp_assert {
     };
 }
 
-/// TODO: Support compare `Int128` and `Decimal`
-#[cfg(not(feature = "portable_simd"))]
-mod stable;
-#[cfg(not(feature = "portable_simd"))]
-pub use stable::*;
-
-#[cfg(feature = "portable_simd")]
-mod portable_simd;
-#[cfg(feature = "portable_simd")]
-pub use portable_simd::*;
-
 pub mod intrinsic;
 
-use crate::aligned_vec::AlignedVec;
 use crate::array::primitive::PrimitiveType;
-use crate::bitmap::BitStore;
-
-macro_rules! impl_cmp_scalar_default {
-    ($func_name:ident, $op:tt) => {
-        #[inline]
-        unsafe fn $func_name<T: PrimitiveType + PartialOrd>(
-            lhs: &AlignedVec<T>,
-            rhs: T,
-            dst: *mut BitStore,
-        ) {
-            crate::bitmap::reset_bitmap_raw(
-                dst,
-                lhs.len(),
-                lhs.as_slice().iter().map(|&lhs| lhs $op rhs),
-            );
-        }
-    };
-}
-
-impl_cmp_scalar_default!(eq_scalar_default_, ==);
-impl_cmp_scalar_default!(ne_scalar_default_, !=);
-impl_cmp_scalar_default!(gt_scalar_default_, >);
-impl_cmp_scalar_default!(ge_scalar_default_, >=);
-impl_cmp_scalar_default!(lt_scalar_default_, <);
-impl_cmp_scalar_default!(le_scalar_default_, <=);
+use crate::element::interval::DayTime;
 
 /// Default implementation
 unsafe fn cmp_scalar_default<T>(
@@ -129,23 +93,214 @@ unsafe fn cmp_scalar_default<T>(
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::bitmap::Bitmap;
+/// Primitive type but not intrinsic type
+pub trait NonIntrinsicPrimitiveType: PrimitiveType + PartialOrd {
+    /// If the selectivity is smaller than this threshold, partial computation is used
+    const PARTIAL_CMP_THRESHOLD: f64;
+}
 
-    #[test]
-    fn test_order_scalar_default() {
-        let lhs = AlignedVec::<i64>::from_slice(&[
-            7, 9, 100, 234, 45, 100, -10, -99, -123, -56, 100, 345, -34554,
-        ]);
+impl NonIntrinsicPrimitiveType for i128 {
+    const PARTIAL_CMP_THRESHOLD: f64 = 0.0;
+}
 
-        let rhs = 100;
-        cmp_assert!(&lhs, rhs, eq_scalar_default_, &[0x0424]);
-        cmp_assert!(&lhs, rhs, ne_scalar_default_, &[!0x0424]);
-        cmp_assert!(&lhs, rhs, gt_scalar_default_, &[0x0808]);
-        cmp_assert!(&lhs, rhs, ge_scalar_default_, &[0x0c2c]);
-        cmp_assert!(&lhs, rhs, lt_scalar_default_, &[!0x0c2c]);
-        cmp_assert!(&lhs, rhs, le_scalar_default_, &[!0x0808]);
-    }
+impl NonIntrinsicPrimitiveType for DayTime {
+    const PARTIAL_CMP_THRESHOLD: f64 = 0.0;
+}
+
+/// Perform `array == scalar` between `PrimitiveArray<T>` and `T`
+///
+/// # Safety
+///
+/// - If the `selection` is not empty, `array` and `selection` should have same length.
+/// Otherwise, undefined behavior happens
+///
+/// - `selection` should not be referenced by any array
+///
+/// - `array`'s data and validity should not reference `dst`'s data and validity. In the computation
+/// graph, `lhs` must be the descendant of `dst`
+///
+/// - No other arrays that reference the `dst`'s data and validity are accessed! In the
+/// computation graph, it will never happens
+pub unsafe fn eq_scalar<T>(
+    selection: &mut Bitmap,
+    array: &PrimitiveArray<T>,
+    scalar: T,
+    dst: &mut BooleanArray,
+) where
+    PrimitiveArray<T>: Array<Element = T>,
+    T: NonIntrinsicPrimitiveType,
+{
+    cmp_scalar_default(
+        selection,
+        array,
+        scalar,
+        dst,
+        T::PARTIAL_CMP_THRESHOLD,
+        private::eq,
+    )
+}
+
+/// Perform `array != scalar` between `PrimitiveArray<T>` and `T`
+///
+/// # Safety
+///
+/// - If the `selection` is not empty, `array` and `selection` should have same length.
+/// Otherwise, undefined behavior happens
+///
+/// - `selection` should not be referenced by any array
+///
+/// - `array`'s data and validity should not reference `dst`'s data and validity. In the computation
+/// graph, `lhs` must be the descendant of `dst`
+///
+/// - No other arrays that reference the `dst`'s data and validity are accessed! In the
+/// computation graph, it will never happens
+pub unsafe fn ne_scalar<T>(
+    selection: &mut Bitmap,
+    array: &PrimitiveArray<T>,
+    scalar: T,
+    dst: &mut BooleanArray,
+) where
+    PrimitiveArray<T>: Array<Element = T>,
+    T: NonIntrinsicPrimitiveType,
+{
+    cmp_scalar_default(
+        selection,
+        array,
+        scalar,
+        dst,
+        T::PARTIAL_CMP_THRESHOLD,
+        private::ne,
+    )
+}
+
+/// Perform `array > scalar` between `PrimitiveArray<T>` and `T`
+///
+/// # Safety
+///
+/// - If the `selection` is not empty, `array` and `selection` should have same length.
+/// Otherwise, undefined behavior happens
+///
+/// - `selection` should not be referenced by any array
+///
+/// - `array`'s data and validity should not reference `dst`'s data and validity. In the computation
+/// graph, `lhs` must be the descendant of `dst`
+///
+/// - No other arrays that reference the `dst`'s data and validity are accessed! In the
+/// computation graph, it will never happens
+pub unsafe fn gt_scalar<T>(
+    selection: &mut Bitmap,
+    array: &PrimitiveArray<T>,
+    scalar: T,
+    dst: &mut BooleanArray,
+) where
+    PrimitiveArray<T>: Array<Element = T>,
+    T: NonIntrinsicPrimitiveType,
+{
+    cmp_scalar_default(
+        selection,
+        array,
+        scalar,
+        dst,
+        T::PARTIAL_CMP_THRESHOLD,
+        private::gt,
+    )
+}
+
+/// Perform `array >= scalar` between `PrimitiveArray<T>` and `T`
+///
+/// # Safety
+///
+/// - If the `selection` is not empty, `array` and `selection` should have same length.
+/// Otherwise, undefined behavior happens
+///
+/// - `selection` should not be referenced by any array
+///
+/// - `array`'s data and validity should not reference `dst`'s data and validity. In the computation
+/// graph, `lhs` must be the descendant of `dst`
+///
+/// - No other arrays that reference the `dst`'s data and validity are accessed! In the
+/// computation graph, it will never happens
+pub unsafe fn ge_scalar<T>(
+    selection: &mut Bitmap,
+    array: &PrimitiveArray<T>,
+    scalar: T,
+    dst: &mut BooleanArray,
+) where
+    PrimitiveArray<T>: Array<Element = T>,
+    T: NonIntrinsicPrimitiveType,
+{
+    cmp_scalar_default(
+        selection,
+        array,
+        scalar,
+        dst,
+        T::PARTIAL_CMP_THRESHOLD,
+        private::ge,
+    )
+}
+
+/// Perform `array < scalar` between `PrimitiveArray<T>` and `T`
+///
+/// # Safety
+///
+/// - If the `selection` is not empty, `array` and `selection` should have same length.
+/// Otherwise, undefined behavior happens
+///
+/// - `selection` should not be referenced by any array
+///
+/// - `array`'s data and validity should not reference `dst`'s data and validity. In the computation
+/// graph, `lhs` must be the descendant of `dst`
+///
+/// - No other arrays that reference the `dst`'s data and validity are accessed! In the
+/// computation graph, it will never happens
+pub unsafe fn lt_scalar<T>(
+    selection: &mut Bitmap,
+    array: &PrimitiveArray<T>,
+    scalar: T,
+    dst: &mut BooleanArray,
+) where
+    PrimitiveArray<T>: Array<Element = T>,
+    T: NonIntrinsicPrimitiveType,
+{
+    cmp_scalar_default(
+        selection,
+        array,
+        scalar,
+        dst,
+        T::PARTIAL_CMP_THRESHOLD,
+        private::lt,
+    )
+}
+
+/// Perform `array <= scalar` between `PrimitiveArray<T>` and `T`
+///
+/// # Safety
+///
+/// - If the `selection` is not empty, `array` and `selection` should have same length.
+/// Otherwise, undefined behavior happens
+///
+/// - `selection` should not be referenced by any array
+///
+/// - `array`'s data and validity should not reference `dst`'s data and validity. In the computation
+/// graph, `lhs` must be the descendant of `dst`
+///
+/// - No other arrays that reference the `dst`'s data and validity are accessed! In the
+/// computation graph, it will never happens
+pub unsafe fn le_scalar<T>(
+    selection: &mut Bitmap,
+    array: &PrimitiveArray<T>,
+    scalar: T,
+    dst: &mut BooleanArray,
+) where
+    PrimitiveArray<T>: Array<Element = T>,
+    T: NonIntrinsicPrimitiveType,
+{
+    cmp_scalar_default(
+        selection,
+        array,
+        scalar,
+        dst,
+        T::PARTIAL_CMP_THRESHOLD,
+        private::le,
+    )
 }

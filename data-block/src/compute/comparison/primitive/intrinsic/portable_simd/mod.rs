@@ -88,7 +88,6 @@ unsafe fn cmp_scalar<T, F>(
                     .as_mut_ptr() as _,
                 roundup_loops(array.len(), <T::SimdType as IntrinsicSimdType>::LANES),
             );
-
         array
             .data
             .as_intrinsic_simd()
@@ -97,6 +96,8 @@ unsafe fn cmp_scalar<T, F>(
             .for_each(|(&element_simd, dst)| {
                 *dst = cmp_func(element_simd, scalar_simd).bitmask().as_();
             });
+
+        and_inplace(selection, dst.data());
     }
 }
 
@@ -128,6 +129,7 @@ macro_rules! impl_simd_ord_scalar {
                 )
             }
 
+            #[cfg(feature = "avx512")]
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             #[target_feature(enable = "avx512f")]
             #[inline]
@@ -246,6 +248,7 @@ macro_rules! impl_partial_ord_ext {
             ){
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
                 {
+                    #[cfg(feature = "avx512")]
                     if std::arch::is_x86_feature_detected!("avx512f") {
                         return [<$cmp_func _scalar_avx512>](selection, array, scalar, dst);
                     }
@@ -264,7 +267,10 @@ macro_rules! impl_partial_ord_ext {
                     }
                 }
 
-                cmp_scalar_default(selection, array, scalar, dst, Self::PARTIAL_CMP_THRESHOLD, $cmp_func);
+                #[cfg_attr(any(target_arch = "x86", target_arch = "x86_64"), allow(unreachable_code))]
+                {
+                    cmp_scalar_default(selection, array, scalar, dst, Self::PARTIAL_CMP_THRESHOLD, $cmp_func);
+                }
             }
         }
     };

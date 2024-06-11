@@ -58,18 +58,18 @@ x86_target_use!(
 macro_rules! cmp_int_scalar_avx2 {
     // Signed integer match this pattern
     ($int_ty:ty, $suffix:ident) => {
-        cmp_int_scalar!("avx2", _mm256, $int_ty, $suffix);
+        cmp_int_scalar!("avx2", "avx2", _mm256, $int_ty, $suffix);
     };
     // Unsigned integer match this pattern
     ($uint_ty:ty, $int_ty:ty, $suffix:ident) => {
-        cmp_int_scalar!("avx2", _mm256, $uint_ty, $int_ty, $suffix);
+        cmp_int_scalar!("avx2", "avx2", _mm256, $uint_ty, $int_ty, $suffix);
     };
 }
 
 /// Compare float scalar with avx2
 macro_rules! cmp_float_scalar_avx2 {
     ($ty:ty, $suffix:ident) => {
-        cmp_float_scalar!("avx2", _mm256, $ty, $suffix);
+        cmp_float_scalar!("avx2", "avx2", _mm256, $ty, $suffix);
     };
 }
 
@@ -769,8 +769,8 @@ mod tests {
         ]);
 
         let rhs = -1;
-        cmp_assert!(&lhs, rhs, eq_scalar_i8_avx2_, &[0x0000108081]);
-        cmp_assert!(&lhs, rhs, ne_scalar_i8_avx2_, &[!0x0000108081]);
+        cmp_assert!(&lhs, rhs, eq_scalar_i8_avx2, &[0x0000108081]);
+        cmp_assert!(&lhs, rhs, ne_scalar_i8_avx2, &[!0x0000108081]);
     }
 
     #[test]
@@ -781,10 +781,10 @@ mod tests {
         ]);
 
         let rhs = -1;
-        cmp_assert!(&lhs, rhs, gt_scalar_i8_avx2_, &[0x04d1cb2c78]);
-        cmp_assert!(&lhs, rhs, ge_scalar_i8_avx2_, &[0x04d1dbacf9]);
-        cmp_assert!(&lhs, rhs, lt_scalar_i8_avx2_, &[!0x04d1dbacf9]);
-        cmp_assert!(&lhs, rhs, le_scalar_i8_avx2_, &[!0x04d1cb2c78]);
+        cmp_assert!(&lhs, rhs, gt_scalar_i8_avx2, &[0x04d1cb2c78]);
+        cmp_assert!(&lhs, rhs, ge_scalar_i8_avx2, &[0x04d1dbacf9]);
+        cmp_assert!(&lhs, rhs, lt_scalar_i8_avx2, &[!0x04d1dbacf9]);
+        cmp_assert!(&lhs, rhs, le_scalar_i8_avx2, &[!0x04d1cb2c78]);
     }
 
     #[test]
@@ -794,8 +794,8 @@ mod tests {
         ]);
 
         let rhs = 233;
-        cmp_assert!(&lhs, rhs, eq_scalar_u8_avx2_, &[0x0084]);
-        cmp_assert!(&lhs, rhs, ne_scalar_u8_avx2_, &[!0x0084]);
+        cmp_assert!(&lhs, rhs, eq_scalar_u8_avx2, &[0x0084]);
+        cmp_assert!(&lhs, rhs, ne_scalar_u8_avx2, &[!0x0084]);
     }
 
     #[test]
@@ -805,10 +805,10 @@ mod tests {
         ]);
 
         let rhs = 200;
-        cmp_assert!(&lhs, rhs, gt_scalar_u8_avx2_, &[0x08c4]);
-        cmp_assert!(&lhs, rhs, ge_scalar_u8_avx2_, &[0x08d4]);
-        cmp_assert!(&lhs, rhs, lt_scalar_u8_avx2_, &[!0x08d4]);
-        cmp_assert!(&lhs, rhs, le_scalar_u8_avx2_, &[!0x08c4]);
+        cmp_assert!(&lhs, rhs, gt_scalar_u8_avx2, &[0x08c4]);
+        cmp_assert!(&lhs, rhs, ge_scalar_u8_avx2, &[0x08d4]);
+        cmp_assert!(&lhs, rhs, lt_scalar_u8_avx2, &[!0x08d4]);
+        cmp_assert!(&lhs, rhs, le_scalar_u8_avx2, &[!0x08c4]);
     }
 
     #[test]
@@ -820,8 +820,8 @@ mod tests {
         ]);
 
         let rhs = -4;
-        cmp_assert!(&lhs, rhs, eq_scalar_i16_avx2_, &[0x4080006100]);
-        cmp_assert!(&lhs, rhs, ne_scalar_i16_avx2_, &[!0x4080006100]);
+        cmp_assert!(&lhs, rhs, eq_scalar_i16_avx2, &[0x4080006100]);
+        cmp_assert!(&lhs, rhs, ne_scalar_i16_avx2, &[!0x4080006100]);
     }
 
     #[test]
@@ -834,10 +834,10 @@ mod tests {
 
         let rhs = -4;
 
-        cmp_assert!(&lhs, rhs, gt_scalar_i16_avx2_, &[0x3730de1e62]);
-        cmp_assert!(&lhs, rhs, ge_scalar_i16_avx2_, &[0x77b0de7f62]);
-        cmp_assert!(&lhs, rhs, lt_scalar_i16_avx2_, &[!0x77b0de7f62]);
-        cmp_assert!(&lhs, rhs, le_scalar_i16_avx2_, &[!0x3730de1e62]);
+        cmp_assert!(&lhs, rhs, gt_scalar_i16_avx2, &[0x3730de1e62]);
+        cmp_assert!(&lhs, rhs, ge_scalar_i16_avx2, &[0x77b0de7f62]);
+        cmp_assert!(&lhs, rhs, lt_scalar_i16_avx2, &[!0x77b0de7f62]);
+        cmp_assert!(&lhs, rhs, le_scalar_i16_avx2, &[!0x3730de1e62]);
     }
 
     #[test]
@@ -847,8 +847,8 @@ mod tests {
         ]);
 
         let rhs = 19999;
-        cmp_assert!(&lhs, rhs, eq_scalar_u16_avx2_, &[0x084]);
-        cmp_assert!(&lhs, rhs, ne_scalar_u16_avx2_, &[!0x084]);
+        cmp_assert!(&lhs, rhs, eq_scalar_u16_avx2, &[0x084]);
+        cmp_assert!(&lhs, rhs, ne_scalar_u16_avx2, &[!0x084]);
     }
 
     #[test]
@@ -859,10 +859,10 @@ mod tests {
 
         let rhs = 19999;
 
-        cmp_assert!(&lhs, rhs, gt_scalar_u16_avx2_, &[0x002]);
-        cmp_assert!(&lhs, rhs, ge_scalar_u16_avx2_, &[0x086]);
-        cmp_assert!(&lhs, rhs, lt_scalar_u16_avx2_, &[!0x086]);
-        cmp_assert!(&lhs, rhs, le_scalar_u16_avx2_, &[!0x002]);
+        cmp_assert!(&lhs, rhs, gt_scalar_u16_avx2, &[0x002]);
+        cmp_assert!(&lhs, rhs, ge_scalar_u16_avx2, &[0x086]);
+        cmp_assert!(&lhs, rhs, lt_scalar_u16_avx2, &[!0x086]);
+        cmp_assert!(&lhs, rhs, le_scalar_u16_avx2, &[!0x002]);
     }
 
     #[test]
@@ -873,8 +873,8 @@ mod tests {
         ]);
 
         let rhs = -255;
-        cmp_assert!(&lhs, rhs, eq_scalar_i32_avx2_, &[0x000102]);
-        cmp_assert!(&lhs, rhs, ne_scalar_i32_avx2_, &[!0x000102]);
+        cmp_assert!(&lhs, rhs, eq_scalar_i32_avx2, &[0x000102]);
+        cmp_assert!(&lhs, rhs, ne_scalar_i32_avx2, &[!0x000102]);
     }
 
     #[test]
@@ -886,10 +886,10 @@ mod tests {
 
         let rhs = -255;
 
-        cmp_assert!(&lhs, rhs, gt_scalar_i32_avx2_, &[0x037efc]);
-        cmp_assert!(&lhs, rhs, ge_scalar_i32_avx2_, &[0x037ffe]);
-        cmp_assert!(&lhs, rhs, lt_scalar_i32_avx2_, &[!0x037ffe]);
-        cmp_assert!(&lhs, rhs, le_scalar_i32_avx2_, &[!0x037efc]);
+        cmp_assert!(&lhs, rhs, gt_scalar_i32_avx2, &[0x037efc]);
+        cmp_assert!(&lhs, rhs, ge_scalar_i32_avx2, &[0x037ffe]);
+        cmp_assert!(&lhs, rhs, lt_scalar_i32_avx2, &[!0x037ffe]);
+        cmp_assert!(&lhs, rhs, le_scalar_i32_avx2, &[!0x037efc]);
     }
 
     #[test]
@@ -900,8 +900,8 @@ mod tests {
         ]);
 
         let rhs = 2147483648;
-        cmp_assert!(&lhs, rhs, eq_scalar_u32_avx2_, &[0x000003]);
-        cmp_assert!(&lhs, rhs, ne_scalar_u32_avx2_, &[!0x000003]);
+        cmp_assert!(&lhs, rhs, eq_scalar_u32_avx2, &[0x000003]);
+        cmp_assert!(&lhs, rhs, ne_scalar_u32_avx2, &[!0x000003]);
     }
 
     #[test]
@@ -913,10 +913,10 @@ mod tests {
 
         let rhs = 2147483648;
 
-        cmp_assert!(&lhs, rhs, gt_scalar_u32_avx2_, &[0x002380]);
-        cmp_assert!(&lhs, rhs, ge_scalar_u32_avx2_, &[0x002383]);
-        cmp_assert!(&lhs, rhs, lt_scalar_u32_avx2_, &[!0x002383]);
-        cmp_assert!(&lhs, rhs, le_scalar_u32_avx2_, &[!0x002380]);
+        cmp_assert!(&lhs, rhs, gt_scalar_u32_avx2, &[0x002380]);
+        cmp_assert!(&lhs, rhs, ge_scalar_u32_avx2, &[0x002383]);
+        cmp_assert!(&lhs, rhs, lt_scalar_u32_avx2, &[!0x002383]);
+        cmp_assert!(&lhs, rhs, le_scalar_u32_avx2, &[!0x002380]);
     }
 
     #[test]
@@ -927,8 +927,8 @@ mod tests {
 
         let rhs = -1.3;
 
-        cmp_assert!(&lhs, rhs, eq_scalar_f32_avx2_, &[0x1084]);
-        cmp_assert!(&lhs, rhs, ne_scalar_f32_avx2_, &[!0x1084]);
+        cmp_assert!(&lhs, rhs, eq_scalar_f32_avx2, &[0x1084]);
+        cmp_assert!(&lhs, rhs, ne_scalar_f32_avx2, &[!0x1084]);
     }
 
     #[test]
@@ -939,10 +939,10 @@ mod tests {
 
         let rhs = -1.3;
 
-        cmp_assert!(&lhs, rhs, gt_scalar_f32_avx2_, &[0x0e43]);
-        cmp_assert!(&lhs, rhs, ge_scalar_f32_avx2_, &[0x1ec7]);
-        cmp_assert!(&lhs, rhs, lt_scalar_f32_avx2_, &[!0x1ec7]);
-        cmp_assert!(&lhs, rhs, le_scalar_f32_avx2_, &[!0x0e43]);
+        cmp_assert!(&lhs, rhs, gt_scalar_f32_avx2, &[0x0e43]);
+        cmp_assert!(&lhs, rhs, ge_scalar_f32_avx2, &[0x1ec7]);
+        cmp_assert!(&lhs, rhs, lt_scalar_f32_avx2, &[!0x1ec7]);
+        cmp_assert!(&lhs, rhs, le_scalar_f32_avx2, &[!0x0e43]);
     }
 
     #[test]
@@ -953,8 +953,8 @@ mod tests {
 
         let rhs = -1.3;
 
-        cmp_assert!(&lhs, rhs, eq_scalar_f64_avx2_, &[0x1084]);
-        cmp_assert!(&lhs, rhs, ne_scalar_f64_avx2_, &[!0x1084]);
+        cmp_assert!(&lhs, rhs, eq_scalar_f64_avx2, &[0x1084]);
+        cmp_assert!(&lhs, rhs, ne_scalar_f64_avx2, &[!0x1084]);
 
         let lhs = AlignedVec::<f64>::from_slice(&[
             1.0, -1.0, -1.0, 1.0, 1.0, 1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0,
@@ -962,8 +962,8 @@ mod tests {
             -1.0,
         ]);
         let rhs = 1.0;
-        cmp_assert!(&lhs, rhs, eq_scalar_f64_avx2_, &[0x77918039]);
-        cmp_assert!(&lhs, rhs, ne_scalar_f64_avx2_, &[!0x77918039]);
+        cmp_assert!(&lhs, rhs, eq_scalar_f64_avx2, &[0x77918039]);
+        cmp_assert!(&lhs, rhs, ne_scalar_f64_avx2, &[!0x77918039]);
     }
 
     #[test]
@@ -974,10 +974,10 @@ mod tests {
 
         let rhs = -1.3;
 
-        cmp_assert!(&lhs, rhs, gt_scalar_f64_avx2_, &[0x0e43]);
-        cmp_assert!(&lhs, rhs, ge_scalar_f64_avx2_, &[0x1ec7]);
-        cmp_assert!(&lhs, rhs, lt_scalar_f64_avx2_, &[!0x1ec7]);
-        cmp_assert!(&lhs, rhs, le_scalar_f64_avx2_, &[!0x0e43]);
+        cmp_assert!(&lhs, rhs, gt_scalar_f64_avx2, &[0x0e43]);
+        cmp_assert!(&lhs, rhs, ge_scalar_f64_avx2, &[0x1ec7]);
+        cmp_assert!(&lhs, rhs, lt_scalar_f64_avx2, &[!0x1ec7]);
+        cmp_assert!(&lhs, rhs, le_scalar_f64_avx2, &[!0x0e43]);
 
         let lhs = AlignedVec::<f64>::from_slice(&[
             1.0, -1.0, -1.0, 1.0, 1.0, 1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0,
@@ -986,10 +986,10 @@ mod tests {
         ]);
 
         let rhs = 0.0;
-        cmp_assert!(&lhs, rhs, gt_scalar_f64_avx2_, &[0x77918039]);
-        cmp_assert!(&lhs, rhs, ge_scalar_f64_avx2_, &[0xf7918039]);
-        cmp_assert!(&lhs, rhs, lt_scalar_f64_avx2_, &[!0xf7918039]);
-        cmp_assert!(&lhs, rhs, le_scalar_f64_avx2_, &[!0x77918039]);
+        cmp_assert!(&lhs, rhs, gt_scalar_f64_avx2, &[0x77918039]);
+        cmp_assert!(&lhs, rhs, ge_scalar_f64_avx2, &[0xf7918039]);
+        cmp_assert!(&lhs, rhs, lt_scalar_f64_avx2, &[!0xf7918039]);
+        cmp_assert!(&lhs, rhs, le_scalar_f64_avx2, &[!0x77918039]);
     }
 
     #[test]
@@ -999,8 +999,8 @@ mod tests {
         ]);
 
         let rhs = 100;
-        cmp_assert!(&lhs, rhs, eq_scalar_i64_avx2_, &[0x0424]);
-        cmp_assert!(&lhs, rhs, ne_scalar_i64_avx2_, &[!0x0424]);
+        cmp_assert!(&lhs, rhs, eq_scalar_i64_avx2, &[0x0424]);
+        cmp_assert!(&lhs, rhs, ne_scalar_i64_avx2, &[!0x0424]);
 
         let lhs = AlignedVec::<i64>::from_slice(&[
             1, -1, -1, 1, 1, 1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 1, 1, -1, -1, -1, 1, -1, -1, 1,
@@ -1008,8 +1008,8 @@ mod tests {
         ]);
 
         let rhs = 1;
-        cmp_assert!(&lhs, rhs, eq_scalar_i64_avx2_, &[0x77918039]);
-        cmp_assert!(&lhs, rhs, ne_scalar_i64_avx2_, &[!0x77918039]);
+        cmp_assert!(&lhs, rhs, eq_scalar_i64_avx2, &[0x77918039]);
+        cmp_assert!(&lhs, rhs, ne_scalar_i64_avx2, &[!0x77918039]);
     }
 
     #[test]
@@ -1020,10 +1020,10 @@ mod tests {
 
         let rhs = 100;
 
-        cmp_assert!(&lhs, rhs, gt_scalar_i64_avx2_, &[0x0808]);
-        cmp_assert!(&lhs, rhs, ge_scalar_i64_avx2_, &[0x0c2c]);
-        cmp_assert!(&lhs, rhs, lt_scalar_i64_avx2_, &[!0x0c2c]);
-        cmp_assert!(&lhs, rhs, le_scalar_i64_avx2_, &[!0x0808]);
+        cmp_assert!(&lhs, rhs, gt_scalar_i64_avx2, &[0x0808]);
+        cmp_assert!(&lhs, rhs, ge_scalar_i64_avx2, &[0x0c2c]);
+        cmp_assert!(&lhs, rhs, lt_scalar_i64_avx2, &[!0x0c2c]);
+        cmp_assert!(&lhs, rhs, le_scalar_i64_avx2, &[!0x0808]);
 
         let lhs = AlignedVec::<i64>::from_slice(&[
             1, -1, -1, 1, 1, 1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 1, 1, -1, -1, -1, 1, -1, -1, 1,
@@ -1031,10 +1031,10 @@ mod tests {
         ]);
 
         let rhs = 0;
-        cmp_assert!(&lhs, rhs, gt_scalar_i64_avx2_, &[0x77918039]);
-        cmp_assert!(&lhs, rhs, ge_scalar_i64_avx2_, &[0xf7918039]);
-        cmp_assert!(&lhs, rhs, lt_scalar_i64_avx2_, &[!0xf7918039]);
-        cmp_assert!(&lhs, rhs, le_scalar_i64_avx2_, &[!0x77918039]);
+        cmp_assert!(&lhs, rhs, gt_scalar_i64_avx2, &[0x77918039]);
+        cmp_assert!(&lhs, rhs, ge_scalar_i64_avx2, &[0xf7918039]);
+        cmp_assert!(&lhs, rhs, lt_scalar_i64_avx2, &[!0xf7918039]);
+        cmp_assert!(&lhs, rhs, le_scalar_i64_avx2, &[!0x77918039]);
     }
 
     #[test]
@@ -1044,8 +1044,8 @@ mod tests {
         ]);
 
         let rhs = 2147483648;
-        cmp_assert!(&lhs, rhs, eq_scalar_u64_avx2_, &[0x11]);
-        cmp_assert!(&lhs, rhs, ne_scalar_u64_avx2_, &[!0x11]);
+        cmp_assert!(&lhs, rhs, eq_scalar_u64_avx2, &[0x11]);
+        cmp_assert!(&lhs, rhs, ne_scalar_u64_avx2, &[!0x11]);
     }
 
     #[test]
@@ -1056,9 +1056,9 @@ mod tests {
 
         let rhs = 2147483648;
 
-        cmp_assert!(&lhs, rhs, gt_scalar_u64_avx2_, &[0x0c]);
-        cmp_assert!(&lhs, rhs, ge_scalar_u64_avx2_, &[0x1d]);
-        cmp_assert!(&lhs, rhs, lt_scalar_u64_avx2_, &[!0x1d]);
-        cmp_assert!(&lhs, rhs, le_scalar_u64_avx2_, &[!0x0c]);
+        cmp_assert!(&lhs, rhs, gt_scalar_u64_avx2, &[0x0c]);
+        cmp_assert!(&lhs, rhs, ge_scalar_u64_avx2, &[0x1d]);
+        cmp_assert!(&lhs, rhs, lt_scalar_u64_avx2, &[!0x1d]);
+        cmp_assert!(&lhs, rhs, le_scalar_u64_avx2, &[!0x0c]);
     }
 }

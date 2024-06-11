@@ -1,4 +1,5 @@
 #![cfg_attr(feature = "portable_simd", feature(portable_simd))]
+#![cfg_attr(feature = "avx512", feature(avx512_target_feature))]
 
 //! # DataBlock
 //!

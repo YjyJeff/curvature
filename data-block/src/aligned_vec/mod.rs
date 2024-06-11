@@ -103,6 +103,12 @@ impl<T: AllocType> AlignedVec<T> {
         unsafe { Layout::from_size_align_unchecked(self.capacity_in_bytes, ALIGNMENT) }
     }
 
+    /// Returns the raw pointer to the aligned memory region
+    #[inline]
+    pub fn as_ptr(&self) -> *const T {
+        self.ptr.as_ptr() as _
+    }
+
     /// Get the number of elements in the [`AlignedVec`], also referred to its 'length'
     #[inline]
     pub fn len(&self) -> usize {

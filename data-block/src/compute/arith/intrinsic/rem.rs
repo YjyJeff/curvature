@@ -212,6 +212,7 @@ pub unsafe fn rem_scalar<T, U>(
     {
         // Note that this `unsafe` block is safe because we're testing
         // that the `avx512` feature is indeed available on our CPU.
+        #[cfg(feature = "avx512")]
         if std::arch::is_x86_feature_detected!("avx512f") {
             return rem_scalar_avx512(selection, array, scalar, dst);
         }
@@ -244,6 +245,7 @@ pub unsafe fn rem_scalar<T, U>(
     )
 }
 
+#[cfg(feature = "avx512")]
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[target_feature(enable = "avx512f")]
 #[inline]
@@ -360,6 +362,7 @@ pub unsafe fn rem<T, U>(
     {
         // Note that this `unsafe` block is safe because we're testing
         // that the `avx512` feature is indeed available on our CPU.
+        #[cfg(feature = "avx512")]
         if std::arch::is_x86_feature_detected!("avx512f") {
             return rem_avx512(selection, lhs, rhs, dst);
         }
@@ -390,10 +393,11 @@ pub unsafe fn rem<T, U>(
     )
 }
 
+#[cfg(feature = "avx512")]
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[target_feature(enable = "avx512f")]
 #[inline]
-unsafe fn rem_scalar_avx512<T, U>(
+unsafe fn rem_avx512<T, U>(
     selection: &Bitmap,
     lhs: &PrimitiveArray<T>,
     rhs: &PrimitiveArray<U>,
@@ -417,7 +421,7 @@ unsafe fn rem_scalar_avx512<T, U>(
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[target_feature(enable = "avx2")]
 #[inline]
-unsafe fn rem_scalar_avx2<T, U>(
+unsafe fn rem_avx2<T, U>(
     selection: &Bitmap,
     lhs: &PrimitiveArray<T>,
     rhs: &PrimitiveArray<U>,

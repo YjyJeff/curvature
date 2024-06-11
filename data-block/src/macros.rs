@@ -134,6 +134,7 @@ macro_rules! dynamic_func {
         $(where $($trait_bound:tt)+)?
     ) => {
         paste::paste! {
+            #[cfg(feature = "avx512")]
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             #[target_feature(enable = "avx512f")]
             unsafe fn [<$func_impl_macro _avx512>]$(<$($lt,)* $($g_ty),+>)?($($parameter:$parameter_ty,)*) $(where $($trait_bound)+)?{
@@ -163,6 +164,7 @@ macro_rules! dynamic_func {
                 {
                     // Note that this `unsafe` block is safe because we're testing
                     // that the `avx512` feature is indeed available on our CPU.
+                    #[cfg(feature = "avx512")]
                     if std::arch::is_x86_feature_detected!("avx512f") {
                         return unsafe { [<$func_impl_macro _avx512>]($($parameter,)*) };
                     }

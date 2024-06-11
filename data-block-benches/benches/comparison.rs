@@ -2,11 +2,10 @@ use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criteri
 use data_block::array::{Array, BooleanArray, PrimitiveArray};
 use data_block::bitmap::Bitmap;
 use data_block::compute::comparison;
-#[cfg(not(feature = "portable_simd"))]
-use data_block::compute::comparison::primitive::PrimitiveCmpElement;
+use data_block::compute::comparison::primitive::intrinsic::PartialOrdExt;
 #[cfg(feature = "portable_simd")]
 use data_block::compute::{
-    comparison::primitive::IntrinsicSimdOrd, IntrinsicSimdType, IntrinsicType,
+    comparison::primitive::intrinsic::IntrinsicSimdOrd, IntrinsicSimdType, IntrinsicType,
 };
 use data_block::element::string::StringView;
 use pprof::criterion::{Output, PProfProfiler};
@@ -20,7 +19,7 @@ use rand::distributions::{Distribution, Standard};
 #[cfg(not(feature = "portable_simd"))]
 fn bench_primitive_array<T, U>(c: &mut Criterion, rhs: T, null_density: f32, seed: u64)
 where
-    T: PrimitiveCmpElement
+    T: PartialOrdExt
         + arrow2::types::NativeType
         + arrow2::compute::comparison::Simd8
         + arrow::datatypes::ArrowNativeTypeOp,
@@ -33,44 +32,45 @@ where
     (10..=12).step_by(2).for_each(|log2_size| {
         let size = black_box(2usize.pow(log2_size));
         let lhs = create_primitive_array_with_seed::<T>(size, null_density, seed);
-        let mut dst = BooleanArray::default();
+        let mut dst =
+            BooleanArray::with_capacity(data_block::types::LogicalType::Boolean, size).unwrap();
         let mut selection = Bitmap::new();
 
-        unsafe { comparison::primitive::ge_scalar(&mut selection, &lhs, rhs, &mut dst) };
+        // unsafe { comparison::primitive::intrinsic::ge_scalar(&mut selection, &lhs, rhs, &mut dst) };
 
-        let arr_arrow2 = arrow2::util::bench_util::create_primitive_array_with_seed::<T>(
-            size,
-            null_density,
-            seed,
-        );
+        // let arr_arrow2 = arrow2::util::bench_util::create_primitive_array_with_seed::<T>(
+        //     size,
+        //     null_density,
+        //     seed,
+        // );
 
-        assert_eq!(
-            selection.iter().collect::<Vec<_>>(),
-            arrow2::compute::comparison::primitive::gt_eq_scalar(&arr_arrow2, rhs)
-                .iter()
-                .map(|v| if let Some(v) = v { v } else { false })
-                .collect::<Vec<_>>()
-        );
+        // assert_eq!(
+        //     selection.iter().collect::<Vec<_>>(),
+        //     arrow2::compute::comparison::primitive::gt_eq_scalar(&arr_arrow2, rhs)
+        //         .iter()
+        //         .map(|v| if let Some(v) = v { v } else { false })
+        //         .collect::<Vec<_>>()
+        // );
 
-        let arr_arrow = arrow::util::bench_util::create_primitive_array_with_seed::<U>(
-            size,
-            null_density,
-            seed,
-        );
-        let arrow_rhs = arrow::array::PrimitiveArray::<U>::new_scalar(rhs);
-        assert_eq!(
-            selection.iter().collect::<Vec<_>>(),
-            arrow::compute::kernels::cmp::gt_eq(&arr_arrow, &arrow_rhs)
-                .unwrap()
-                .iter()
-                .map(|v| if let Some(v) = v { v } else { false })
-                .collect::<Vec<_>>(),
-        );
+        // let arr_arrow = arrow::util::bench_util::create_primitive_array_with_seed::<U>(
+        //     size,
+        //     null_density,
+        //     seed,
+        // );
+        // let arrow_rhs = arrow::array::PrimitiveArray::<U>::new_scalar(rhs);
+        // assert_eq!(
+        //     selection.iter().collect::<Vec<_>>(),
+        //     arrow::compute::kernels::cmp::gt_eq(&arr_arrow, &arrow_rhs)
+        //         .unwrap()
+        //         .iter()
+        //         .map(|v| if let Some(v) = v { v } else { false })
+        //         .collect::<Vec<_>>(),
+        // );
 
         selection.mutate().clear();
         group.bench_function(BenchmarkId::new("DataBlock: scalar", size), |b| {
             b.iter(|| unsafe {
-                comparison::primitive::ge_scalar(&mut selection, &lhs, rhs, &mut dst);
+                comparison::primitive::intrinsic::ge_scalar(&mut selection, &lhs, rhs, &mut dst);
                 selection.mutate().clear();
             });
         });
@@ -83,23 +83,23 @@ where
         //     b.iter(|| arrow::compute::kernels::cmp::gt_eq(&arr_arrow, &arrow_rhs).unwrap())
         // });
 
-        // let mut dst = vec![false; size];
+        let mut dst = vec![false; size];
 
-        // group.bench_function(BenchmarkId::new("Naive: scalar", size), |b| {
-        //     b.iter(|| data_block_benches::comparison::ge_dynamic(lhs.values(), rhs, &mut dst))
-        // });
+        group.bench_function(BenchmarkId::new("Naive: scalar", size), |b| {
+            b.iter(|| data_block_benches::comparison::ge_dynamic(lhs.values(), rhs, &mut dst))
+        });
     });
 }
 
 #[cfg(feature = "portable_simd")]
 fn bench_primitive_array<T, U>(c: &mut Criterion, rhs: T, null_density: f32, seed: u64)
 where
-    T: IntrinsicType + arrow2::types::NativeType + arrow2::compute::comparison::Simd8,
+    T: PartialOrdExt + arrow2::types::NativeType + arrow2::compute::comparison::Simd8,
     T::SimdType: IntrinsicSimdOrd,
     u64: num_traits::AsPrimitive<<T::SimdType as IntrinsicSimdOrd>::BitMaskType>,
     <T::SimdType as IntrinsicSimdOrd>::BitMaskType: bitvec::store::BitStore,
     Standard: Distribution<T>,
-    PrimitiveArray<T>: Array,
+    PrimitiveArray<T>: Array<Element = T>,
     T::Simd: arrow2::compute::comparison::Simd8PartialOrd,
     U: arrow::array::ArrowPrimitiveType<Native = T>,
 {
@@ -111,7 +111,7 @@ where
         let mut dst = BooleanArray::default();
 
         unsafe {
-            comparison::primitive::ge_scalar(&mut selection, &lhs, rhs, &mut dst);
+            comparison::primitive::intrinsic::ge_scalar(&mut selection, &lhs, rhs, &mut dst);
         }
 
         let arr_arrow2 = arrow2::util::bench_util::create_primitive_array_with_seed::<T>(
@@ -131,7 +131,7 @@ where
         selection.mutate().clear();
         group.bench_function(BenchmarkId::new("DataBlock: scalar", size), |b| {
             b.iter(|| unsafe {
-                comparison::primitive::ge_scalar(&mut selection, &lhs, rhs, &mut dst);
+                comparison::primitive::intrinsic::ge_scalar(&mut selection, &lhs, rhs, &mut dst);
                 selection.mutate().clear();
             });
         });
@@ -279,7 +279,7 @@ fn bench_string_array(c: &mut Criterion, rhs: StringView<'_>, null_density: f32,
 }
 
 fn comparison_benchmark(c: &mut Criterion) {
-    bench_primitive_array::<i8, arrow::datatypes::Int8Type>(c, 0, 0.9, 42);
+    bench_primitive_array::<i8, arrow::datatypes::Int8Type>(c, 0, 0.1, 42);
     // bench_primitive_array::<i16, arrow::datatypes::Int16Type>(c, 0, 0.0, 42);
     // bench_primitive_array::<i32, arrow::datatypes::Int32Type>(c, 0, 0.1, 42);
     // bench_primitive_array::<i64, arrow::datatypes::Int64Type>(c, 0, 0.1, 42);

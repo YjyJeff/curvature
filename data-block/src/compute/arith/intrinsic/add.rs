@@ -139,6 +139,7 @@ pub unsafe fn add_scalar<T>(
     {
         // Note that this `unsafe` block is safe because we're testing
         // that the `avx512` feature is indeed available on our CPU.
+        #[cfg(feature = "avx512")]
         if std::arch::is_x86_feature_detected!("avx512f") {
             return add_scalar_avx512(selection, array, scalar, dst);
         }
@@ -170,6 +171,7 @@ pub unsafe fn add_scalar<T>(
     )
 }
 
+#[cfg(feature = "avx512")]
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[target_feature(enable = "avx512f")]
 #[inline]
@@ -266,6 +268,7 @@ pub unsafe fn add<T>(
     {
         // Note that this `unsafe` block is safe because we're testing
         // that the `avx512` feature is indeed available on our CPU.
+        #[cfg(feature = "avx512")]
         if std::arch::is_x86_feature_detected!("avx512f") {
             return add_avx512(selection, lhs, rhs, dst);
         }
@@ -296,6 +299,7 @@ pub unsafe fn add<T>(
     )
 }
 
+#[cfg(feature = "avx512")]
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[target_feature(enable = "avx512f")]
 #[inline]
