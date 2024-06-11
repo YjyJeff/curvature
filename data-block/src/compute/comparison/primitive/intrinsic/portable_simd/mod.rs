@@ -1,7 +1,8 @@
 use super::PartialOrdExt;
-use crate::aligned_vec::AlignedVec;
 use crate::array::{Array, BooleanArray, PrimitiveArray};
 use crate::bitmap::Bitmap;
+use crate::compute::comparison::primitive::cmp_scalar_default;
+use crate::compute::comparison::primitive::private::{eq, ge, gt, le, lt, ne};
 use crate::compute::logical::and_inplace;
 use crate::compute::{IntrinsicSimdType, IntrinsicType};
 use crate::utils::roundup_loops;
@@ -53,121 +54,229 @@ macro_rules! impl_simd_ord {
 
 crate::macros::for_all_intrinsic!(impl_simd_ord);
 
+/// It will be optimized for different target features
 #[inline(always)]
-fn cmp_scalar_<T, F>(
-    lhs: &AlignedVec<T>,
-    rhs: T,
-    dst: &mut [<T::SimdType as IntrinsicSimdOrd>::BitMaskType],
-    cmp: F,
-) where
-    T: IntrinsicType,
-    T::SimdType: IntrinsicSimdOrd,
-    u64: AsPrimitive<<T::SimdType as IntrinsicSimdOrd>::BitMaskType>,
-    F: Fn(T::SimdType, T::SimdType) -> <T::SimdType as IntrinsicSimdOrd>::SimdMaskType,
-{
-    let rhs = T::SimdType::splat(rhs);
-    lhs.as_intrinsic_simd()
-        .iter()
-        .zip(dst)
-        .for_each(|(lhs, dst)| {
-            *dst = cmp(*lhs, rhs).bitmask().as_();
-        });
-}
-
-macro_rules! cmp_scalar_ {
-    ($cmp_scalar_macro:ident) => {
-        crate::dynamic_func!(
-            $cmp_scalar_macro,
-            <T>,
-            (lhs: &AlignedVec<T>, rhs: T, dst: &mut [<T::SimdType as IntrinsicSimdOrd>::BitMaskType]),
-            where
-                T: IntrinsicType,
-                T::SimdType: IntrinsicSimdOrd,
-                u64: AsPrimitive<<T::SimdType as IntrinsicSimdOrd>::BitMaskType>
-        );
-    };
-}
-
-macro_rules! eq_scalar {
-    ($lhs:ident, $rhs:ident, $dst:ident) => {
-        cmp_scalar_($lhs, $rhs, $dst, |lhs, rhs| lhs.simd_eq(rhs))
-    };
-}
-cmp_scalar_!(eq_scalar);
-
-macro_rules! ne_scalar {
-    ($lhs:ident, $rhs:ident, $dst:ident) => {
-        cmp_scalar_($lhs, $rhs, $dst, |lhs, rhs| lhs.simd_ne(rhs))
-    };
-}
-cmp_scalar_!(ne_scalar);
-
-macro_rules! gt_scalar {
-    ($lhs:ident, $rhs:ident, $dst:ident) => {
-        cmp_scalar_($lhs, $rhs, $dst, |lhs, rhs| lhs.simd_gt(rhs))
-    };
-}
-cmp_scalar_!(gt_scalar);
-
-macro_rules! ge_scalar {
-    ($lhs:ident, $rhs:ident, $dst:ident) => {
-        cmp_scalar_($lhs, $rhs, $dst, |lhs, rhs| lhs.simd_ge(rhs))
-    };
-}
-cmp_scalar_!(ge_scalar);
-
-macro_rules! lt_scalar {
-    ($lhs:ident, $rhs:ident, $dst:ident) => {
-        cmp_scalar_($lhs, $rhs, $dst, |lhs, rhs| lhs.simd_lt(rhs))
-    };
-}
-cmp_scalar_!(lt_scalar);
-
-macro_rules! le_scalar {
-    ($lhs:ident, $rhs:ident, $dst:ident) => {
-        cmp_scalar_($lhs, $rhs, $dst, |lhs, rhs| lhs.simd_le(rhs))
-    };
-}
-cmp_scalar_!(le_scalar);
-
-/// # Safety
-///
-/// - `array`'s data and validity should not reference `dst`'s data and validity. In the computation
-/// graph, `array` must be the descendant of `dst`
-///
-/// - No other arrays that reference the `dst`'s data and validity are accessed! In the
-/// computation graph, it will never happens
 unsafe fn cmp_scalar<T, F>(
     selection: &mut Bitmap,
     array: &PrimitiveArray<T>,
     scalar: T,
     dst: &mut BooleanArray,
+    partial_cmp_threshold: f64,
     cmp_func: F,
+    cmp_scalars_func: impl Fn(T, T) -> bool,
 ) where
-    T: PartialOrdExt,
+    T: IntrinsicType,
     T::SimdType: IntrinsicSimdOrd,
     PrimitiveArray<T>: Array<Element = T>,
     u64: AsPrimitive<<T::SimdType as IntrinsicSimdOrd>::BitMaskType>,
-    F: Fn(&AlignedVec<T>, T, &mut [<T::SimdType as IntrinsicSimdOrd>::BitMaskType]),
+    F: Fn(T::SimdType, T::SimdType) -> <T::SimdType as IntrinsicSimdOrd>::SimdMaskType,
 {
     debug_assert_selection_is_valid!(selection, array);
 
     and_inplace(selection, array.validity());
-
-    // FIXME: According to selection, determine full or partial
-    // Full computation
-    {
-        cmp_func(
-            &array.data,
-            scalar,
+    if selection.ones_ratio() < partial_cmp_threshold {
+        selection
+            .mutate()
+            .mutate_ones(|index| cmp_scalars_func(array.get_value_unchecked(index), scalar));
+    } else {
+        let scalar_simd = T::SimdType::splat(scalar);
+        let uninit: &mut [<T::SimdType as IntrinsicSimdOrd>::BitMaskType] =
             std::slice::from_raw_parts_mut(
                 dst.data_mut()
                     .mutate()
                     .clear_and_resize(array.len())
                     .as_mut_ptr() as _,
                 roundup_loops(array.len(), <T::SimdType as IntrinsicSimdType>::LANES),
-            ),
-        );
-        and_inplace(selection, &dst.data);
+            );
+
+        array
+            .data
+            .as_intrinsic_simd()
+            .iter()
+            .zip(uninit)
+            .for_each(|(&element_simd, dst)| {
+                *dst = cmp_func(element_simd, scalar_simd).bitmask().as_();
+            });
     }
 }
+
+macro_rules! impl_simd_ord_scalar {
+    ($cmp_func:ident, $cmp_trait:ident) => {
+        paste::paste! {
+            #[cfg(target_arch = "aarch64")]
+            #[target_feature(enable = "neon")]
+            #[inline]
+            unsafe fn [<$cmp_func _scalar_neon>]<T> (
+                selection: &mut Bitmap,
+                array: &PrimitiveArray<T>,
+                scalar: T,
+                dst: &mut BooleanArray,
+            ) where
+                T: PartialOrdExt,
+                T::SimdType: IntrinsicSimdOrd,
+                PrimitiveArray<T>: Array<Element = T>,
+                u64: AsPrimitive<<T::SimdType as IntrinsicSimdOrd>::BitMaskType>,
+            {
+                cmp_scalar(
+                    selection,
+                    array,
+                    scalar,
+                    dst,
+                    T::NEON_PARTIAL_CMP_THRESHOLD,
+                    $cmp_trait::[<simd_ $cmp_func>],
+                    $cmp_func,
+                )
+            }
+
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            #[target_feature(enable = "avx512f")]
+            #[inline]
+            unsafe fn [<$cmp_func _scalar_avx512>]<T> (
+                selection: &mut Bitmap,
+                array: &PrimitiveArray<T>,
+                scalar: T,
+                dst: &mut BooleanArray,
+            ) where
+                T: PartialOrdExt,
+                T::SimdType: IntrinsicSimdOrd,
+                PrimitiveArray<T>: Array<Element = T>,
+                u64: AsPrimitive<<T::SimdType as IntrinsicSimdOrd>::BitMaskType>,
+            {
+                cmp_scalar(
+                    selection,
+                    array,
+                    scalar,
+                    dst,
+                    T::AVX512_PARTIAL_CMP_THRESHOLD,
+                    $cmp_trait::[<simd_ $cmp_func>],
+                    $cmp_func,
+                )
+            }
+
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            #[target_feature(enable = "avx2")]
+            #[inline]
+            unsafe fn [<$cmp_func _scalar_avx2>]<T> (
+                selection: &mut Bitmap,
+                array: &PrimitiveArray<T>,
+                scalar: T,
+                dst: &mut BooleanArray,
+            ) where
+                T: PartialOrdExt,
+                T::SimdType: IntrinsicSimdOrd,
+                PrimitiveArray<T>: Array<Element = T>,
+                u64: AsPrimitive<<T::SimdType as IntrinsicSimdOrd>::BitMaskType>,
+            {
+                cmp_scalar(
+                    selection,
+                    array,
+                    scalar,
+                    dst,
+                    T::AVX2_PARTIAL_CMP_THRESHOLD,
+                    $cmp_trait::[<simd_ $cmp_func>],
+                    $cmp_func,
+                )
+            }
+
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            #[target_feature(enable = "sse4.1")]
+            #[inline]
+            unsafe fn [<$cmp_func _scalar_v2>]<T> (
+                selection: &mut Bitmap,
+                array: &PrimitiveArray<T>,
+                scalar: T,
+                dst: &mut BooleanArray,
+            ) where
+                T: PartialOrdExt,
+                T::SimdType: IntrinsicSimdOrd,
+                PrimitiveArray<T>: Array<Element = T>,
+                u64: AsPrimitive<<T::SimdType as IntrinsicSimdOrd>::BitMaskType>,
+            {
+                cmp_scalar(
+                    selection,
+                    array,
+                    scalar,
+                    dst,
+                    T::PARTIAL_CMP_THRESHOLD,
+                    $cmp_trait::[<simd_ $cmp_func>],
+                    $cmp_func,
+                )
+            }
+        }
+    };
+}
+
+impl_simd_ord_scalar!(eq, SimdPartialEq);
+impl_simd_ord_scalar!(ne, SimdPartialEq);
+impl_simd_ord_scalar!(gt, SimdPartialOrd);
+impl_simd_ord_scalar!(ge, SimdPartialOrd);
+impl_simd_ord_scalar!(lt, SimdPartialOrd);
+impl_simd_ord_scalar!(le, SimdPartialOrd);
+
+macro_rules! impl_partial_ord_ext {
+    ($ty:ty, $default_th:expr, $neon_th:expr, $avx2_th:expr, $avx512_th:expr) => {
+        impl PartialOrdExt for $ty {
+            /// If the selectivity is smaller than this threshold, partial computation is used
+            const PARTIAL_CMP_THRESHOLD: f64 = $default_th;
+            #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
+            /// If the selectivity is smaller than this threshold, partial computation is used
+            const NEON_PARTIAL_CMP_THRESHOLD: f64 = $neon_th;
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            /// If the selectivity is smaller than this threshold, partial computation is used
+            const AVX2_PARTIAL_CMP_THRESHOLD: f64 = $avx2_th;
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            /// If the selectivity is smaller than this threshold, partial computation is used
+            const AVX512_PARTIAL_CMP_THRESHOLD: f64 = $avx512_th;
+
+            impl_partial_ord_ext!(eq);
+            impl_partial_ord_ext!(ne);
+            impl_partial_ord_ext!(gt);
+            impl_partial_ord_ext!(ge);
+            impl_partial_ord_ext!(lt);
+            impl_partial_ord_ext!(le);
+        }
+    };
+    ($cmp_func:ident) => {
+        paste::paste! {
+            unsafe fn [<$cmp_func _scalar>](
+                selection: &mut Bitmap,
+                array: &PrimitiveArray<Self>,
+                scalar: Self,
+                dst: &mut BooleanArray,
+            ){
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                {
+                    if std::arch::is_x86_feature_detected!("avx512f") {
+                        return [<$cmp_func _scalar_avx512>](selection, array, scalar, dst);
+                    }
+
+                    if std::arch::is_x86_feature_detected!("avx2") {
+                        return [<$cmp_func _scalar_avx2>](selection, array, scalar, dst);
+                    }
+
+                    return [<$cmp_func _scalar_v2>](selection, array, scalar, dst);
+                }
+
+                #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
+                {
+                    if std::arch::is_aarch64_feature_detected!("neon") {
+                        return [<$cmp_func _scalar_neon>](selection, array, scalar, dst);
+                    }
+                }
+
+                cmp_scalar_default(selection, array, scalar, dst, Self::PARTIAL_CMP_THRESHOLD, $cmp_func);
+            }
+        }
+    };
+}
+
+impl_partial_ord_ext!(i8, 0.0, 0.0, 0.0, 0.0);
+impl_partial_ord_ext!(u8, 0.0, 0.0, 0.0, 0.0);
+impl_partial_ord_ext!(i16, 0.0, 0.0, 0.0, 0.0);
+impl_partial_ord_ext!(u16, 0.0, 0.0, 0.0, 0.0);
+impl_partial_ord_ext!(i32, 0.0, 0.0, 0.0, 0.0);
+impl_partial_ord_ext!(u32, 0.0, 0.0, 0.0, 0.0);
+impl_partial_ord_ext!(i64, 0.0, 0.0, 0.0, 0.0);
+impl_partial_ord_ext!(u64, 0.0, 0.0, 0.0, 0.0);
+impl_partial_ord_ext!(f32, 0.0, 0.0, 0.0, 0.0);
+impl_partial_ord_ext!(f64, 0.0, 0.0, 0.0, 0.0);

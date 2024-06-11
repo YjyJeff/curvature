@@ -136,21 +136,18 @@ macro_rules! dynamic_func {
         paste::paste! {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             #[target_feature(enable = "avx512f")]
-            #[inline]
             unsafe fn [<$func_impl_macro _avx512>]$(<$($lt,)* $($g_ty),+>)?($($parameter:$parameter_ty,)*) $(where $($trait_bound)+)?{
                 $func_impl_macro!($($parameter),*)
             }
 
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             #[target_feature(enable = "avx2")]
-            #[inline]
             unsafe fn [<$func_impl_macro _avx2>]$(<$($lt,)* $($g_ty),+>)?($($parameter:$parameter_ty,)*) $(where $($trait_bound)+)?{
                 $func_impl_macro!($($parameter),*)
             }
 
             #[cfg(target_arch = "aarch64")]
             #[target_feature(enable = "neon")]
-            #[inline]
             unsafe fn [<$func_impl_macro _neon>]$(<$($lt,)* $($g_ty),+>)?($($parameter:$parameter_ty,)*) $(where $($trait_bound)+)?{
                 $func_impl_macro!($($parameter),*)
             }

@@ -13,14 +13,19 @@ use super::PartialOrdExt;
 use crate::aligned_vec::AlignedVec;
 use crate::array::{Array, BooleanArray, PrimitiveArray};
 use crate::bitmap::{BitStore, Bitmap};
+use crate::compute::comparison::primitive::cmp_scalar_default;
+use crate::compute::comparison::primitive::private::{eq, ge, gt, le, lt, ne};
 use crate::compute::logical::and_inplace;
-use crate::types::IntrinsicType;
 
 #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
 mod arm;
-
 #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
 use self::arm::*;
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+mod x86;
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+use self::x86::*;
 
 /// # Safety
 ///
@@ -66,36 +71,6 @@ unsafe fn cmp_scalar<T: PartialOrdExt>(
     }
 }
 
-#[inline]
-fn eq<T: IntrinsicType + PartialEq>(lhs: T, rhs: T) -> bool {
-    lhs == rhs
-}
-
-#[inline]
-fn ne<T: IntrinsicType + PartialEq>(lhs: T, rhs: T) -> bool {
-    lhs != rhs
-}
-
-#[inline]
-fn gt<T: IntrinsicType + PartialOrd>(lhs: T, rhs: T) -> bool {
-    lhs > rhs
-}
-
-#[inline]
-fn ge<T: IntrinsicType + PartialOrd>(lhs: T, rhs: T) -> bool {
-    lhs >= rhs
-}
-
-#[inline]
-fn lt<T: IntrinsicType + PartialOrd>(lhs: T, rhs: T) -> bool {
-    lhs < rhs
-}
-
-#[inline]
-fn le<T: IntrinsicType + PartialOrd>(lhs: T, rhs: T) -> bool {
-    lhs <= rhs
-}
-
 macro_rules! impl_partial_ord_ext {
     ($ty:ty, $default_th:expr, $neon_th:expr, $avx2_th:expr, $avx512_th:expr) => {
         impl PartialOrdExt for $ty {
@@ -127,54 +102,25 @@ macro_rules! impl_partial_ord_ext {
                 scalar: $ty,
                 dst: &mut BooleanArray,
             ){
-                unsafe {
-                    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-                    {
-                        if std::arch::is_x86_feature_detected!("avx2") {
-                            return cmp_scalar(selection, array, scalar, dst, Self::AVX2_PARTIAL_CMP_THRESHOLD, [<$cmp_func _scalar_ $ty _avx2>], $cmp_func);
-                        } else {
-                            return cmp_scalar(selection, array, scalar, dst, Self::PARTIAL_CMP_THRESHOLD, [<$cmp_func _scalar_ $ty _v2>], $cmp_func);
-                        }
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                {
+                    if std::arch::is_x86_feature_detected!("avx2") {
+                        return cmp_scalar(selection, array, scalar, dst, Self::AVX2_PARTIAL_CMP_THRESHOLD, [<$cmp_func _scalar_ $ty _avx2>], $cmp_func);
+                    } else {
+                        return cmp_scalar(selection, array, scalar, dst, Self::PARTIAL_CMP_THRESHOLD, [<$cmp_func _scalar_ $ty _v2>], $cmp_func);
                     }
-
-                    #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
-                    {
-                        if std::arch::is_aarch64_feature_detected!("neon") {
-                            return cmp_scalar(selection, array, scalar, dst, Self::NEON_PARTIAL_CMP_THRESHOLD, [<$cmp_func _scalar_ $ty _neon>], $cmp_func);
-                        }
-                    }
-
-                    cmp_scalar_default(selection, array, scalar, dst, $cmp_func);
                 }
+
+                #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
+                {
+                    if std::arch::is_aarch64_feature_detected!("neon") {
+                        return cmp_scalar(selection, array, scalar, dst, Self::NEON_PARTIAL_CMP_THRESHOLD, [<$cmp_func _scalar_ $ty _neon>], $cmp_func);
+                    }
+                }
+
+                cmp_scalar_default(selection, array, scalar, dst, $ty::PARTIAL_CMP_THRESHOLD, $cmp_func);
             }
         }
-    }
-}
-
-unsafe fn cmp_scalar_default<T: PartialOrdExt>(
-    selection: &mut Bitmap,
-    array: &PrimitiveArray<T>,
-    scalar: T,
-    dst: &mut BooleanArray,
-    cmp_scalars_func: impl Fn(T, T) -> bool,
-) where
-    PrimitiveArray<T>: Array<Element = T>,
-{
-    debug_assert_selection_is_valid!(selection, array);
-
-    and_inplace(selection, array.validity());
-    if selection.ones_ratio() < T::PARTIAL_CMP_THRESHOLD {
-        selection
-            .mutate()
-            .mutate_ones(|index| cmp_scalars_func(array.get_value_unchecked(index), scalar))
-    } else {
-        dst.data_mut().mutate().reset(
-            array.len(),
-            array
-                .values_iter()
-                .map(|element| cmp_scalars_func(element, scalar)),
-        );
-        and_inplace(selection, dst.data());
     }
 }
 

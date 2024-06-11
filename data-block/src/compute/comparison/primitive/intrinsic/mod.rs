@@ -16,6 +16,9 @@ use crate::types::IntrinsicType;
 
 #[cfg(feature = "portable_simd")]
 mod portable_simd;
+#[cfg(feature = "portable_simd")]
+pub use portable_simd::*;
+
 #[cfg(not(feature = "portable_simd"))]
 mod stable;
 

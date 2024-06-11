@@ -2,6 +2,44 @@
 //!
 //! TODO: Separate intrinsic with others
 
+use crate::array::{Array, BooleanArray, PrimitiveArray};
+use crate::bitmap::Bitmap;
+use crate::compute::logical::and_inplace;
+
+mod private {
+    use crate::types::IntrinsicType;
+
+    #[inline]
+    pub(super) fn eq<T: IntrinsicType + PartialEq>(lhs: T, rhs: T) -> bool {
+        lhs == rhs
+    }
+
+    #[inline]
+    pub(super) fn ne<T: IntrinsicType + PartialEq>(lhs: T, rhs: T) -> bool {
+        lhs != rhs
+    }
+
+    #[inline]
+    pub(super) fn gt<T: IntrinsicType + PartialOrd>(lhs: T, rhs: T) -> bool {
+        lhs > rhs
+    }
+
+    #[inline]
+    pub(super) fn ge<T: IntrinsicType + PartialOrd>(lhs: T, rhs: T) -> bool {
+        lhs >= rhs
+    }
+
+    #[inline]
+    pub(super) fn lt<T: IntrinsicType + PartialOrd>(lhs: T, rhs: T) -> bool {
+        lhs < rhs
+    }
+
+    #[inline]
+    pub(super) fn le<T: IntrinsicType + PartialOrd>(lhs: T, rhs: T) -> bool {
+        lhs <= rhs
+    }
+}
+
 #[cfg(test)]
 macro_rules! cmp_assert {
     ($lhs:expr, $rhs:ident, $cmp_func:ident, $gt:expr) => {
@@ -59,6 +97,37 @@ impl_cmp_scalar_default!(gt_scalar_default_, >);
 impl_cmp_scalar_default!(ge_scalar_default_, >=);
 impl_cmp_scalar_default!(lt_scalar_default_, <);
 impl_cmp_scalar_default!(le_scalar_default_, <=);
+
+/// Default implementation
+unsafe fn cmp_scalar_default<T>(
+    selection: &mut Bitmap,
+    array: &PrimitiveArray<T>,
+    scalar: T,
+    dst: &mut BooleanArray,
+    partial_cmp_threshold: f64,
+    cmp_scalars_func: impl Fn(T, T) -> bool,
+) where
+    PrimitiveArray<T>: Array<Element = T>,
+    T: PrimitiveType,
+{
+    debug_assert_selection_is_valid!(selection, array);
+
+    and_inplace(selection, array.validity());
+    if selection.ones_ratio() < partial_cmp_threshold {
+        selection
+            .mutate()
+            .mutate_ones(|index| cmp_scalars_func(array.get_value_unchecked(index), scalar))
+    } else {
+        // It may still faster 😊
+        dst.data_mut().mutate().reset(
+            array.len(),
+            array
+                .values_iter()
+                .map(|element| cmp_scalars_func(element, scalar)),
+        );
+        and_inplace(selection, dst.data());
+    }
+}
 
 #[cfg(test)]
 mod tests {
