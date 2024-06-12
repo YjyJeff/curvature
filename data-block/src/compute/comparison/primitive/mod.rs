@@ -42,7 +42,7 @@ mod private {
 
 #[cfg(test)]
 macro_rules! cmp_assert {
-    ($lhs:expr, $rhs:ident, $cmp_func:ident, $gt:expr) => {
+    ($lhs:expr, $rhs:ident, $cmp_func:path, $gt:expr) => {
         unsafe {
             let len = $lhs.len();
             let mut dst = Bitmap::with_capacity(len);
@@ -67,7 +67,7 @@ unsafe fn cmp_scalar_default<T>(
     selection: &mut Bitmap,
     array: &PrimitiveArray<T>,
     scalar: T,
-    dst: &mut BooleanArray,
+    temp: &mut BooleanArray,
     partial_cmp_threshold: f64,
     cmp_scalars_func: impl Fn(T, T) -> bool,
 ) where
@@ -83,13 +83,13 @@ unsafe fn cmp_scalar_default<T>(
             .mutate_ones(|index| cmp_scalars_func(array.get_value_unchecked(index), scalar))
     } else {
         // It may still faster 😊
-        dst.data_mut().mutate().reset(
+        temp.data_mut().mutate().reset(
             array.len(),
             array
                 .values_iter()
                 .map(|element| cmp_scalars_func(element, scalar)),
         );
-        and_inplace(selection, dst.data());
+        and_inplace(selection, temp.data());
     }
 }
 

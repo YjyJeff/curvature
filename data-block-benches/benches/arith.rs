@@ -55,18 +55,6 @@ where
         //     b.iter(|| arrow2::compute::arithmetics::basic::div_scalar(&arr_a, &rhs));
         // });
 
-        // let mut result = vec![T::default(); size];
-        // group.bench_function(BenchmarkId::new("Naive: arith scalar", size), |b| {
-        //     b.iter(|| {
-        //         lhs.values()
-        //             .iter()
-        //             .zip(result.iter_mut())
-        //             .for_each(|(&lhs, dst)| {
-        //                 *dst = lhs / rhs;
-        //             });
-        //     });
-        // });
-
         group.bench_function(BenchmarkId::new("DataBlock: add scalar", size), |b| {
             b.iter(|| unsafe {
                 add_scalar(&selection, &lhs, rhs, &mut dst);

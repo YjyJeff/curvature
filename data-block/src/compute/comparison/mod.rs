@@ -1,4 +1,7 @@
 //! Comparison on arrays
+//!
+//! As we all know, comparison is a boolean expression. Therefore, the comparison
+//! result will be combined into the `selection` arguments
 
 pub mod boolean;
 pub mod primitive;

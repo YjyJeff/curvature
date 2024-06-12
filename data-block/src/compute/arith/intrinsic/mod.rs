@@ -109,3 +109,190 @@ unsafe fn arith_arrays<T, U, V>(
             .for_each(|((&lhs, &rhs), uninit)| *uninit = arith_func(lhs, rhs));
     }
 }
+
+macro_rules! dynamic_arith_scalar_func {
+    (#[$doc:meta], $func_name:ident, $ext_trait:ident, $arith_func:path, $transformer:path) => {
+        paste::paste! {
+            #[$doc]
+            ///
+            /// # Safety
+            ///
+            /// - If the `selection` is not empty, `array` and `selection` should have same length.
+            /// Otherwise, undefined behavior happens
+            ///
+            /// - `lhs` data and validity should not reference `dst`'s data and validity. In the computation
+            /// graph, `lhs` must be the descendant of `dst`
+            ///
+            /// - No other arrays that reference the `dst`'s data and validity are accessed! In the
+            /// computation graph, it will never happens
+            pub unsafe fn $func_name<T>(
+                selection: &Bitmap,
+                array: &PrimitiveArray<T>,
+                scalar: T,
+                dst: &mut PrimitiveArray<T>,
+            ) where
+                PrimitiveArray<T>: Array,
+                T: $ext_trait,
+            {
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                {
+                    // Note that this `unsafe` block is safe because we're testing
+                    // that the `avx512` feature is indeed available on our CPU.
+                    #[cfg(feature = "avx512")]
+                    if std::arch::is_x86_feature_detected!("avx512f") {
+                        return [<$func_name _avx512>](selection, array, scalar, dst);
+                    }
+
+                    // Note that this `unsafe` block is safe because we're testing
+                    // that the `avx2` feature is indeed available on our CPU.
+                    if std::arch::is_x86_feature_detected!("avx2") {
+                        return [<$func_name _avx2>](selection, array, scalar, dst);
+                    }
+                }
+
+                #[cfg(target_arch = "aarch64")]
+                {
+                    // Note that this `unsafe` block is safe because we're testing
+                    // that the `neon` feature is indeed available on our CPU.
+                    if std::arch::is_aarch64_feature_detected!("neon") {
+                        return [<$func_name _neon>](selection, array, scalar, dst);
+                    }
+                }
+
+                arith_scalar(
+                    selection,
+                    array,
+                    scalar,
+                    dst,
+                    T::PARTIAL_ARITH_THRESHOLD,
+                    $arith_func,
+                    $transformer,
+                )
+            }
+        }
+        dynamic_arith_scalar_func!(#[cfg(target_arch = "aarch64")], "neon", neon, $func_name, $ext_trait, $arith_func, $transformer);
+        dynamic_arith_scalar_func!(#[cfg(any(target_arch = "x86", target_arch = "x86_64"))], "avx2", avx2, $func_name, $ext_trait, $arith_func, $transformer);
+        dynamic_arith_scalar_func!(#[cfg(any(target_arch = "x86", target_arch = "x86_64"))], "avx512f", avx512, $func_name, $ext_trait, $arith_func, $transformer);
+    };
+    (#[$target_arch:meta], $target_feature:expr, $func_suffix:ident, $func_name:ident, $ext_trait:ident, $arith_func:path, $transformer:path) => {
+        // Generate target specific function
+        paste::paste! {
+            #[$target_arch]
+            #[target_feature(enable = $target_feature)]
+            #[inline]
+            unsafe fn [<$func_name _ $func_suffix>]<T>(
+                selection: &Bitmap,
+                array: &PrimitiveArray<T>,
+                scalar: T,
+                dst: &mut PrimitiveArray<T>,
+            ) where
+                PrimitiveArray<T>: Array,
+                T: $ext_trait,
+            {
+                arith_scalar(
+                    selection,
+                    array,
+                    scalar,
+                    dst,
+                    T::NEON_PARTIAL_ARITH_THRESHOLD,
+                    $arith_func,
+                    $transformer,
+                )
+            }
+        }
+    };
+}
+
+macro_rules! dynamic_arith_arrays_func {
+    (#[$doc:meta], $func_name:ident, $ext_trait:ident, $arith_func:path) => {
+        paste::paste! {
+            #[$doc]
+            ///
+            /// # Safety
+            ///
+            /// - If the `selection` is not empty, `array` and `selection` should have same length.
+            /// Otherwise, undefined behavior happens
+            ///
+            /// - `lhs` data and validity should not reference `dst`'s data and validity. In the computation
+            /// graph, `lhs` must be the descendant of `dst`
+            ///
+            /// - No other arrays that reference the `dst`'s data and validity are accessed! In the
+            /// computation graph, it will never happens
+            pub unsafe fn $func_name<T>(
+                selection: &Bitmap,
+                lhs: &PrimitiveArray<T>,
+                rhs: &PrimitiveArray<T>,
+                dst: &mut PrimitiveArray<T>,
+            ) where
+                PrimitiveArray<T>: Array,
+                T: $ext_trait,
+            {
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                {
+                    // Note that this `unsafe` block is safe because we're testing
+                    // that the `avx512` feature is indeed available on our CPU.
+                    #[cfg(feature = "avx512")]
+                    if std::arch::is_x86_feature_detected!("avx512f") {
+                        return [<$func_name _avx512>](selection, lhs, rhs, dst);
+                    }
+
+                    // Note that this `unsafe` block is safe because we're testing
+                    // that the `avx2` feature is indeed available on our CPU.
+                    if std::arch::is_x86_feature_detected!("avx2") {
+                        return [<$func_name _avx2>](selection, lhs, rhs, dst);
+                    }
+                }
+
+                #[cfg(target_arch = "aarch64")]
+                {
+                    // Note that this `unsafe` block is safe because we're testing
+                    // that the `neon` feature is indeed available on our CPU.
+                    if std::arch::is_aarch64_feature_detected!("neon") {
+                        return [<$func_name _neon>](selection, lhs, rhs, dst);
+                    }
+                }
+
+                arith_arrays(
+                    selection,
+                    lhs,
+                    rhs,
+                    dst,
+                    T::PARTIAL_ARITH_THRESHOLD,
+                    $arith_func,
+                )
+            }
+        }
+        dynamic_arith_arrays_func!(#[cfg(target_arch = "aarch64")], "neon", neon, $func_name, $ext_trait, $arith_func);
+        dynamic_arith_arrays_func!(#[cfg(any(target_arch = "x86", target_arch = "x86_64"))], "avx2", avx2, $func_name, $ext_trait, $arith_func);
+        dynamic_arith_arrays_func!(#[cfg(any(target_arch = "x86", target_arch = "x86_64"))], "avx512f", avx512, $func_name, $ext_trait, $arith_func);
+    };
+    (#[$target_arch:meta], $target_feature:expr, $func_suffix:ident, $func_name:ident, $ext_trait:ident, $arith_func:path) => {
+        // Generate target specific function
+        paste::paste! {
+            #[$target_arch]
+            #[target_feature(enable = $target_feature)]
+            #[inline]
+            unsafe fn [<$func_name _ $func_suffix>]<T>(
+                selection: &Bitmap,
+                lhs: &PrimitiveArray<T>,
+                rhs: &PrimitiveArray<T>,
+                dst: &mut PrimitiveArray<T>,
+            ) where
+                PrimitiveArray<T>: Array,
+                T: $ext_trait,
+            {
+                arith_arrays(
+                    selection,
+                    lhs,
+                    rhs,
+                    dst,
+                    T::NEON_PARTIAL_ARITH_THRESHOLD,
+                    $arith_func,
+                )
+            }
+        }
+    };
+}
+
+use dynamic_arith_arrays_func;
+use dynamic_arith_scalar_func;

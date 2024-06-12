@@ -96,7 +96,9 @@ arm_target_use!(
     vcltq_f64,
     vcleq_f64,
     vuzp1q_u32,
-    vreinterpretq_u32_u64
+    vreinterpretq_u32_u64,
+    int64x2_t,
+    uint64x2_t
 );
 
 macro_rules! cmp_scalar {
@@ -333,6 +335,136 @@ cmp_scalar!(i64, s64, cmp_scalar_double_word);
 cmp_scalar!(u64, u64, cmp_scalar_double_word);
 cmp_scalar!(f64, f64, cmp_scalar_double_word);
 
+#[repr(align(16))]
+struct AlignedArray([i64; 2]);
+
+impl AlignedArray {
+    #[inline]
+    fn as_ptr(&self) -> *const i64 {
+        self.0.as_ptr()
+    }
+}
+
+/// Multiply the elements in the array than compare with the scalar
+#[target_feature(enable = "neon")]
+#[inline]
+unsafe fn timestamp_cmp_scalar_neon<const MULTIPLIER: i64, const NOT: bool>(
+    array: &AlignedVec<i64>,
+    scalar: i64,
+    dst: *mut BitStore,
+    cmp_func: unsafe fn(int64x2_t, int64x2_t) -> uint64x2_t,
+) {
+    if array.is_empty() {
+        return;
+    }
+
+    let scalar = vdupq_n_s64(scalar);
+    let num_loops = roundup_loops(array.len(), 8);
+    let mask_low = vld1q_u16(MASK_16_LOW.as_ptr());
+    let mut lhs_ptr = array.ptr.as_ptr();
+    let dst = dst as *mut u8;
+
+    for simd_index in 0..num_loops {
+        // neon does not support multiply s64. Using non-simd version for multiply
+        let lhs_0 = vld1q_s64(
+            AlignedArray([(*lhs_ptr) * MULTIPLIER, (*lhs_ptr.add(1)) * MULTIPLIER]).as_ptr(),
+        );
+        let lhs_1 = vld1q_s64(
+            AlignedArray([
+                (*lhs_ptr.add(2)) * MULTIPLIER,
+                (*lhs_ptr.add(3)) * MULTIPLIER,
+            ])
+            .as_ptr(),
+        );
+        let lhs_2 = vld1q_s64(
+            AlignedArray([
+                (*lhs_ptr.add(4)) * MULTIPLIER,
+                (*lhs_ptr.add(5)) * MULTIPLIER,
+            ])
+            .as_ptr(),
+        );
+        let lhs_3 = vld1q_s64(
+            AlignedArray([
+                (*lhs_ptr.add(6)) * MULTIPLIER,
+                (*lhs_ptr.add(7)) * MULTIPLIER,
+            ])
+            .as_ptr(),
+        );
+
+        // Compare with simd
+        let cmp_0 = cmp_func(lhs_0, scalar);
+        let cmp_1 = cmp_func(lhs_1, scalar);
+        let cmp_2 = cmp_func(lhs_2, scalar);
+        let cmp_3 = cmp_func(lhs_3, scalar);
+
+        let uzp_0 = vuzp1q_u32(vreinterpretq_u32_u64(cmp_0), vreinterpretq_u32_u64(cmp_1));
+        let uzp_1 = vuzp1q_u32(vreinterpretq_u32_u64(cmp_2), vreinterpretq_u32_u64(cmp_3));
+        let uzp = vuzp1q_u16(vreinterpretq_u16_u32(uzp_0), vreinterpretq_u16_u32(uzp_1));
+        let mut mask = vaddvq_u16(vandq_u16(uzp, mask_low)) as u8;
+
+        if NOT {
+            mask ^= u8::MAX;
+        }
+
+        *dst.add(simd_index) = mask;
+        lhs_ptr = lhs_ptr.add(8);
+    }
+}
+
+#[target_feature(enable = "neon")]
+pub(super) unsafe fn timestamp_eq_scalar_neon<const MULTIPLIER: i64>(
+    array: &AlignedVec<i64>,
+    scalar: i64,
+    dst: *mut BitStore,
+) {
+    timestamp_cmp_scalar_neon::<MULTIPLIER, false>(array, scalar, dst, vceqq_s64)
+}
+
+#[target_feature(enable = "neon")]
+pub(super) unsafe fn timestamp_ne_scalar_neon<const MULTIPLIER: i64>(
+    array: &AlignedVec<i64>,
+    scalar: i64,
+    dst: *mut BitStore,
+) {
+    timestamp_cmp_scalar_neon::<MULTIPLIER, true>(array, scalar, dst, vceqq_s64)
+}
+
+#[target_feature(enable = "neon")]
+pub(super) unsafe fn timestamp_gt_scalar_neon<const MULTIPLIER: i64>(
+    array: &AlignedVec<i64>,
+    scalar: i64,
+    dst: *mut BitStore,
+) {
+    timestamp_cmp_scalar_neon::<MULTIPLIER, false>(array, scalar, dst, vcgtq_s64)
+}
+
+#[target_feature(enable = "neon")]
+pub(super) unsafe fn timestamp_ge_scalar_neon<const MULTIPLIER: i64>(
+    array: &AlignedVec<i64>,
+    scalar: i64,
+    dst: *mut BitStore,
+) {
+    timestamp_cmp_scalar_neon::<MULTIPLIER, false>(array, scalar, dst, vcgeq_s64)
+}
+
+#[target_feature(enable = "neon")]
+pub(super) unsafe fn timestamp_lt_scalar_neon<const MULTIPLIER: i64>(
+    array: &AlignedVec<i64>,
+    scalar: i64,
+    dst: *mut BitStore,
+) {
+    timestamp_cmp_scalar_neon::<MULTIPLIER, false>(array, scalar, dst, vcltq_s64)
+}
+
+#[target_feature(enable = "neon")]
+pub(super) unsafe fn timestamp_le_scalar_neon<const MULTIPLIER: i64>(
+    array: &AlignedVec<i64>,
+    scalar: i64,
+    dst: *mut BitStore,
+) {
+    timestamp_cmp_scalar_neon::<MULTIPLIER, false>(array, scalar, dst, vcleq_s64)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -416,5 +548,23 @@ mod tests {
         cmp_assert!(&lhs, rhs, ge_scalar_i64_neon, &[0x1ef7]);
         cmp_assert!(&lhs, rhs, lt_scalar_i64_neon, &[!0x1ef7]);
         cmp_assert!(&lhs, rhs, le_scalar_i64_neon, &[!0x1ec3]);
+    }
+
+    #[test]
+    fn test_timestamp_equal_scalar() {
+        let lhs = AlignedVec::from_slice(&[10, 8, -3, -9, 10, -10, 3, 2, 15, 10]);
+        let rhs = 10_000;
+        cmp_assert!(&lhs, rhs, timestamp_eq_scalar_neon::<1000>, &[0x211]);
+        cmp_assert!(&lhs, rhs, timestamp_ne_scalar_neon::<1000>, &[!0x211]);
+    }
+
+    #[test]
+    fn test_timestamp_order_scalar() {
+        let lhs = AlignedVec::from_slice(&[10, 8, 33, -9, 10, 11, 3, 2, 10, 7]);
+        let rhs = 10_000;
+        cmp_assert!(&lhs, rhs, timestamp_gt_scalar_neon::<1000>, &[0x024]);
+        cmp_assert!(&lhs, rhs, timestamp_ge_scalar_neon::<1000>, &[0x135]);
+        cmp_assert!(&lhs, rhs, timestamp_lt_scalar_neon::<1000>, &[!0x135]);
+        cmp_assert!(&lhs, rhs, timestamp_le_scalar_neon::<1000>, &[!0x024]);
     }
 }

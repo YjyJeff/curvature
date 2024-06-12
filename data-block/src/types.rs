@@ -267,7 +267,7 @@ pub enum LogicalType {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TimeUnit {
     /// Time in seconds
-    Seconds,
+    Second,
     /// Time in milliseconds(ms)
     Millisecond,
     /// Time in microseconds(us)
