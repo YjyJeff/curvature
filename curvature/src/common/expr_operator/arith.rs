@@ -10,7 +10,7 @@ use data_block::compute::arith::intrinsic::{
 use data_block::compute::arith::{
     scalar_add_scalar, scalar_div_scalar, scalar_mul_scalar, scalar_rem_scalar, scalar_sub_scalar,
 };
-use data_block::types::{Array, LogicalType, TimeUnit};
+use data_block::types::{Array, LogicalType};
 
 /// Arithmetic operator
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -54,90 +54,6 @@ impl ArithOperator {
 impl Display for ArithOperator {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.symbol_ident())
-    }
-}
-
-/// Infer the result type of the arithmetic between two logical types. Returns `Some(LogicalType)`
-/// if the arithmetic between them is supported. Otherwise, returns `None`
-///
-/// # Notes
-///
-/// If the arithmetic between new logical types is supported, you should also support it in
-/// the [`Arith`](crate::exec::physical_expr::arith::Arith) expression
-pub fn arithmetic_type_infer(
-    left: &LogicalType,
-    right: &LogicalType,
-    op: ArithOperator,
-) -> Option<LogicalType> {
-    use LogicalType::*;
-
-    match (left, right) {
-        v @ ((TinyInt, TinyInt)
-        | (SmallInt, SmallInt)
-        | (Integer, Integer)
-        | (BigInt, BigInt)
-        | (UnsignedTinyInt, UnsignedTinyInt)
-        | (UnsignedSmallInt, UnsignedSmallInt)
-        | (UnsignedInteger, UnsignedInteger)
-        | (UnsignedBigInt, UnsignedBigInt)
-        | (Float, Float)
-        | (Double, Double)) => Some(v.0.clone()),
-
-        // Timestamp
-        // Timestamp - Timestamp = Interval
-        (Timestamp(_), Timestamp(_)) if matches!(op, ArithOperator::Sub) => {
-            Some(LogicalType::IntervalDayTime)
-        }
-        // Timestamp +/- Interval = Timestamp
-        (Timestamp(time_unit), IntervalDayTime)
-            if matches!(op, ArithOperator::Add | ArithOperator::Sub) =>
-        {
-            Some(LogicalType::Timestamp(time_unit.to_owned()))
-        }
-
-        // Timestamptz
-        // Timestamptz - Timestamptz = Interval
-        (Timestamptz { .. }, Timestamptz { .. }) if matches!(op, ArithOperator::Sub) => {
-            Some(LogicalType::IntervalDayTime)
-        }
-        // TImestamptz +/- Interval = TimestampTz
-        (Timestamptz { tz_offset }, IntervalDayTime)
-            if matches!(op, ArithOperator::Add | ArithOperator::Sub) =>
-        {
-            Some(LogicalType::Timestamptz {
-                tz_offset: *tz_offset,
-            })
-        }
-
-        // Time
-        // Time +/- Interval = Time
-        (Time, IntervalDayTime) if matches!(op, ArithOperator::Add | ArithOperator::Sub) => {
-            Some(LogicalType::Time)
-        }
-
-        // Timetz
-        // Timetz +/- Interval = Timetz
-        (Timestamptz { tz_offset }, IntervalDayTime)
-            if matches!(op, ArithOperator::Add | ArithOperator::Sub) =>
-        {
-            Some(LogicalType::Timestamptz {
-                tz_offset: *tz_offset,
-            })
-        }
-
-        // Date
-        // Date +/- Integer = Date
-        (Date, Integer) if matches!(op, ArithOperator::Add | ArithOperator::Sub) => {
-            Some(LogicalType::Date)
-        }
-        // Date - Date = Integer
-        (Date, Date) if matches!(op, ArithOperator::Sub) => Some(LogicalType::Integer),
-        // Date +/- Interval = Timestamp
-        (Date, IntervalDayTime) if matches!(op, ArithOperator::Add | ArithOperator::Sub) => {
-            Some(LogicalType::Timestamp(TimeUnit::Microsecond))
-        }
-
-        _ => None,
     }
 }
 

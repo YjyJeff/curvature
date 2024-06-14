@@ -70,74 +70,13 @@ impl Display for CmpOperator {
     }
 }
 
-/// Returns true if these two logical types can perform comparison
-///
-/// TODO: Refactor it like arithmetic
-pub fn can_compare(left: &LogicalType, right: &LogicalType, op: CmpOperator) -> bool {
-    use LogicalType::*;
-    match (left, right) {
-        (Boolean, Boolean)
-        | (TinyInt, TinyInt)
-        | (SmallInt, SmallInt)
-        | (Integer, Integer)
-        | (BigInt, BigInt)
-        | (HugeInt, HugeInt)
-        | (UnsignedTinyInt, UnsignedTinyInt)
-        | (UnsignedSmallInt, UnsignedSmallInt)
-        | (UnsignedInteger, UnsignedInteger)
-        | (UnsignedBigInt, UnsignedBigInt)
-        | (Float, Float)
-        | (Double, Double)
-        | (VarChar, VarChar)
-        | (VarBinary, VarBinary)
-        | (Timestamp(_), Timestamp(_))
-        | (Timestamptz { .. }, Timestamptz { .. })
-        | (Time, Time)
-        | (Timetz { .. }, Timetz { .. })
-        | (IntervalDayTime, IntervalDayTime)
-        | (IntervalYearMonth, IntervalYearMonth)
-        | (Date, Date) => true,
-        (
-            Decimal {
-                precision: left_p,
-                scale: left_s,
-            },
-            Decimal {
-                precision: right_p,
-                scale: right_s,
-            },
-        ) => {
-            // Currently, only same precision is supported
-            (left_p == right_p) && (left_s == right_s)
-        }
-        (Uuid, Uuid) | (IPv4, IPv4) | (IPv6, IPv6)
-            if matches!(op, CmpOperator::Equal | CmpOperator::NotEqual) =>
-        {
-            true
-        }
-
-        (
-            List {
-                element_type: left,
-                is_nullable: _,
-            },
-            List {
-                element_type: right,
-                is_nullable: _,
-            },
-        ) if matches!(op, CmpOperator::Equal | CmpOperator::NotEqual) => {
-            can_compare(left, right, op)
-        }
-
-        _ => false,
-    }
-}
-
 /// Function set for comparison. It has extra dynamic dispatch cost
 #[derive(Debug)]
 pub struct ComparisonFunctionSet {
     /// Function that perform comparison between array and scalar
     pub array_cmp_scalar: fn(&mut Bitmap, &ArrayImpl, &ArrayImpl, &mut ArrayImpl),
+    /// Function that perform comparison between scalar and array
+    pub scalar_cmp_array: fn(&mut Bitmap, &ArrayImpl, &ArrayImpl, &mut ArrayImpl),
 }
 
 macro_rules! cmp_array_scalar_func {
@@ -244,231 +183,232 @@ cmp_scalar_wrapper!(le);
 
 // TODO:
 // - Interval
+// - Duration
 // - Decimal
 // - List
 macro_rules! for_all_comparison {
     ($macro:ident) => {
         $macro! {
-            {TinyInt, TinyInt, Equal, PrimitiveArray<i8>, PrimitiveArray<i8>, identity, intrinsic_eq_scalar},
-            {TinyInt, TinyInt, NotEqual, PrimitiveArray<i8>, PrimitiveArray<i8>, identity, intrinsic_ne_scalar},
-            {TinyInt, TinyInt, GreaterThan, PrimitiveArray<i8>, PrimitiveArray<i8>, identity, intrinsic_gt_scalar},
-            {TinyInt, TinyInt, GreaterThanOrEqualTo, PrimitiveArray<i8>, PrimitiveArray<i8>, identity, intrinsic_ge_scalar},
-            {TinyInt, TinyInt, LessThan, PrimitiveArray<i8>, PrimitiveArray<i8>, identity, intrinsic_lt_scalar},
-            {TinyInt, TinyInt, LessThanOrEqualTo, PrimitiveArray<i8>, PrimitiveArray<i8>, identity, intrinsic_le_scalar},
-            {SmallInt, SmallInt, Equal, PrimitiveArray<i16>, PrimitiveArray<i16>, identity, intrinsic_eq_scalar},
-            {SmallInt, SmallInt, NotEqual, PrimitiveArray<i16>, PrimitiveArray<i16>, identity, intrinsic_ne_scalar},
-            {SmallInt, SmallInt, GreaterThan, PrimitiveArray<i16>, PrimitiveArray<i16>, identity, intrinsic_gt_scalar},
-            {SmallInt, SmallInt, GreaterThanOrEqualTo, PrimitiveArray<i16>, PrimitiveArray<i16>, identity, intrinsic_ge_scalar},
-            {SmallInt, SmallInt, LessThan, PrimitiveArray<i16>, PrimitiveArray<i16>, identity, intrinsic_lt_scalar},
-            {SmallInt, SmallInt, LessThanOrEqualTo, PrimitiveArray<i16>, PrimitiveArray<i16>, identity, intrinsic_le_scalar},
-            {Integer, Integer, Equal, PrimitiveArray<i32>, PrimitiveArray<i32>, identity, intrinsic_eq_scalar},
-            {Integer, Integer, NotEqual, PrimitiveArray<i32>, PrimitiveArray<i32>, identity, intrinsic_ne_scalar},
-            {Integer, Integer, GreaterThan, PrimitiveArray<i32>, PrimitiveArray<i32>, identity, intrinsic_gt_scalar},
-            {Integer, Integer, GreaterThanOrEqualTo, PrimitiveArray<i32>, PrimitiveArray<i32>, identity, intrinsic_ge_scalar},
-            {Integer, Integer, LessThan, PrimitiveArray<i32>, PrimitiveArray<i32>, identity, intrinsic_lt_scalar},
-            {Integer, Integer, LessThanOrEqualTo, PrimitiveArray<i32>, PrimitiveArray<i32>, identity, intrinsic_le_scalar},
-            {BigInt, BigInt, Equal, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_eq_scalar},
-            {BigInt, BigInt, NotEqual, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_ne_scalar},
-            {BigInt, BigInt, GreaterThan, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_gt_scalar},
-            {BigInt, BigInt, GreaterThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_ge_scalar},
-            {BigInt, BigInt, LessThan, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_lt_scalar},
-            {BigInt, BigInt, LessThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_le_scalar},
-            {UnsignedTinyInt, UnsignedTinyInt, Equal, PrimitiveArray<u8>, PrimitiveArray<u8>, identity, intrinsic_eq_scalar},
-            {UnsignedTinyInt, UnsignedTinyInt, NotEqual, PrimitiveArray<u8>, PrimitiveArray<u8>, identity, intrinsic_ne_scalar},
-            {UnsignedTinyInt, UnsignedTinyInt, GreaterThan, PrimitiveArray<u8>, PrimitiveArray<u8>, identity, intrinsic_gt_scalar},
-            {UnsignedTinyInt, UnsignedTinyInt, GreaterThanOrEqualTo, PrimitiveArray<u8>, PrimitiveArray<u8>, identity, intrinsic_ge_scalar},
-            {UnsignedTinyInt, UnsignedTinyInt, LessThan, PrimitiveArray<u8>, PrimitiveArray<u8>, identity, intrinsic_lt_scalar},
-            {UnsignedTinyInt, UnsignedTinyInt, LessThanOrEqualTo, PrimitiveArray<u8>, PrimitiveArray<u8>, identity, intrinsic_le_scalar},
-            {UnsignedSmallInt, UnsignedSmallInt, Equal, PrimitiveArray<u16>, PrimitiveArray<u16>, identity, intrinsic_eq_scalar},
-            {UnsignedSmallInt, UnsignedSmallInt, NotEqual, PrimitiveArray<u16>, PrimitiveArray<u16>, identity, intrinsic_ne_scalar},
-            {UnsignedSmallInt, UnsignedSmallInt, GreaterThan, PrimitiveArray<u16>, PrimitiveArray<u16>, identity, intrinsic_gt_scalar},
-            {UnsignedSmallInt, UnsignedSmallInt, GreaterThanOrEqualTo, PrimitiveArray<u16>, PrimitiveArray<u16>, identity, intrinsic_ge_scalar},
-            {UnsignedSmallInt, UnsignedSmallInt, LessThan, PrimitiveArray<u16>, PrimitiveArray<u16>, identity, intrinsic_lt_scalar},
-            {UnsignedSmallInt, UnsignedSmallInt, LessThanOrEqualTo, PrimitiveArray<u16>, PrimitiveArray<u16>, identity, intrinsic_le_scalar},
-            {UnsignedInteger, UnsignedInteger, Equal, PrimitiveArray<u32>, PrimitiveArray<u32>, identity, intrinsic_eq_scalar},
-            {UnsignedInteger, UnsignedInteger, NotEqual, PrimitiveArray<u32>, PrimitiveArray<u32>, identity, intrinsic_ne_scalar},
-            {UnsignedInteger, UnsignedInteger, GreaterThan, PrimitiveArray<u32>, PrimitiveArray<u32>, identity, intrinsic_gt_scalar},
-            {UnsignedInteger, UnsignedInteger, GreaterThanOrEqualTo, PrimitiveArray<u32>, PrimitiveArray<u32>, identity, intrinsic_ge_scalar},
-            {UnsignedInteger, UnsignedInteger, LessThan, PrimitiveArray<u32>, PrimitiveArray<u32>, identity, intrinsic_lt_scalar},
-            {UnsignedInteger, UnsignedInteger, LessThanOrEqualTo, PrimitiveArray<u32>, PrimitiveArray<u32>, identity, intrinsic_le_scalar},
-            {UnsignedBigInt, UnsignedBigInt, Equal, PrimitiveArray<u64>, PrimitiveArray<u64>, identity, intrinsic_eq_scalar},
-            {UnsignedBigInt, UnsignedBigInt, NotEqual, PrimitiveArray<u64>, PrimitiveArray<u64>, identity, intrinsic_ne_scalar},
-            {UnsignedBigInt, UnsignedBigInt, GreaterThan, PrimitiveArray<u64>, PrimitiveArray<u64>, identity, intrinsic_gt_scalar},
-            {UnsignedBigInt, UnsignedBigInt, GreaterThanOrEqualTo, PrimitiveArray<u64>, PrimitiveArray<u64>, identity, intrinsic_ge_scalar},
-            {UnsignedBigInt, UnsignedBigInt, LessThan, PrimitiveArray<u64>, PrimitiveArray<u64>, identity, intrinsic_lt_scalar},
-            {UnsignedBigInt, UnsignedBigInt, LessThanOrEqualTo, PrimitiveArray<u64>, PrimitiveArray<u64>, identity, intrinsic_le_scalar},
-            {HugeInt, HugeInt, Equal, PrimitiveArray<i128>, PrimitiveArray<i128>, identity, primitive_eq_scalar},
-            {HugeInt, HugeInt, NotEqual, PrimitiveArray<i128>, PrimitiveArray<i128>, identity, primitive_ne_scalar},
-            {HugeInt, HugeInt, GreaterThan, PrimitiveArray<i128>, PrimitiveArray<i128>, identity, primitive_gt_scalar},
-            {HugeInt, HugeInt, GreaterThanOrEqualTo, PrimitiveArray<i128>, PrimitiveArray<i128>, identity, primitive_ge_scalar},
-            {HugeInt, HugeInt, LessThan, PrimitiveArray<i128>, PrimitiveArray<i128>, identity, primitive_lt_scalar},
-            {HugeInt, HugeInt, LessThanOrEqualTo, PrimitiveArray<i128>, PrimitiveArray<i128>, identity, primitive_le_scalar},
-            {Float, Float, Equal, PrimitiveArray<f32>, PrimitiveArray<f32>, identity, intrinsic_eq_scalar},
-            {Float, Float, NotEqual, PrimitiveArray<f32>, PrimitiveArray<f32>, identity, intrinsic_ne_scalar},
-            {Float, Float, GreaterThan, PrimitiveArray<f32>, PrimitiveArray<f32>, identity, intrinsic_gt_scalar},
-            {Float, Float, GreaterThanOrEqualTo, PrimitiveArray<f32>, PrimitiveArray<f32>, identity, intrinsic_ge_scalar},
-            {Float, Float, LessThan, PrimitiveArray<f32>, PrimitiveArray<f32>, identity, intrinsic_lt_scalar},
-            {Float, Float, LessThanOrEqualTo, PrimitiveArray<f32>, PrimitiveArray<f32>, identity, intrinsic_le_scalar},
-            {Double, Double, Equal, PrimitiveArray<f64>, PrimitiveArray<f64>, identity, intrinsic_eq_scalar},
-            {Double, Double, NotEqual, PrimitiveArray<f64>, PrimitiveArray<f64>, identity, intrinsic_ne_scalar},
-            {Double, Double, GreaterThan, PrimitiveArray<f64>, PrimitiveArray<f64>, identity, intrinsic_gt_scalar},
-            {Double, Double, GreaterThanOrEqualTo, PrimitiveArray<f64>, PrimitiveArray<f64>, identity, intrinsic_ge_scalar},
-            {Double, Double, LessThan, PrimitiveArray<f64>, PrimitiveArray<f64>, identity, intrinsic_lt_scalar},
-            {Double, Double, LessThanOrEqualTo, PrimitiveArray<f64>, PrimitiveArray<f64>, identity, intrinsic_le_scalar},
+            {TinyInt, TinyInt, Equal, PrimitiveArray<i8>, PrimitiveArray<i8>, identity, intrinsic_eq_scalar, intrinsic_eq_scalar},
+            {TinyInt, TinyInt, NotEqual, PrimitiveArray<i8>, PrimitiveArray<i8>, identity, intrinsic_ne_scalar, intrinsic_ne_scalar},
+            {TinyInt, TinyInt, GreaterThan, PrimitiveArray<i8>, PrimitiveArray<i8>, identity, intrinsic_gt_scalar, intrinsic_lt_scalar},
+            {TinyInt, TinyInt, GreaterThanOrEqualTo, PrimitiveArray<i8>, PrimitiveArray<i8>, identity, intrinsic_ge_scalar, intrinsic_le_scalar},
+            {TinyInt, TinyInt, LessThan, PrimitiveArray<i8>, PrimitiveArray<i8>, identity, intrinsic_lt_scalar, intrinsic_gt_scalar},
+            {TinyInt, TinyInt, LessThanOrEqualTo, PrimitiveArray<i8>, PrimitiveArray<i8>, identity, intrinsic_le_scalar, intrinsic_ge_scalar},
+            {SmallInt, SmallInt, Equal, PrimitiveArray<i16>, PrimitiveArray<i16>, identity, intrinsic_eq_scalar, intrinsic_eq_scalar},
+            {SmallInt, SmallInt, NotEqual, PrimitiveArray<i16>, PrimitiveArray<i16>, identity, intrinsic_ne_scalar, intrinsic_ne_scalar},
+            {SmallInt, SmallInt, GreaterThan, PrimitiveArray<i16>, PrimitiveArray<i16>, identity, intrinsic_gt_scalar, intrinsic_lt_scalar},
+            {SmallInt, SmallInt, GreaterThanOrEqualTo, PrimitiveArray<i16>, PrimitiveArray<i16>, identity, intrinsic_ge_scalar, intrinsic_le_scalar},
+            {SmallInt, SmallInt, LessThan, PrimitiveArray<i16>, PrimitiveArray<i16>, identity, intrinsic_lt_scalar, intrinsic_gt_scalar},
+            {SmallInt, SmallInt, LessThanOrEqualTo, PrimitiveArray<i16>, PrimitiveArray<i16>, identity, intrinsic_le_scalar, intrinsic_ge_scalar},
+            {Integer, Integer, Equal, PrimitiveArray<i32>, PrimitiveArray<i32>, identity, intrinsic_eq_scalar, intrinsic_eq_scalar},
+            {Integer, Integer, NotEqual, PrimitiveArray<i32>, PrimitiveArray<i32>, identity, intrinsic_ne_scalar, intrinsic_ne_scalar},
+            {Integer, Integer, GreaterThan, PrimitiveArray<i32>, PrimitiveArray<i32>, identity, intrinsic_gt_scalar, intrinsic_lt_scalar},
+            {Integer, Integer, GreaterThanOrEqualTo, PrimitiveArray<i32>, PrimitiveArray<i32>, identity, intrinsic_ge_scalar, intrinsic_le_scalar},
+            {Integer, Integer, LessThan, PrimitiveArray<i32>, PrimitiveArray<i32>, identity, intrinsic_lt_scalar, intrinsic_gt_scalar},
+            {Integer, Integer, LessThanOrEqualTo, PrimitiveArray<i32>, PrimitiveArray<i32>, identity, intrinsic_le_scalar, intrinsic_ge_scalar},
+            {BigInt, BigInt, Equal, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_eq_scalar, intrinsic_eq_scalar},
+            {BigInt, BigInt, NotEqual, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_ne_scalar, intrinsic_ne_scalar},
+            {BigInt, BigInt, GreaterThan, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_gt_scalar, intrinsic_lt_scalar},
+            {BigInt, BigInt, GreaterThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_ge_scalar, intrinsic_le_scalar},
+            {BigInt, BigInt, LessThan, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_lt_scalar, intrinsic_gt_scalar},
+            {BigInt, BigInt, LessThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_le_scalar, intrinsic_ge_scalar},
+            {UnsignedTinyInt, UnsignedTinyInt, Equal, PrimitiveArray<u8>, PrimitiveArray<u8>, identity, intrinsic_eq_scalar, intrinsic_eq_scalar},
+            {UnsignedTinyInt, UnsignedTinyInt, NotEqual, PrimitiveArray<u8>, PrimitiveArray<u8>, identity, intrinsic_ne_scalar, intrinsic_ne_scalar},
+            {UnsignedTinyInt, UnsignedTinyInt, GreaterThan, PrimitiveArray<u8>, PrimitiveArray<u8>, identity, intrinsic_gt_scalar, intrinsic_lt_scalar},
+            {UnsignedTinyInt, UnsignedTinyInt, GreaterThanOrEqualTo, PrimitiveArray<u8>, PrimitiveArray<u8>, identity, intrinsic_ge_scalar, intrinsic_le_scalar},
+            {UnsignedTinyInt, UnsignedTinyInt, LessThan, PrimitiveArray<u8>, PrimitiveArray<u8>, identity, intrinsic_lt_scalar, intrinsic_gt_scalar},
+            {UnsignedTinyInt, UnsignedTinyInt, LessThanOrEqualTo, PrimitiveArray<u8>, PrimitiveArray<u8>, identity, intrinsic_le_scalar, intrinsic_ge_scalar},
+            {UnsignedSmallInt, UnsignedSmallInt, Equal, PrimitiveArray<u16>, PrimitiveArray<u16>, identity, intrinsic_eq_scalar, intrinsic_eq_scalar},
+            {UnsignedSmallInt, UnsignedSmallInt, NotEqual, PrimitiveArray<u16>, PrimitiveArray<u16>, identity, intrinsic_ne_scalar, intrinsic_ne_scalar},
+            {UnsignedSmallInt, UnsignedSmallInt, GreaterThan, PrimitiveArray<u16>, PrimitiveArray<u16>, identity, intrinsic_gt_scalar, intrinsic_lt_scalar},
+            {UnsignedSmallInt, UnsignedSmallInt, GreaterThanOrEqualTo, PrimitiveArray<u16>, PrimitiveArray<u16>, identity, intrinsic_ge_scalar, intrinsic_le_scalar},
+            {UnsignedSmallInt, UnsignedSmallInt, LessThan, PrimitiveArray<u16>, PrimitiveArray<u16>, identity, intrinsic_lt_scalar, intrinsic_gt_scalar},
+            {UnsignedSmallInt, UnsignedSmallInt, LessThanOrEqualTo, PrimitiveArray<u16>, PrimitiveArray<u16>, identity, intrinsic_le_scalar, intrinsic_ge_scalar},
+            {UnsignedInteger, UnsignedInteger, Equal, PrimitiveArray<u32>, PrimitiveArray<u32>, identity, intrinsic_eq_scalar, intrinsic_eq_scalar},
+            {UnsignedInteger, UnsignedInteger, NotEqual, PrimitiveArray<u32>, PrimitiveArray<u32>, identity, intrinsic_ne_scalar, intrinsic_ne_scalar},
+            {UnsignedInteger, UnsignedInteger, GreaterThan, PrimitiveArray<u32>, PrimitiveArray<u32>, identity, intrinsic_gt_scalar, intrinsic_lt_scalar},
+            {UnsignedInteger, UnsignedInteger, GreaterThanOrEqualTo, PrimitiveArray<u32>, PrimitiveArray<u32>, identity, intrinsic_ge_scalar, intrinsic_le_scalar},
+            {UnsignedInteger, UnsignedInteger, LessThan, PrimitiveArray<u32>, PrimitiveArray<u32>, identity, intrinsic_lt_scalar, intrinsic_gt_scalar},
+            {UnsignedInteger, UnsignedInteger, LessThanOrEqualTo, PrimitiveArray<u32>, PrimitiveArray<u32>, identity, intrinsic_le_scalar, intrinsic_ge_scalar},
+            {UnsignedBigInt, UnsignedBigInt, Equal, PrimitiveArray<u64>, PrimitiveArray<u64>, identity, intrinsic_eq_scalar, intrinsic_eq_scalar},
+            {UnsignedBigInt, UnsignedBigInt, NotEqual, PrimitiveArray<u64>, PrimitiveArray<u64>, identity, intrinsic_ne_scalar, intrinsic_ne_scalar},
+            {UnsignedBigInt, UnsignedBigInt, GreaterThan, PrimitiveArray<u64>, PrimitiveArray<u64>, identity, intrinsic_gt_scalar, intrinsic_lt_scalar},
+            {UnsignedBigInt, UnsignedBigInt, GreaterThanOrEqualTo, PrimitiveArray<u64>, PrimitiveArray<u64>, identity, intrinsic_ge_scalar, intrinsic_le_scalar},
+            {UnsignedBigInt, UnsignedBigInt, LessThan, PrimitiveArray<u64>, PrimitiveArray<u64>, identity, intrinsic_lt_scalar, intrinsic_gt_scalar},
+            {UnsignedBigInt, UnsignedBigInt, LessThanOrEqualTo, PrimitiveArray<u64>, PrimitiveArray<u64>, identity, intrinsic_le_scalar, intrinsic_ge_scalar},
+            {HugeInt, HugeInt, Equal, PrimitiveArray<i128>, PrimitiveArray<i128>, identity, primitive_eq_scalar, primitive_eq_scalar},
+            {HugeInt, HugeInt, NotEqual, PrimitiveArray<i128>, PrimitiveArray<i128>, identity, primitive_ne_scalar, primitive_ne_scalar},
+            {HugeInt, HugeInt, GreaterThan, PrimitiveArray<i128>, PrimitiveArray<i128>, identity, primitive_gt_scalar, primitive_lt_scalar},
+            {HugeInt, HugeInt, GreaterThanOrEqualTo, PrimitiveArray<i128>, PrimitiveArray<i128>, identity, primitive_ge_scalar, primitive_le_scalar},
+            {HugeInt, HugeInt, LessThan, PrimitiveArray<i128>, PrimitiveArray<i128>, identity, primitive_lt_scalar, primitive_gt_scalar},
+            {HugeInt, HugeInt, LessThanOrEqualTo, PrimitiveArray<i128>, PrimitiveArray<i128>, identity, primitive_le_scalar, primitive_ge_scalar},
+            {Float, Float, Equal, PrimitiveArray<f32>, PrimitiveArray<f32>, identity, intrinsic_eq_scalar, intrinsic_eq_scalar},
+            {Float, Float, NotEqual, PrimitiveArray<f32>, PrimitiveArray<f32>, identity, intrinsic_ne_scalar, intrinsic_ne_scalar},
+            {Float, Float, GreaterThan, PrimitiveArray<f32>, PrimitiveArray<f32>, identity, intrinsic_gt_scalar, intrinsic_lt_scalar},
+            {Float, Float, GreaterThanOrEqualTo, PrimitiveArray<f32>, PrimitiveArray<f32>, identity, intrinsic_ge_scalar, intrinsic_le_scalar},
+            {Float, Float, LessThan, PrimitiveArray<f32>, PrimitiveArray<f32>, identity, intrinsic_lt_scalar, intrinsic_gt_scalar},
+            {Float, Float, LessThanOrEqualTo, PrimitiveArray<f32>, PrimitiveArray<f32>, identity, intrinsic_le_scalar, intrinsic_ge_scalar},
+            {Double, Double, Equal, PrimitiveArray<f64>, PrimitiveArray<f64>, identity, intrinsic_eq_scalar, intrinsic_eq_scalar},
+            {Double, Double, NotEqual, PrimitiveArray<f64>, PrimitiveArray<f64>, identity, intrinsic_ne_scalar, intrinsic_ne_scalar},
+            {Double, Double, GreaterThan, PrimitiveArray<f64>, PrimitiveArray<f64>, identity, intrinsic_gt_scalar, intrinsic_lt_scalar},
+            {Double, Double, GreaterThanOrEqualTo, PrimitiveArray<f64>, PrimitiveArray<f64>, identity, intrinsic_ge_scalar, intrinsic_le_scalar},
+            {Double, Double, LessThan, PrimitiveArray<f64>, PrimitiveArray<f64>, identity, intrinsic_lt_scalar, intrinsic_gt_scalar},
+            {Double, Double, LessThanOrEqualTo, PrimitiveArray<f64>, PrimitiveArray<f64>, identity, intrinsic_le_scalar, intrinsic_ge_scalar},
 
             // Timestamp with same unit
-            {Timestamp(TimeUnit::Second), Timestamp(TimeUnit::Second), Equal, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_eq_scalar},
-            {Timestamp(TimeUnit::Second), Timestamp(TimeUnit::Second), NotEqual, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_ne_scalar},
-            {Timestamp(TimeUnit::Second), Timestamp(TimeUnit::Second), GreaterThan, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_gt_scalar},
-            {Timestamp(TimeUnit::Second), Timestamp(TimeUnit::Second), GreaterThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_ge_scalar},
-            {Timestamp(TimeUnit::Second), Timestamp(TimeUnit::Second), LessThan, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_lt_scalar},
-            {Timestamp(TimeUnit::Second), Timestamp(TimeUnit::Second), LessThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_le_scalar},
-            {Timestamp(TimeUnit::Millisecond), Timestamp(TimeUnit::Millisecond), Equal, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_eq_scalar},
-            {Timestamp(TimeUnit::Millisecond), Timestamp(TimeUnit::Millisecond), NotEqual, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_ne_scalar},
-            {Timestamp(TimeUnit::Millisecond), Timestamp(TimeUnit::Millisecond), GreaterThan, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_gt_scalar},
-            {Timestamp(TimeUnit::Millisecond), Timestamp(TimeUnit::Millisecond), GreaterThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_ge_scalar},
-            {Timestamp(TimeUnit::Millisecond), Timestamp(TimeUnit::Millisecond), LessThan, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_lt_scalar},
-            {Timestamp(TimeUnit::Millisecond), Timestamp(TimeUnit::Millisecond), LessThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_le_scalar},
-            {Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Equal, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_eq_scalar},
-            {Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, NotEqual, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_ne_scalar},
-            {Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, GreaterThan, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_gt_scalar},
-            {Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, GreaterThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_ge_scalar},
-            {Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, LessThan, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_lt_scalar},
-            {Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, LessThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_le_scalar},
-            {Timestamp(TimeUnit::Nanosecond), Timestamp(TimeUnit::Nanosecond), Equal, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_eq_scalar},
-            {Timestamp(TimeUnit::Nanosecond), Timestamp(TimeUnit::Nanosecond), NotEqual, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_ne_scalar},
-            {Timestamp(TimeUnit::Nanosecond), Timestamp(TimeUnit::Nanosecond), GreaterThan, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_gt_scalar},
-            {Timestamp(TimeUnit::Nanosecond), Timestamp(TimeUnit::Nanosecond), GreaterThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_ge_scalar},
-            {Timestamp(TimeUnit::Nanosecond), Timestamp(TimeUnit::Nanosecond), LessThan, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_lt_scalar},
-            {Timestamp(TimeUnit::Nanosecond), Timestamp(TimeUnit::Nanosecond), LessThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_le_scalar},
+            {Timestamp(TimeUnit::Second), Timestamp(TimeUnit::Second), Equal, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_eq_scalar, intrinsic_eq_scalar},
+            {Timestamp(TimeUnit::Second), Timestamp(TimeUnit::Second), NotEqual, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_ne_scalar, intrinsic_ne_scalar},
+            {Timestamp(TimeUnit::Second), Timestamp(TimeUnit::Second), GreaterThan, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_gt_scalar, intrinsic_lt_scalar},
+            {Timestamp(TimeUnit::Second), Timestamp(TimeUnit::Second), GreaterThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_ge_scalar, intrinsic_le_scalar},
+            {Timestamp(TimeUnit::Second), Timestamp(TimeUnit::Second), LessThan, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_lt_scalar, intrinsic_gt_scalar},
+            {Timestamp(TimeUnit::Second), Timestamp(TimeUnit::Second), LessThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_le_scalar, intrinsic_ge_scalar},
+            {Timestamp(TimeUnit::Millisecond), Timestamp(TimeUnit::Millisecond), Equal, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_eq_scalar, intrinsic_eq_scalar},
+            {Timestamp(TimeUnit::Millisecond), Timestamp(TimeUnit::Millisecond), NotEqual, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_ne_scalar, intrinsic_ne_scalar},
+            {Timestamp(TimeUnit::Millisecond), Timestamp(TimeUnit::Millisecond), GreaterThan, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_gt_scalar, intrinsic_lt_scalar},
+            {Timestamp(TimeUnit::Millisecond), Timestamp(TimeUnit::Millisecond), GreaterThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_ge_scalar, intrinsic_le_scalar},
+            {Timestamp(TimeUnit::Millisecond), Timestamp(TimeUnit::Millisecond), LessThan, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_lt_scalar, intrinsic_gt_scalar},
+            {Timestamp(TimeUnit::Millisecond), Timestamp(TimeUnit::Millisecond), LessThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_le_scalar, intrinsic_ge_scalar},
+            {Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Equal, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_eq_scalar, intrinsic_eq_scalar},
+            {Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, NotEqual, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_ne_scalar, intrinsic_ne_scalar},
+            {Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, GreaterThan, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_gt_scalar, intrinsic_lt_scalar},
+            {Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, GreaterThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_ge_scalar, intrinsic_le_scalar},
+            {Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, LessThan, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_lt_scalar, intrinsic_gt_scalar},
+            {Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, LessThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_le_scalar, intrinsic_ge_scalar},
+            {Timestamp(TimeUnit::Nanosecond), Timestamp(TimeUnit::Nanosecond), Equal, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_eq_scalar, intrinsic_eq_scalar},
+            {Timestamp(TimeUnit::Nanosecond), Timestamp(TimeUnit::Nanosecond), NotEqual, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_ne_scalar, intrinsic_ne_scalar},
+            {Timestamp(TimeUnit::Nanosecond), Timestamp(TimeUnit::Nanosecond), GreaterThan, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_gt_scalar, intrinsic_lt_scalar},
+            {Timestamp(TimeUnit::Nanosecond), Timestamp(TimeUnit::Nanosecond), GreaterThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_ge_scalar, intrinsic_le_scalar},
+            {Timestamp(TimeUnit::Nanosecond), Timestamp(TimeUnit::Nanosecond), LessThan, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_lt_scalar, intrinsic_gt_scalar},
+            {Timestamp(TimeUnit::Nanosecond), Timestamp(TimeUnit::Nanosecond), LessThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_le_scalar, intrinsic_ge_scalar},
 
             // // Timestamp: low precision lhs with high precision rhs
-            {Timestamp(TimeUnit::Second), Timestamp(TimeUnit::Millisecond), Equal, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_eq_scalar::<1_000>},
-            {Timestamp(TimeUnit::Second), Timestamp(TimeUnit::Millisecond), NotEqual, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_ne_scalar::<1_000>},
-            {Timestamp(TimeUnit::Second), Timestamp(TimeUnit::Millisecond), GreaterThan, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_gt_scalar::<1_000>},
-            {Timestamp(TimeUnit::Second), Timestamp(TimeUnit::Millisecond), GreaterThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_ge_scalar::<1_000>},
-            {Timestamp(TimeUnit::Second), Timestamp(TimeUnit::Millisecond), LessThan, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_lt_scalar::<1_000>},
-            {Timestamp(TimeUnit::Second), Timestamp(TimeUnit::Millisecond), LessThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_le_scalar::<1_000>},
-            {Timestamp(TimeUnit::Second), Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Equal, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_eq_scalar::<1_000_000>},
-            {Timestamp(TimeUnit::Second), Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, NotEqual, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_ne_scalar::<1_000_000>},
-            {Timestamp(TimeUnit::Second), Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, GreaterThan, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_gt_scalar::<1_000_000>},
-            {Timestamp(TimeUnit::Second), Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, GreaterThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_ge_scalar::<1_000_000>},
-            {Timestamp(TimeUnit::Second), Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, LessThan, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_lt_scalar::<1_000_000>},
-            {Timestamp(TimeUnit::Second), Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, LessThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_le_scalar::<1_000_000>},
-            {Timestamp(TimeUnit::Second), Timestamp(TimeUnit::Nanosecond), Equal, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_eq_scalar::<1_000_000_000>},
-            {Timestamp(TimeUnit::Second), Timestamp(TimeUnit::Nanosecond), NotEqual, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_ne_scalar::<1_000_000_000>},
-            {Timestamp(TimeUnit::Second), Timestamp(TimeUnit::Nanosecond), GreaterThan, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_gt_scalar::<1_000_000_000>},
-            {Timestamp(TimeUnit::Second), Timestamp(TimeUnit::Nanosecond), GreaterThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_ge_scalar::<1_000_000_000>},
-            {Timestamp(TimeUnit::Second), Timestamp(TimeUnit::Nanosecond), LessThan, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_lt_scalar::<1_000_000_000>},
-            {Timestamp(TimeUnit::Second), Timestamp(TimeUnit::Nanosecond), LessThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_le_scalar::<1_000_000_000>},
-            {Timestamp(TimeUnit::Millisecond), Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Equal, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_eq_scalar::<1_000>},
-            {Timestamp(TimeUnit::Millisecond), Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, NotEqual, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_ne_scalar::<1_000>},
-            {Timestamp(TimeUnit::Millisecond), Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, GreaterThan, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_gt_scalar::<1_000>},
-            {Timestamp(TimeUnit::Millisecond), Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, GreaterThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_ge_scalar::<1_000>},
-            {Timestamp(TimeUnit::Millisecond), Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, LessThan, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_lt_scalar::<1_000>},
-            {Timestamp(TimeUnit::Millisecond), Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, LessThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_le_scalar::<1_000>},
-            {Timestamp(TimeUnit::Millisecond), Timestamp(TimeUnit::Nanosecond), Equal, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_eq_scalar::<1_000_000>},
-            {Timestamp(TimeUnit::Millisecond), Timestamp(TimeUnit::Nanosecond), NotEqual, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_ne_scalar::<1_000_000>},
-            {Timestamp(TimeUnit::Millisecond), Timestamp(TimeUnit::Nanosecond), GreaterThan, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_gt_scalar::<1_000_000>},
-            {Timestamp(TimeUnit::Millisecond), Timestamp(TimeUnit::Nanosecond), GreaterThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_ge_scalar::<1_000_000>},
-            {Timestamp(TimeUnit::Millisecond), Timestamp(TimeUnit::Nanosecond), LessThan, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_lt_scalar::<1_000_000>},
-            {Timestamp(TimeUnit::Millisecond), Timestamp(TimeUnit::Nanosecond), LessThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_le_scalar::<1_000_000>},
-            {Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Timestamp(TimeUnit::Nanosecond), Equal, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_eq_scalar::<1_000>},
-            {Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Timestamp(TimeUnit::Nanosecond), NotEqual, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_ne_scalar::<1_000>},
-            {Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Timestamp(TimeUnit::Nanosecond), GreaterThan, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_gt_scalar::<1_000>},
-            {Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Timestamp(TimeUnit::Nanosecond), GreaterThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_ge_scalar::<1_000>},
-            {Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Timestamp(TimeUnit::Nanosecond), LessThan, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_lt_scalar::<1_000>},
-            {Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Timestamp(TimeUnit::Nanosecond), LessThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_le_scalar::<1_000>},
+            {Timestamp(TimeUnit::Second), Timestamp(TimeUnit::Millisecond), Equal, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_eq_scalar::<1_000>, timestamp_eq_scalar::<1_000>},
+            {Timestamp(TimeUnit::Second), Timestamp(TimeUnit::Millisecond), NotEqual, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_ne_scalar::<1_000>, timestamp_ne_scalar::<1_000>},
+            {Timestamp(TimeUnit::Second), Timestamp(TimeUnit::Millisecond), GreaterThan, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_gt_scalar::<1_000>, timestamp_lt_scalar::<1_000>},
+            {Timestamp(TimeUnit::Second), Timestamp(TimeUnit::Millisecond), GreaterThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_ge_scalar::<1_000>, timestamp_le_scalar::<1_000>},
+            {Timestamp(TimeUnit::Second), Timestamp(TimeUnit::Millisecond), LessThan, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_lt_scalar::<1_000>, timestamp_gt_scalar::<1_000>},
+            {Timestamp(TimeUnit::Second), Timestamp(TimeUnit::Millisecond), LessThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_le_scalar::<1_000>, timestamp_ge_scalar::<1_000>},
+            {Timestamp(TimeUnit::Second), Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Equal, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_eq_scalar::<1_000_000>, timestamp_eq_scalar::<1_000_000>},
+            {Timestamp(TimeUnit::Second), Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, NotEqual, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_ne_scalar::<1_000_000>, timestamp_ne_scalar::<1_000_000>},
+            {Timestamp(TimeUnit::Second), Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, GreaterThan, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_gt_scalar::<1_000_000>, timestamp_lt_scalar::<1_000_000>},
+            {Timestamp(TimeUnit::Second), Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, GreaterThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_ge_scalar::<1_000_000>, timestamp_le_scalar::<1_000_000>},
+            {Timestamp(TimeUnit::Second), Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, LessThan, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_lt_scalar::<1_000_000>, timestamp_gt_scalar::<1_000_000>},
+            {Timestamp(TimeUnit::Second), Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, LessThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_le_scalar::<1_000_000>, timestamp_ge_scalar::<1_000_000>},
+            {Timestamp(TimeUnit::Second), Timestamp(TimeUnit::Nanosecond), Equal, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_eq_scalar::<1_000_000_000>, timestamp_eq_scalar::<1_000_000_000>},
+            {Timestamp(TimeUnit::Second), Timestamp(TimeUnit::Nanosecond), NotEqual, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_ne_scalar::<1_000_000_000>, timestamp_ne_scalar::<1_000_000_000>},
+            {Timestamp(TimeUnit::Second), Timestamp(TimeUnit::Nanosecond), GreaterThan, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_gt_scalar::<1_000_000_000>, timestamp_lt_scalar::<1_000_000_000>},
+            {Timestamp(TimeUnit::Second), Timestamp(TimeUnit::Nanosecond), GreaterThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_ge_scalar::<1_000_000_000>, timestamp_le_scalar::<1_000_000_000>},
+            {Timestamp(TimeUnit::Second), Timestamp(TimeUnit::Nanosecond), LessThan, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_lt_scalar::<1_000_000_000>, timestamp_gt_scalar::<1_000_000_000>},
+            {Timestamp(TimeUnit::Second), Timestamp(TimeUnit::Nanosecond), LessThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_le_scalar::<1_000_000_000>, timestamp_ge_scalar::<1_000_000_000>},
+            {Timestamp(TimeUnit::Millisecond), Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Equal, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_eq_scalar::<1_000>, timestamp_eq_scalar::<1_000>},
+            {Timestamp(TimeUnit::Millisecond), Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, NotEqual, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_ne_scalar::<1_000>, timestamp_ne_scalar::<1_000>},
+            {Timestamp(TimeUnit::Millisecond), Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, GreaterThan, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_gt_scalar::<1_000>, timestamp_lt_scalar::<1_000>},
+            {Timestamp(TimeUnit::Millisecond), Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, GreaterThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_ge_scalar::<1_000>, timestamp_le_scalar::<1_000>},
+            {Timestamp(TimeUnit::Millisecond), Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, LessThan, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_lt_scalar::<1_000>, timestamp_gt_scalar::<1_000>},
+            {Timestamp(TimeUnit::Millisecond), Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, LessThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_le_scalar::<1_000>, timestamp_ge_scalar::<1_000>},
+            {Timestamp(TimeUnit::Millisecond), Timestamp(TimeUnit::Nanosecond), Equal, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_eq_scalar::<1_000_000>, timestamp_eq_scalar::<1_000_000>},
+            {Timestamp(TimeUnit::Millisecond), Timestamp(TimeUnit::Nanosecond), NotEqual, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_ne_scalar::<1_000_000>, timestamp_ne_scalar::<1_000_000>},
+            {Timestamp(TimeUnit::Millisecond), Timestamp(TimeUnit::Nanosecond), GreaterThan, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_gt_scalar::<1_000_000>, timestamp_lt_scalar::<1_000_000>},
+            {Timestamp(TimeUnit::Millisecond), Timestamp(TimeUnit::Nanosecond), GreaterThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_ge_scalar::<1_000_000>, timestamp_le_scalar::<1_000_000>},
+            {Timestamp(TimeUnit::Millisecond), Timestamp(TimeUnit::Nanosecond), LessThan, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_lt_scalar::<1_000_000>, timestamp_gt_scalar::<1_000_000>},
+            {Timestamp(TimeUnit::Millisecond), Timestamp(TimeUnit::Nanosecond), LessThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_le_scalar::<1_000_000>, timestamp_ge_scalar::<1_000_000>},
+            {Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Timestamp(TimeUnit::Nanosecond), Equal, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_eq_scalar::<1_000>, timestamp_eq_scalar::<1_000>},
+            {Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Timestamp(TimeUnit::Nanosecond), NotEqual, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_ne_scalar::<1_000>, timestamp_ne_scalar::<1_000>},
+            {Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Timestamp(TimeUnit::Nanosecond), GreaterThan, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_gt_scalar::<1_000>, timestamp_lt_scalar::<1_000>},
+            {Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Timestamp(TimeUnit::Nanosecond), GreaterThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_ge_scalar::<1_000>, timestamp_le_scalar::<1_000>},
+            {Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Timestamp(TimeUnit::Nanosecond), LessThan, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_lt_scalar::<1_000>, timestamp_gt_scalar::<1_000>},
+            {Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Timestamp(TimeUnit::Nanosecond), LessThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, timestamp_le_scalar::<1_000>, timestamp_ge_scalar::<1_000>},
 
             // Timestamp: high precision lhs with low precision rhs
-            {Timestamp(TimeUnit::Millisecond), Timestamp(TimeUnit::Second), Equal, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000>, intrinsic_eq_scalar},
-            {Timestamp(TimeUnit::Millisecond), Timestamp(TimeUnit::Second), NotEqual, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000>, intrinsic_ne_scalar},
-            {Timestamp(TimeUnit::Millisecond), Timestamp(TimeUnit::Second), GreaterThan, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000>, intrinsic_gt_scalar},
-            {Timestamp(TimeUnit::Millisecond), Timestamp(TimeUnit::Second), GreaterThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000>, intrinsic_ge_scalar},
-            {Timestamp(TimeUnit::Millisecond), Timestamp(TimeUnit::Second), LessThan, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000>, intrinsic_lt_scalar},
-            {Timestamp(TimeUnit::Millisecond), Timestamp(TimeUnit::Second), LessThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000>, intrinsic_le_scalar},
-            {Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Timestamp(TimeUnit::Second), Equal, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000_000>, intrinsic_eq_scalar},
-            {Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Timestamp(TimeUnit::Second), NotEqual, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000_000>, intrinsic_ne_scalar},
-            {Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Timestamp(TimeUnit::Second), GreaterThan, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000_000>, intrinsic_gt_scalar},
-            {Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Timestamp(TimeUnit::Second), GreaterThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000_000>, intrinsic_ge_scalar},
-            {Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Timestamp(TimeUnit::Second), LessThan, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000_000>, intrinsic_lt_scalar},
-            {Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Timestamp(TimeUnit::Second), LessThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000_000>, intrinsic_le_scalar},
-            {Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Timestamp(TimeUnit::Millisecond), Equal, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000>, intrinsic_eq_scalar},
-            {Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Timestamp(TimeUnit::Millisecond), NotEqual, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000>, intrinsic_ne_scalar},
-            {Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Timestamp(TimeUnit::Millisecond), GreaterThan, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000>, intrinsic_gt_scalar},
-            {Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Timestamp(TimeUnit::Millisecond), GreaterThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000>, intrinsic_ge_scalar},
-            {Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Timestamp(TimeUnit::Millisecond), LessThan, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000>, intrinsic_lt_scalar},
-            {Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Timestamp(TimeUnit::Millisecond), LessThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000>, intrinsic_le_scalar},
-            {Timestamp(TimeUnit::Nanosecond), Timestamp(TimeUnit::Second), Equal, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000_000_000>, intrinsic_eq_scalar},
-            {Timestamp(TimeUnit::Nanosecond), Timestamp(TimeUnit::Second), NotEqual, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000_000_000>, intrinsic_ne_scalar},
-            {Timestamp(TimeUnit::Nanosecond), Timestamp(TimeUnit::Second), GreaterThan, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000_000_000>, intrinsic_gt_scalar},
-            {Timestamp(TimeUnit::Nanosecond), Timestamp(TimeUnit::Second), GreaterThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000_000_000>, intrinsic_ge_scalar},
-            {Timestamp(TimeUnit::Nanosecond), Timestamp(TimeUnit::Second), LessThan, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000_000_000>, intrinsic_lt_scalar},
-            {Timestamp(TimeUnit::Nanosecond), Timestamp(TimeUnit::Second), LessThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000_000_000>, intrinsic_le_scalar},
-            {Timestamp(TimeUnit::Nanosecond), Timestamp(TimeUnit::Millisecond), Equal, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000_000>, intrinsic_eq_scalar},
-            {Timestamp(TimeUnit::Nanosecond), Timestamp(TimeUnit::Millisecond), NotEqual, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000_000>, intrinsic_ne_scalar},
-            {Timestamp(TimeUnit::Nanosecond), Timestamp(TimeUnit::Millisecond), GreaterThan, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000_000>, intrinsic_gt_scalar},
-            {Timestamp(TimeUnit::Nanosecond), Timestamp(TimeUnit::Millisecond), GreaterThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000_000>, intrinsic_ge_scalar},
-            {Timestamp(TimeUnit::Nanosecond), Timestamp(TimeUnit::Millisecond), LessThan, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000_000>, intrinsic_lt_scalar},
-            {Timestamp(TimeUnit::Nanosecond), Timestamp(TimeUnit::Millisecond), LessThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000_000>, intrinsic_le_scalar},
-            {Timestamp(TimeUnit::Nanosecond), Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Equal, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000>, intrinsic_eq_scalar},
-            {Timestamp(TimeUnit::Nanosecond), Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, NotEqual, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000>, intrinsic_ne_scalar},
-            {Timestamp(TimeUnit::Nanosecond), Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, GreaterThan, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000>, intrinsic_gt_scalar},
-            {Timestamp(TimeUnit::Nanosecond), Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, GreaterThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000>, intrinsic_ge_scalar},
-            {Timestamp(TimeUnit::Nanosecond), Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, LessThan, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000>, intrinsic_lt_scalar},
-            {Timestamp(TimeUnit::Nanosecond), Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, LessThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000>, intrinsic_le_scalar},
+            {Timestamp(TimeUnit::Millisecond), Timestamp(TimeUnit::Second), Equal, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000>, intrinsic_eq_scalar, intrinsic_eq_scalar},
+            {Timestamp(TimeUnit::Millisecond), Timestamp(TimeUnit::Second), NotEqual, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000>, intrinsic_ne_scalar, intrinsic_ne_scalar},
+            {Timestamp(TimeUnit::Millisecond), Timestamp(TimeUnit::Second), GreaterThan, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000>, intrinsic_gt_scalar, intrinsic_lt_scalar},
+            {Timestamp(TimeUnit::Millisecond), Timestamp(TimeUnit::Second), GreaterThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000>, intrinsic_ge_scalar, intrinsic_le_scalar},
+            {Timestamp(TimeUnit::Millisecond), Timestamp(TimeUnit::Second), LessThan, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000>, intrinsic_lt_scalar, intrinsic_gt_scalar},
+            {Timestamp(TimeUnit::Millisecond), Timestamp(TimeUnit::Second), LessThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000>, intrinsic_le_scalar, intrinsic_ge_scalar},
+            {Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Timestamp(TimeUnit::Second), Equal, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000_000>, intrinsic_eq_scalar, intrinsic_eq_scalar},
+            {Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Timestamp(TimeUnit::Second), NotEqual, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000_000>, intrinsic_ne_scalar, intrinsic_ne_scalar},
+            {Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Timestamp(TimeUnit::Second), GreaterThan, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000_000>, intrinsic_gt_scalar, intrinsic_lt_scalar},
+            {Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Timestamp(TimeUnit::Second), GreaterThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000_000>, intrinsic_ge_scalar, intrinsic_le_scalar},
+            {Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Timestamp(TimeUnit::Second), LessThan, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000_000>, intrinsic_lt_scalar, intrinsic_gt_scalar},
+            {Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Timestamp(TimeUnit::Second), LessThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000_000>, intrinsic_le_scalar, intrinsic_ge_scalar},
+            {Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Timestamp(TimeUnit::Millisecond), Equal, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000>, intrinsic_eq_scalar, intrinsic_eq_scalar},
+            {Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Timestamp(TimeUnit::Millisecond), NotEqual, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000>, intrinsic_ne_scalar, intrinsic_ne_scalar},
+            {Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Timestamp(TimeUnit::Millisecond), GreaterThan, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000>, intrinsic_gt_scalar, intrinsic_lt_scalar},
+            {Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Timestamp(TimeUnit::Millisecond), GreaterThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000>, intrinsic_ge_scalar, intrinsic_le_scalar},
+            {Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Timestamp(TimeUnit::Millisecond), LessThan, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000>, intrinsic_lt_scalar, intrinsic_gt_scalar},
+            {Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Timestamp(TimeUnit::Millisecond), LessThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000>, intrinsic_le_scalar, intrinsic_ge_scalar},
+            {Timestamp(TimeUnit::Nanosecond), Timestamp(TimeUnit::Second), Equal, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000_000_000>, intrinsic_eq_scalar, intrinsic_eq_scalar},
+            {Timestamp(TimeUnit::Nanosecond), Timestamp(TimeUnit::Second), NotEqual, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000_000_000>, intrinsic_ne_scalar, intrinsic_ne_scalar},
+            {Timestamp(TimeUnit::Nanosecond), Timestamp(TimeUnit::Second), GreaterThan, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000_000_000>, intrinsic_gt_scalar, intrinsic_lt_scalar},
+            {Timestamp(TimeUnit::Nanosecond), Timestamp(TimeUnit::Second), GreaterThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000_000_000>, intrinsic_ge_scalar, intrinsic_le_scalar},
+            {Timestamp(TimeUnit::Nanosecond), Timestamp(TimeUnit::Second), LessThan, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000_000_000>, intrinsic_lt_scalar, intrinsic_gt_scalar},
+            {Timestamp(TimeUnit::Nanosecond), Timestamp(TimeUnit::Second), LessThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000_000_000>, intrinsic_le_scalar, intrinsic_ge_scalar},
+            {Timestamp(TimeUnit::Nanosecond), Timestamp(TimeUnit::Millisecond), Equal, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000_000>, intrinsic_eq_scalar, intrinsic_eq_scalar},
+            {Timestamp(TimeUnit::Nanosecond), Timestamp(TimeUnit::Millisecond), NotEqual, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000_000>, intrinsic_ne_scalar, intrinsic_ne_scalar},
+            {Timestamp(TimeUnit::Nanosecond), Timestamp(TimeUnit::Millisecond), GreaterThan, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000_000>, intrinsic_gt_scalar, intrinsic_lt_scalar},
+            {Timestamp(TimeUnit::Nanosecond), Timestamp(TimeUnit::Millisecond), GreaterThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000_000>, intrinsic_ge_scalar, intrinsic_le_scalar},
+            {Timestamp(TimeUnit::Nanosecond), Timestamp(TimeUnit::Millisecond), LessThan, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000_000>, intrinsic_lt_scalar, intrinsic_gt_scalar},
+            {Timestamp(TimeUnit::Nanosecond), Timestamp(TimeUnit::Millisecond), LessThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000_000>, intrinsic_le_scalar, intrinsic_ge_scalar},
+            {Timestamp(TimeUnit::Nanosecond), Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, Equal, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000>, intrinsic_eq_scalar, intrinsic_eq_scalar},
+            {Timestamp(TimeUnit::Nanosecond), Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, NotEqual, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000>, intrinsic_ne_scalar, intrinsic_ne_scalar},
+            {Timestamp(TimeUnit::Nanosecond), Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, GreaterThan, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000>, intrinsic_gt_scalar, intrinsic_lt_scalar},
+            {Timestamp(TimeUnit::Nanosecond), Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, GreaterThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000>, intrinsic_ge_scalar, intrinsic_le_scalar},
+            {Timestamp(TimeUnit::Nanosecond), Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, LessThan, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000>, intrinsic_lt_scalar, intrinsic_gt_scalar},
+            {Timestamp(TimeUnit::Nanosecond), Timestamp(TimeUnit::Microsecond) | Timestamptz{..}, LessThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, timestamp_transformer::<1_000>, intrinsic_le_scalar, intrinsic_ge_scalar},
 
             // Time
-            {Time | Timetz{..}, Time | Timetz{..}, Equal, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_eq_scalar},
-            {Time | Timetz{..}, Time | Timetz{..}, NotEqual, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_ne_scalar},
-            {Time | Timetz{..}, Time | Timetz{..}, GreaterThan, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_gt_scalar},
-            {Time | Timetz{..}, Time | Timetz{..}, GreaterThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_ge_scalar},
-            {Time | Timetz{..}, Time | Timetz{..}, LessThan, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_lt_scalar},
-            {Time | Timetz{..}, Time | Timetz{..}, LessThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_le_scalar},
+            {Time | Timetz{..}, Time | Timetz{..}, Equal, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_eq_scalar, intrinsic_eq_scalar},
+            {Time | Timetz{..}, Time | Timetz{..}, NotEqual, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_ne_scalar, intrinsic_ne_scalar},
+            {Time | Timetz{..}, Time | Timetz{..}, GreaterThan, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_gt_scalar, intrinsic_lt_scalar},
+            {Time | Timetz{..}, Time | Timetz{..}, GreaterThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_ge_scalar, intrinsic_le_scalar},
+            {Time | Timetz{..}, Time | Timetz{..}, LessThan, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_lt_scalar, intrinsic_gt_scalar},
+            {Time | Timetz{..}, Time | Timetz{..}, LessThanOrEqualTo, PrimitiveArray<i64>, PrimitiveArray<i64>, identity, intrinsic_le_scalar, intrinsic_ge_scalar},
 
             // Date
-            {Date, Date, Equal, PrimitiveArray<i32>, PrimitiveArray<i32>, identity, intrinsic_eq_scalar},
-            {Date, Date, NotEqual, PrimitiveArray<i32>, PrimitiveArray<i32>, identity, intrinsic_ne_scalar},
-            {Date, Date, GreaterThan, PrimitiveArray<i32>, PrimitiveArray<i32>, identity, intrinsic_gt_scalar},
-            {Date, Date, GreaterThanOrEqualTo, PrimitiveArray<i32>, PrimitiveArray<i32>, identity, intrinsic_ge_scalar},
-            {Date, Date, LessThan, PrimitiveArray<i32>, PrimitiveArray<i32>, identity, intrinsic_lt_scalar},
-            {Date, Date, LessThanOrEqualTo, PrimitiveArray<i32>, PrimitiveArray<i32>, identity, intrinsic_le_scalar},
+            {Date, Date, Equal, PrimitiveArray<i32>, PrimitiveArray<i32>, identity, intrinsic_eq_scalar, intrinsic_eq_scalar},
+            {Date, Date, NotEqual, PrimitiveArray<i32>, PrimitiveArray<i32>, identity, intrinsic_ne_scalar, intrinsic_ne_scalar},
+            {Date, Date, GreaterThan, PrimitiveArray<i32>, PrimitiveArray<i32>, identity, intrinsic_gt_scalar, intrinsic_lt_scalar},
+            {Date, Date, GreaterThanOrEqualTo, PrimitiveArray<i32>, PrimitiveArray<i32>, identity, intrinsic_ge_scalar, intrinsic_le_scalar},
+            {Date, Date, LessThan, PrimitiveArray<i32>, PrimitiveArray<i32>, identity, intrinsic_lt_scalar, intrinsic_gt_scalar},
+            {Date, Date, LessThanOrEqualTo, PrimitiveArray<i32>, PrimitiveArray<i32>, identity, intrinsic_le_scalar, intrinsic_ge_scalar},
 
             // Uuid
-            {Uuid, Uuid, Equal, PrimitiveArray<i128>, PrimitiveArray<i128>, identity, primitive_eq_scalar},
-            {Uuid, Uuid, NotEqual, PrimitiveArray<i128>, PrimitiveArray<i128>, identity, primitive_ne_scalar},
+            {Uuid, Uuid, Equal, PrimitiveArray<i128>, PrimitiveArray<i128>, identity, primitive_eq_scalar, primitive_eq_scalar},
+            {Uuid, Uuid, NotEqual, PrimitiveArray<i128>, PrimitiveArray<i128>, identity, primitive_ne_scalar, primitive_ne_scalar},
 
             // IPv4
-            {IPv4, IPv4, Equal, PrimitiveArray<i32>, PrimitiveArray<i32>, identity, intrinsic_eq_scalar},
-            {IPv4, IPv4, NotEqual, PrimitiveArray<i32>, PrimitiveArray<i32>, identity, intrinsic_ne_scalar},
+            {IPv4, IPv4, Equal, PrimitiveArray<i32>, PrimitiveArray<i32>, identity, intrinsic_eq_scalar, intrinsic_eq_scalar},
+            {IPv4, IPv4, NotEqual, PrimitiveArray<i32>, PrimitiveArray<i32>, identity, intrinsic_ne_scalar, intrinsic_ne_scalar},
 
             // IPv6
-            {IPv6, IPv6, Equal, PrimitiveArray<i128>, PrimitiveArray<i128>, identity, primitive_eq_scalar},
-            {IPv6, IPv6, NotEqual, PrimitiveArray<i128>, PrimitiveArray<i128>, identity, primitive_ne_scalar},
+            {IPv6, IPv6, Equal, PrimitiveArray<i128>, PrimitiveArray<i128>, identity, primitive_eq_scalar, primitive_eq_scalar},
+            {IPv6, IPv6, NotEqual, PrimitiveArray<i128>, PrimitiveArray<i128>, identity, primitive_ne_scalar, primitive_ne_scalar},
 
             // Boolean
-            {Boolean, Boolean, Equal, BooleanArray, BooleanArray, identity, boolean_eq_scalar},
-            {Boolean, Boolean, NotEqual, BooleanArray, BooleanArray, identity, boolean_ne_scalar},
-            {Boolean, Boolean, GreaterThan, BooleanArray, BooleanArray, identity, boolean_gt_scalar},
-            {Boolean, Boolean, GreaterThanOrEqualTo, BooleanArray, BooleanArray, identity, boolean_ge_scalar},
-            {Boolean, Boolean, LessThan, BooleanArray, BooleanArray, identity, boolean_lt_scalar},
-            {Boolean, Boolean, LessThanOrEqualTo, BooleanArray, BooleanArray, identity, boolean_le_scalar},
+            {Boolean, Boolean, Equal, BooleanArray, BooleanArray, identity, boolean_eq_scalar, boolean_eq_scalar},
+            {Boolean, Boolean, NotEqual, BooleanArray, BooleanArray, identity, boolean_ne_scalar, boolean_ne_scalar},
+            {Boolean, Boolean, GreaterThan, BooleanArray, BooleanArray, identity, boolean_gt_scalar, boolean_lt_scalar},
+            {Boolean, Boolean, GreaterThanOrEqualTo, BooleanArray, BooleanArray, identity, boolean_ge_scalar, boolean_le_scalar},
+            {Boolean, Boolean, LessThan, BooleanArray, BooleanArray, identity, boolean_lt_scalar, boolean_gt_scalar},
+            {Boolean, Boolean, LessThanOrEqualTo, BooleanArray, BooleanArray, identity, boolean_le_scalar, boolean_ge_scalar},
 
             // VarChar
-            {VarChar, VarChar, Equal, StringArray, StringArray, identity, string_eq_scalar},
-            {VarChar, VarChar, NotEqual, StringArray, StringArray, identity, string_ne_scalar},
-            {VarChar, VarChar, GreaterThan, StringArray, StringArray, identity, string_gt_scalar},
-            {VarChar, VarChar, GreaterThanOrEqualTo, StringArray, StringArray, identity, string_ge_scalar},
-            {VarChar, VarChar, LessThan, StringArray, StringArray, identity, string_lt_scalar},
-            {VarChar, VarChar, LessThanOrEqualTo, StringArray, StringArray, identity, string_le_scalar},
+            {VarChar, VarChar, Equal, StringArray, StringArray, identity, string_eq_scalar, string_eq_scalar},
+            {VarChar, VarChar, NotEqual, StringArray, StringArray, identity, string_ne_scalar, string_ne_scalar},
+            {VarChar, VarChar, GreaterThan, StringArray, StringArray, identity, string_gt_scalar, string_lt_scalar},
+            {VarChar, VarChar, GreaterThanOrEqualTo, StringArray, StringArray, identity, string_ge_scalar, string_le_scalar},
+            {VarChar, VarChar, LessThan, StringArray, StringArray, identity, string_lt_scalar, string_gt_scalar},
+            {VarChar, VarChar, LessThanOrEqualTo, StringArray, StringArray, identity, string_le_scalar, string_ge_scalar},
 
             // VarBinary
-            {VarBinary, VarBinary, Equal, BinaryArray, BinaryArray, identity, eq_scalar_default},
-            {VarBinary, VarBinary, NotEqual, BinaryArray, BinaryArray, identity, ne_scalar_default},
-            {VarBinary, VarBinary, GreaterThan, BinaryArray, BinaryArray, identity, gt_scalar_default},
-            {VarBinary, VarBinary, GreaterThanOrEqualTo, BinaryArray, BinaryArray, identity, ge_scalar_default},
-            {VarBinary, VarBinary, LessThan, BinaryArray, BinaryArray, identity, lt_scalar_default},
-            {VarBinary, VarBinary, LessThanOrEqualTo, BinaryArray, BinaryArray, identity, le_scalar_default}
+            {VarBinary, VarBinary, Equal, BinaryArray, BinaryArray, identity, eq_scalar_default, eq_scalar_default},
+            {VarBinary, VarBinary, NotEqual, BinaryArray, BinaryArray, identity, ne_scalar_default, ne_scalar_default},
+            {VarBinary, VarBinary, GreaterThan, BinaryArray, BinaryArray, identity, gt_scalar_default, lt_scalar_default},
+            {VarBinary, VarBinary, GreaterThanOrEqualTo, BinaryArray, BinaryArray, identity, ge_scalar_default, le_scalar_default},
+            {VarBinary, VarBinary, LessThan, BinaryArray, BinaryArray, identity, lt_scalar_default, gt_scalar_default},
+            {VarBinary, VarBinary, LessThanOrEqualTo, BinaryArray, BinaryArray, identity, le_scalar_default, ge_scalar_default}
         }
     };
 }
@@ -484,11 +424,12 @@ pub fn infer_comparison_func_set(
     use CmpOperator::*;
     use LogicalType::*;
     macro_rules! impl_comparison {
-        ($({$left:pat, $right:pat, $op:ident, $left_ty:ty, $right_ty:ty, $scalar_transformer:path, $array_scalar_func:path}),+) => {
+        ($({$left:pat, $right:pat, $op:ident, $left_ty:ty, $right_ty:ty, $scalar_transformer:path, $array_scalar_func:path, $scalar_array_func:path}),+) => {
             match (left, right, op) {
                 $(
                     ($left, $right, $op) => Some(ComparisonFunctionSet{
-                        array_cmp_scalar: cmp_array_scalar_func!($left, $left_ty, $right, $right_ty, $scalar_transformer, $array_scalar_func)
+                        array_cmp_scalar: cmp_array_scalar_func!($left, $left_ty, $right, $right_ty, $scalar_transformer, $array_scalar_func),
+                        scalar_cmp_array: cmp_array_scalar_func!($left, $left_ty, $right, $right_ty, $scalar_transformer, $scalar_array_func)
                     }),
                 )+
 

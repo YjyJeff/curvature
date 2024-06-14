@@ -10,7 +10,7 @@ use std::fmt::{Debug, Display};
 use std::mem::size_of;
 use std::ptr::{copy_nonoverlapping, NonNull};
 
-use crate::element::interval::DayTime;
+use crate::element::interval::Interval;
 use crate::private::Sealed;
 use crate::utils::roundup_to_multiple_of_pow_of_two_base;
 
@@ -37,7 +37,7 @@ macro_rules! impl_alloc_types {
     };
 }
 
-impl_alloc_types!(i8, u8, i16, u16, i32, u32, i64, u64, i128, u128, f32, f64, DayTime);
+impl_alloc_types!(i8, u8, i16, u16, i32, u32, i64, u64, i128, u128, f32, f64, Interval);
 
 /// [`AlignedVec`] is a continuous memory region that allocated from memory
 /// allocator. The memory is **cache line aligned** and its **capacity in bytes**

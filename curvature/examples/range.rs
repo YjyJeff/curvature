@@ -95,6 +95,13 @@ fn main() {
             Arc::new(
                 Comparison::try_new(
                     Arc::new(
+                        unsafe {
+                            Constant::try_new(ArrayImpl::UInt8(UInt8Array::from_values_iter([0])))
+                        }
+                        .unwrap(),
+                    ),
+                    CmpOperator::LessThan,
+                    Arc::new(
                         Arith::try_new(
                             Arc::clone(&field_ref),
                             ArithOperator::Rem,
@@ -105,13 +112,6 @@ fn main() {
                                 .unwrap()
                             }),
                         )
-                        .unwrap(),
-                    ),
-                    CmpOperator::Equal,
-                    Arc::new(
-                        unsafe {
-                            Constant::try_new(ArrayImpl::UInt8(UInt8Array::from_values_iter([0])))
-                        }
                         .unwrap(),
                     ),
                 )

@@ -8,12 +8,12 @@
 //! We can replace the IntrinsicType bound with PrimitiveType bound! However, if
 //! we remove it, we can call dynamic function on non intrinsic type! Although
 //! it does not matters, we still want to forbid this behavior in the compiler stage
-//!
-//! TODO: The array is cache line aligned and padded, hint the compiler!
 
 pub mod intrinsic;
 use self::intrinsic::{RemCast, RemExt};
 use std::ops::{Add, Div, Mul, Rem, Sub};
+
+pub mod interval;
 
 /// Add two scalars
 #[inline(always)]

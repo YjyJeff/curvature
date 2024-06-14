@@ -10,6 +10,7 @@
 - `Projection`: Select the expressions from input
 - `Filter`: Filter out rows that do not satisfy the condition
 - `Union`: Union two inputs that have same schema. It is a fake physical operator and never appears in the pipeline execution
+- [ ] `StreamingLimit`: Limit
 
 ## Sink
 - Aggregation

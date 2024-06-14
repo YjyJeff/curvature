@@ -4,7 +4,7 @@ pub mod interval;
 pub mod list;
 pub mod string;
 
-use self::interval::DayTime;
+use self::interval::Interval;
 use self::list::{ListElement, ListElementRef};
 use self::string::{StringElement, StringView};
 use std::fmt::{Debug, Display};
@@ -304,8 +304,8 @@ pub enum ElementImplRef<'a> {
     Float64(f64),
     /// Int128
     Int128(i128),
-    /// DayTime
-    DayTime(DayTime),
+    /// Interval
+    Interval(Interval),
     /// StringView
     String(StringView<'a>),
     /// Binary blob

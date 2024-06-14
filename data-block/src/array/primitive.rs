@@ -10,7 +10,7 @@ use std::slice::Iter;
 
 use crate::aligned_vec::{AlignedVec, AllocType};
 use crate::bitmap::Bitmap;
-use crate::element::interval::DayTime;
+use crate::element::interval::Interval;
 use crate::element::Element;
 use crate::macros::for_all_primitive_types;
 use crate::private::Sealed;

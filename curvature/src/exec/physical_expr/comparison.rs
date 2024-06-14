@@ -58,10 +58,6 @@ type Result<T> = std::result::Result<T, ComparisonError>;
 
 impl Comparison {
     /// Create a new [`Comparison`] expression
-    ///
-    /// FIXME: We knew the variants and functions that should be called in this phase.
-    /// Thus, we can avoid the redundant code and the inconsistent implementation between
-    /// them
     pub fn try_new(
         left: Arc<dyn PhysicalExpr>,
         op: CmpOperator,
@@ -160,11 +156,7 @@ impl PhysicalExpr for Comparison {
                 todo!()
             }
             (1, _) => {
-                if matches!(self.op, CmpOperator::Equal | CmpOperator::NotEqual) {
-                    (self.function_set.array_cmp_scalar)(selection, left_array, right_array, output)
-                } else {
-                    todo!()
-                }
+                (self.function_set.scalar_cmp_array)(selection, right_array, left_array, output);
             }
             (_, 1) => {
                 (self.function_set.array_cmp_scalar)(selection, left_array, right_array, output)

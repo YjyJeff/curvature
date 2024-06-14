@@ -2,6 +2,7 @@
 //!
 //! TODO: Separate intrinsic with others
 
+use crate::array::primitive::PrimitiveType;
 use crate::array::{Array, BooleanArray, PrimitiveArray};
 use crate::bitmap::Bitmap;
 use crate::compute::logical::and_inplace;
@@ -59,9 +60,6 @@ macro_rules! cmp_assert {
 
 pub mod intrinsic;
 
-use crate::array::primitive::PrimitiveType;
-use crate::element::interval::DayTime;
-
 /// Default implementation
 unsafe fn cmp_scalar_default<T>(
     selection: &mut Bitmap,
@@ -100,10 +98,6 @@ pub trait NonIntrinsicPrimitiveType: PrimitiveType + PartialOrd {
 }
 
 impl NonIntrinsicPrimitiveType for i128 {
-    const PARTIAL_CMP_THRESHOLD: f64 = 0.0;
-}
-
-impl NonIntrinsicPrimitiveType for DayTime {
     const PARTIAL_CMP_THRESHOLD: f64 = 0.0;
 }
 

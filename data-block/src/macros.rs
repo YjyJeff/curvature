@@ -16,7 +16,7 @@ macro_rules! for_all_variants {
             {Int64, i64, Int64Array},
             {UInt64, u64, UInt64Array},
             {Int128, i128, Int128Array},
-            {DayTime, DayTime, DayTimeArray},
+            {Interval, Interval, IntervalArray},
             {Float32, f32, Float32Array},
             {Float64, f64, Float64Array},
             {String, StringElement, StringArray},
@@ -44,7 +44,7 @@ macro_rules! for_all_primitive_types {
             {Int64, i64, Int64Array, BigInt, identity},
             {UInt64, u64, UInt64Array, UnsignedBigInt, identity},
             {Int128, i128, Int128Array, HugeInt, identity},
-            {DayTime, DayTime, DayTimeArray, IntervalDayTime, identity},
+            {Interval, Interval, IntervalArray, Interval, identity},
             {Float32, f32, Float32Array, Float, f32::normalize},
             {Float64, f64, Float64Array, Double, f64::normalize}
         }

@@ -23,7 +23,7 @@ use snafu::{ensure, Snafu};
 use_types_for_impl_regular_for_non_regular!();
 use_types_for_impl_sink_for_non_sink!();
 
-const MORSEL_SIZE: usize = 64;
+const MORSEL_SIZE: usize = 8;
 
 #[allow(missing_docs)]
 #[derive(Debug, Snafu)]

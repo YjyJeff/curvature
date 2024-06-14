@@ -9,7 +9,6 @@ use std::fmt::Debug;
 use std::marker::PhantomData;
 
 use data_block::array::{Array, ArrayError, ArrayImpl, PrimitiveArray, PrimitiveType};
-use data_block::element::interval::DayTime;
 use data_block::element::Element;
 use data_block::types::LogicalType;
 use snafu::{ensure, Snafu};
@@ -93,7 +92,6 @@ macro_rules! impl_sum_payload_array {
 impl_sum_payload_array!(u64,  {u8, u16, u32, u64}, u64::checked_add);
 impl_sum_payload_array!(i64,  {i8, i16, i32, i64}, i64::checked_add);
 impl_sum_payload_array!(f64,  {f32, f64}, float_checked_add);
-impl_sum_payload_array!(DayTime, { DayTime }, DayTime::checked_add);
 
 /// Aggregation state of the sum function
 ///

@@ -19,7 +19,7 @@ pub use crate::compute::IntrinsicType;
 pub use crate::compute::IntrinsicSimdType;
 
 pub use crate::array::Array;
-use crate::element::interval::DayTime;
+use crate::element::interval::Interval;
 use crate::element::ElementImpl;
 pub use crate::element::{Element, ElementRef};
 
@@ -58,8 +58,8 @@ pub enum PhysicalType {
     String,
     /// Variable length binary array, also known as `VARBINARY`
     Binary,
-    /// DayTime in interval. 32 bit days and 32 bit milliseconds
-    DayTime,
+    ///Interval
+    Interval,
     // Complex types
     /// List of a physical type
     List = 64,
@@ -89,7 +89,7 @@ impl PhysicalType {
             Self::Int128 => PhysicalSize::Fixed(size_of::<i128>()),
             Self::Float32 => PhysicalSize::Fixed(size_of::<f32>()),
             Self::Float64 => PhysicalSize::Fixed(size_of::<f64>()),
-            Self::DayTime => PhysicalSize::Fixed(size_of::<DayTime>()),
+            Self::Interval => PhysicalSize::Fixed(size_of::<Interval>()),
         }
     }
 }
@@ -128,6 +128,8 @@ impl AddAssign for PhysicalSize {
     }
 }
 
+/// TODO: Duration
+///
 /// All of the supported logical types. Different logical types may have same [`PhysicalType`].
 ///
 /// It is a tree because we can compose the logical type with complex types like List!
@@ -232,14 +234,8 @@ pub enum LogicalType {
         /// offset of the timezone in seconds in range (-86400, 86400)
         tz_offset: i32,
     },
-    /// DAY_TIME interval in SQL style
-    ///
-    /// Indicates the number of elapsed days and milliseconds, stored as 2 contiguous 32-bit integers (days, milliseconds) (8-bytes in total).
-    IntervalDayTime,
-    /// YEAR_MONTH interval in SQL style
-    ///
-    /// Indicates the number of elapsed whole months, stored as 4-byte integers.
-    IntervalYearMonth,
+    /// [Interval](https://duckdb.org/docs/sql/data_types/interval)
+    Interval,
     /// Date is represented as the number of days since epoch start using i32.
     ///
     /// Date can be created with the data that satisfy the ISO 8601
@@ -303,8 +299,7 @@ impl LogicalType {
             Self::VarBinary => PhysicalType::Binary,
             Self::Timestamp(_) | Self::Timestamptz { .. } => PhysicalType::Int64,
             Self::Time | Self::Timetz { .. } => PhysicalType::Int64,
-            Self::IntervalDayTime => PhysicalType::DayTime,
-            Self::IntervalYearMonth => PhysicalType::Int32,
+            Self::Interval => PhysicalType::Interval,
             Self::Date => PhysicalType::Int32,
             Self::Uuid => PhysicalType::Int128,
             Self::IPv4 => PhysicalType::UInt32,

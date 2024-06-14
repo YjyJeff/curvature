@@ -8,7 +8,6 @@ use std::mem;
 
 use data_block::array::{Array, ArrayImpl, BinaryArray, BooleanArray, PrimitiveArray, StringArray};
 use data_block::bitmap::BitStore;
-use data_block::element::interval::DayTime;
 use data_block::element::{Element, ElementRefSerdeExt};
 use data_block::types::{PhysicalSize, PrimitiveType};
 
@@ -71,8 +70,8 @@ macro_rules! for_all_fixed_sized_serde_key {
             <u16, {Int8, i8}, {UInt8, u8}>,
             <u32, {Int8, i8}, {UInt8, u8}, {Int16, i16}, {UInt16, u16}>,
             <u64, {Int8, i8}, {UInt8, u8}, {Int16, i16}, {UInt16, u16}, {Int32, i32}, {UInt32, u32}, {Float32, f32}>,
-            <u128, {Int8, i8}, {UInt8, u8}, {Int16, i16}, {UInt16, u16}, {Int32, i32}, {UInt32, u32}, {Int64, i64}, {UInt64, u64}, {DayTime, DayTime}, {Float32, f32}, {Float64, f64}>,
-            <[u8; 32], {Int8, i8}, {UInt8, u8}, {Int16, i16}, {UInt16, u16}, {Int32, i32}, {UInt32, u32}, {Int64, i64}, {UInt64, u64}, {DayTime, DayTime}, {Int128, i128}, {Float32, f32}, {Float64, f64}>
+            <u128, {Int8, i8}, {UInt8, u8}, {Int16, i16}, {UInt16, u16}, {Int32, i32}, {UInt32, u32}, {Int64, i64}, {UInt64, u64}, {Float32, f32}, {Float64, f64}>,
+            <[u8; 32], {Int8, i8}, {UInt8, u8}, {Int16, i16}, {UInt16, u16}, {Int32, i32}, {UInt32, u32}, {Int64, i64}, {UInt64, u64}, {Int128, i128}, {Float32, f32}, {Float64, f64}>
         }
     };
 }
@@ -365,7 +364,6 @@ macro_rules! for_all_serde_array {
             {Int64, PrimitiveArray<i64>},
             {UInt64, PrimitiveArray<u64>},
             {Int128, PrimitiveArray<i128>},
-            {DayTime, PrimitiveArray<DayTime>},
             {Float32, PrimitiveArray<f32>},
             {Float64, PrimitiveArray<f64>},
             {String, StringArray},
@@ -380,6 +378,9 @@ macro_rules! serde {
             $(
                 ArrayImpl::$variant(array) => $func::<$ty>(array, $arg),
             )+
+            ArrayImpl::Interval(_) => {
+                panic!("Group by interval is not supported now")
+            }
             ArrayImpl::List(_) => {
                 panic!("Group by list is not supported now")
             }
