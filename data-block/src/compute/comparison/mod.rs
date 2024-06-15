@@ -10,7 +10,7 @@ pub mod string;
 use crate::array::Array;
 use crate::bitmap::Bitmap;
 use crate::compute::logical::and_inplace;
-use crate::element::Element;
+use crate::element::{Element, ElementRef};
 
 /// A default `cmp(array, scalar)` function. It is not optimal in some cases
 #[inline]
@@ -151,6 +151,96 @@ pub unsafe fn le_scalar<A: Array>(
         PartialOrd<<A::Element as Element>::ElementRef<'b>>,
 {
     cmp_scalar(selection, array, scalar, |lhs, rhs| lhs <= rhs)
+}
+
+/// Returns true if two elements ref are equal
+#[inline]
+pub fn scalar_eq_scalar<'a, T>(lhs: T, rhs: T) -> bool
+where
+    T: ElementRef<'a> + PartialEq,
+{
+    lhs == rhs
+}
+
+/// Returns true if two elements ref are not equal
+#[inline]
+pub fn scalar_ne_scalar<'a, T>(lhs: T, rhs: T) -> bool
+where
+    T: ElementRef<'a> + PartialEq,
+{
+    lhs != rhs
+}
+
+/// Returns true if left element ref greater than right element ref
+#[inline]
+pub fn scalar_gt_scalar<'a, T>(lhs: T, rhs: T) -> bool
+where
+    T: ElementRef<'a> + PartialOrd,
+{
+    lhs > rhs
+}
+
+/// Returns true if left element ref greater than or equal to right element ref
+#[inline]
+pub fn scalar_ge_scalar<'a, T>(lhs: T, rhs: T) -> bool
+where
+    T: ElementRef<'a> + PartialOrd,
+{
+    lhs >= rhs
+}
+
+/// Returns true if left element ref less than right element ref
+#[inline]
+pub fn scalar_lt_scalar<'a, T>(lhs: T, rhs: T) -> bool
+where
+    T: ElementRef<'a> + PartialOrd,
+{
+    lhs < rhs
+}
+
+/// Returns true if left element ref less than or equal to right element ref
+#[inline]
+pub fn scalar_le_scalar<'a, T>(lhs: T, rhs: T) -> bool
+where
+    T: ElementRef<'a> + PartialOrd,
+{
+    lhs <= rhs
+}
+
+/// Returns true if left timestamp equal to right timestamp
+#[inline]
+pub fn timestamp_scalar_eq_scalar<const LM: i64, const RM: i64>(lhs: i64, rhs: i64) -> bool {
+    lhs * LM == rhs * RM
+}
+
+/// Returns true if left timestamp not equal to right timestamp
+#[inline]
+pub fn timestamp_scalar_ne_scalar<const LM: i64, const RM: i64>(lhs: i64, rhs: i64) -> bool {
+    lhs * LM != rhs * RM
+}
+
+/// Returns true if left timestamp greater than right timestamp
+#[inline]
+pub fn timestamp_scalar_gt_scalar<const LM: i64, const RM: i64>(lhs: i64, rhs: i64) -> bool {
+    lhs * LM > rhs * RM
+}
+
+/// Returns true if left timestamp greater than or equal to right timestamp
+#[inline]
+pub fn timestamp_scalar_ge_scalar<const LM: i64, const RM: i64>(lhs: i64, rhs: i64) -> bool {
+    lhs * LM >= rhs * RM
+}
+
+/// Returns true if left timestamp less than right timestamp
+#[inline]
+pub fn timestamp_scalar_lt_scalar<const LM: i64, const RM: i64>(lhs: i64, rhs: i64) -> bool {
+    lhs * LM < rhs * RM
+}
+
+/// Returns true if left timestamp less than or equal to right timestamp
+#[inline]
+pub fn timestamp_scalar_le_scalar<const LM: i64, const RM: i64>(lhs: i64, rhs: i64) -> bool {
+    lhs * LM <= rhs * RM
 }
 
 #[cfg(test)]

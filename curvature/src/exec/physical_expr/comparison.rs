@@ -136,7 +136,6 @@ impl PhysicalExpr for Comparison {
         &self.children
     }
 
-    // FIXME: The equality comparison between `DayTime` can be optimized by by comparing `i64`
     fn execute(
         &self,
         leaf_input: &DataBlock,
@@ -153,7 +152,11 @@ impl PhysicalExpr for Comparison {
 
         match (left_array.len(), right_array.len()) {
             (1, 1) => {
-                todo!()
+                if (!left_array.validity().all_valid() || !right_array.validity().all_valid())
+                    || (!(self.function_set.scalar_cmp_scalar)(left_array, right_array))
+                {
+                    selection.mutate().set_all_invalid(leaf_input.len());
+                }
             }
             (1, _) => {
                 (self.function_set.scalar_cmp_array)(selection, right_array, left_array, output);

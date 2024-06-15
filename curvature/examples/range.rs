@@ -100,7 +100,7 @@ fn main() {
                         }
                         .unwrap(),
                     ),
-                    CmpOperator::LessThan,
+                    CmpOperator::NotEqual,
                     Arc::new(
                         Arith::try_new(
                             Arc::clone(&field_ref),
