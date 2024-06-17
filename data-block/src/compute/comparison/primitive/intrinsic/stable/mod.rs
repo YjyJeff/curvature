@@ -14,11 +14,11 @@ use crate::aligned_vec::AlignedVec;
 use crate::array::{Array, BooleanArray, PrimitiveArray};
 use crate::bitmap::{BitStore, Bitmap};
 use crate::compute::comparison::primitive::cmp_scalar_default;
-use crate::compute::comparison::primitive::intrinsic::{
-    timestamp_eq_func, timestamp_ge_func, timestamp_gt_func, timestamp_le_func, timestamp_lt_func,
-    timestamp_ne_func,
-};
 use crate::compute::comparison::primitive::private::{eq, ge, gt, le, lt, ne};
+use crate::compute::comparison::{
+    timestamp_scalar_eq_scalar, timestamp_scalar_ge_scalar, timestamp_scalar_gt_scalar,
+    timestamp_scalar_le_scalar, timestamp_scalar_lt_scalar, timestamp_scalar_ne_scalar,
+};
 use crate::compute::logical::and_inplace;
 
 #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
@@ -175,14 +175,14 @@ macro_rules! timestamp_cmp_scalar {
             ///
             /// - No other arrays that reference the `temp`'s data and validity are accessed! In the
             /// computation graph, it will never happens
-            pub unsafe fn [<timestamp_ $cmp _scalar>]<const MULTIPLIER: i64>(
+            pub unsafe fn [<timestamp_ $cmp _scalar>]<const AM: i64, const SM: i64>(
                 selection: &mut Bitmap,
                 array: &PrimitiveArray<i64>,
                 scalar: i64,
                 temp: &mut BooleanArray,
             ) {
                 #[cfg(debug_assertions)]
-                super::check_timestamp_array_and_multiplier::<MULTIPLIER>(array);
+                super::check_timestamp_array_and_multiplier::<AM>(array);
 
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
                 {
@@ -193,8 +193,8 @@ macro_rules! timestamp_cmp_scalar {
                             scalar,
                             temp,
                             TIMESTAMP_AVX2_PARTIAL_CMP_THRESHOLD,
-                            [<timestamp_ $cmp _scalar_avx2>]::<MULTIPLIER>,
-                            [<timestamp_ $cmp _func>]::<MULTIPLIER>,
+                            [<timestamp_ $cmp _scalar_avx2>]::<AM, SM>,
+                            [<timestamp_scalar_ $cmp _scalar>]::<AM, SM>,
                         );
                     } else {
                         return cmp_scalar(
@@ -203,8 +203,8 @@ macro_rules! timestamp_cmp_scalar {
                             scalar,
                             temp,
                             TIMESTAMP_PARTIAL_CMP_THRESHOLD,
-                            [<timestamp_ $cmp _scalar_v2>]::<MULTIPLIER>,
-                            [<timestamp_ $cmp _func>]::<MULTIPLIER>,
+                            [<timestamp_ $cmp _scalar_v2>]::<AM, SM>,
+                            [<timestamp_scalar_ $cmp _scalar>]::<AM, SM>,
                         );
                     }
                 }
@@ -219,8 +219,8 @@ macro_rules! timestamp_cmp_scalar {
                             scalar,
                             temp,
                             TIMESTAMP_NEON_PARTIAL_CMP_THRESHOLD,
-                            [<timestamp_ $cmp _scalar_neon>]::<MULTIPLIER>,
-                            [<timestamp_ $cmp _func>]::<MULTIPLIER>,
+                            [<timestamp_ $cmp _scalar_neon>]::<AM, SM>,
+                            [<timestamp_scalar_ $cmp _scalar>]::<AM, SM>,
                         );
                     }
                 }
@@ -230,13 +230,13 @@ macro_rules! timestamp_cmp_scalar {
                     allow(unreachable_code)
                 )]
                 {
-                    timestamp_cmp_scalar_default::<MULTIPLIER>(
+                    timestamp_cmp_scalar_default::<AM, SM>(
                         selection,
                         array,
                         scalar,
                         temp,
                         TIMESTAMP_PARTIAL_CMP_THRESHOLD,
-                        [<timestamp_ $cmp _func>]::<MULTIPLIER>,
+                        [<timestamp_scalar_ $cmp _scalar>]::<AM, SM>,
                     );
                 }
             }

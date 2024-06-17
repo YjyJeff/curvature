@@ -412,58 +412,273 @@ unsafe fn timestamp_cmp_scalar_neon<const MULTIPLIER: i64, const NOT: bool>(
 }
 
 #[target_feature(enable = "neon")]
-pub(super) unsafe fn timestamp_eq_scalar_neon<const MULTIPLIER: i64>(
+pub(super) unsafe fn timestamp_eq_scalar_neon<const AM: i64, const SM: i64>(
     array: &AlignedVec<i64>,
     scalar: i64,
     dst: *mut BitStore,
 ) {
-    timestamp_cmp_scalar_neon::<MULTIPLIER, false>(array, scalar, dst, vceqq_s64)
+    timestamp_cmp_scalar_neon::<AM, false>(array, scalar * SM, dst, vceqq_s64)
 }
 
 #[target_feature(enable = "neon")]
-pub(super) unsafe fn timestamp_ne_scalar_neon<const MULTIPLIER: i64>(
+pub(super) unsafe fn timestamp_ne_scalar_neon<const AM: i64, const SM: i64>(
     array: &AlignedVec<i64>,
     scalar: i64,
     dst: *mut BitStore,
 ) {
-    timestamp_cmp_scalar_neon::<MULTIPLIER, true>(array, scalar, dst, vceqq_s64)
+    timestamp_cmp_scalar_neon::<AM, true>(array, scalar * SM, dst, vceqq_s64)
 }
 
 #[target_feature(enable = "neon")]
-pub(super) unsafe fn timestamp_gt_scalar_neon<const MULTIPLIER: i64>(
+pub(super) unsafe fn timestamp_gt_scalar_neon<const AM: i64, const SM: i64>(
     array: &AlignedVec<i64>,
     scalar: i64,
     dst: *mut BitStore,
 ) {
-    timestamp_cmp_scalar_neon::<MULTIPLIER, false>(array, scalar, dst, vcgtq_s64)
+    timestamp_cmp_scalar_neon::<AM, false>(array, scalar * SM, dst, vcgtq_s64)
 }
 
 #[target_feature(enable = "neon")]
-pub(super) unsafe fn timestamp_ge_scalar_neon<const MULTIPLIER: i64>(
+pub(super) unsafe fn timestamp_ge_scalar_neon<const AM: i64, const SM: i64>(
     array: &AlignedVec<i64>,
     scalar: i64,
     dst: *mut BitStore,
 ) {
-    timestamp_cmp_scalar_neon::<MULTIPLIER, false>(array, scalar, dst, vcgeq_s64)
+    timestamp_cmp_scalar_neon::<AM, false>(array, scalar * SM, dst, vcgeq_s64)
 }
 
 #[target_feature(enable = "neon")]
-pub(super) unsafe fn timestamp_lt_scalar_neon<const MULTIPLIER: i64>(
+pub(super) unsafe fn timestamp_lt_scalar_neon<const AM: i64, const SM: i64>(
     array: &AlignedVec<i64>,
     scalar: i64,
     dst: *mut BitStore,
 ) {
-    timestamp_cmp_scalar_neon::<MULTIPLIER, false>(array, scalar, dst, vcltq_s64)
+    timestamp_cmp_scalar_neon::<AM, false>(array, scalar * SM, dst, vcltq_s64)
 }
 
 #[target_feature(enable = "neon")]
-pub(super) unsafe fn timestamp_le_scalar_neon<const MULTIPLIER: i64>(
+pub(super) unsafe fn timestamp_le_scalar_neon<const AM: i64, const SM: i64>(
     array: &AlignedVec<i64>,
     scalar: i64,
     dst: *mut BitStore,
 ) {
-    timestamp_cmp_scalar_neon::<MULTIPLIER, false>(array, scalar, dst, vcleq_s64)
+    timestamp_cmp_scalar_neon::<AM, false>(array, scalar * SM, dst, vcleq_s64)
 }
+
+// Compare between arrays
+
+macro_rules! cmp {
+    ($ty:ty, $suffix:ident, $inner_macro:ident) => {
+        paste::paste! {
+            $inner_macro!([<eq_ $ty _neon>], $ty, [<vld1q_ $suffix>], [<vceqq_ $suffix>], );
+            $inner_macro!([<ne_ $ty _neon>], $ty, [<vld1q_ $suffix>], [<vceqq_ $suffix>], true);
+            $inner_macro!([<gt_ $ty _neon>], $ty, [<vld1q_ $suffix>], [<vcgtq_ $suffix>], );
+            $inner_macro!([<ge_ $ty _neon>], $ty, [<vld1q_ $suffix>], [<vcgeq_ $suffix>], );
+            $inner_macro!([<lt_ $ty _neon>], $ty, [<vld1q_ $suffix>], [<vcltq_ $suffix>], );
+            $inner_macro!([<le_ $ty _neon>], $ty, [<vld1q_ $suffix>], [<vcleq_ $suffix>], );
+        }
+    };
+}
+
+macro_rules! cmp_byte {
+    ($func_name:ident, $ty:ty, $load_fn:ident, $cmp_func:ident, $($not:expr)?) => {
+        #[target_feature(enable = "neon")]
+        #[inline]
+        pub(super) unsafe fn $func_name(lhs: &AlignedVec<$ty>, rhs: &AlignedVec<$ty>, dst: *mut BitStore) {
+            debug_assert_eq!(lhs.len, rhs.len);
+            if lhs.len == 0 {
+                return;
+            }
+
+            let mask_8 = vld1q_u8(MASK_8.as_ptr());
+            let num_loops = roundup_loops(lhs.len, 64);
+            let mut lhs_ptr = lhs.ptr.as_ptr();
+            let mut rhs_ptr = rhs.ptr.as_ptr();
+
+            for simd_index in 0..num_loops{
+                let lhs_0 = $load_fn(lhs_ptr);
+                let lhs_1 = $load_fn(lhs_ptr.add(16));
+                let lhs_2 = $load_fn(lhs_ptr.add(32));
+                let lhs_3 = $load_fn(lhs_ptr.add(48));
+                let rhs_0 = $load_fn(rhs_ptr);
+                let rhs_1 = $load_fn(rhs_ptr.add(16));
+                let rhs_2 = $load_fn(rhs_ptr.add(32));
+                let rhs_3 = $load_fn(rhs_ptr.add(48));
+                let cmp_0 = vandq_u8($cmp_func(lhs_0, rhs_0), mask_8);
+                let cmp_1 = vandq_u8($cmp_func(lhs_1, rhs_1), mask_8);
+                let cmp_2 = vandq_u8($cmp_func(lhs_2, rhs_2), mask_8);
+                let cmp_3 = vandq_u8($cmp_func(lhs_3, rhs_3), mask_8);
+                let sum_0 = vpaddq_u8(cmp_0, cmp_1);
+                let sum_1 = vpaddq_u8(cmp_2, cmp_3);
+                let sum_0 = vpaddq_u8(sum_0, sum_1);
+                let sum_0 = vpaddq_u8(sum_0, sum_0);
+                let mask = vgetq_lane_u64(vreinterpretq_u64_u8(sum_0), 0);
+                $(
+                    let mask = if $not{
+                        mask ^ u64::MAX
+                    }else{
+                        mask
+                    };
+                )?
+                *dst.add(simd_index) = mask;
+                lhs_ptr = lhs_ptr.add(64);
+                rhs_ptr = rhs_ptr.add(64);
+            }
+        }
+    };
+}
+
+macro_rules! cmp_half_word {
+    ($func_name:ident, $ty:ty, $load_fn:ident, $cmp_func:ident, $($not:expr)?) => {
+        #[target_feature(enable = "neon")]
+        #[inline]
+        pub(crate) unsafe fn $func_name(lhs: &AlignedVec<$ty>, rhs: &AlignedVec<$ty>, dst: *mut BitStore) {
+            debug_assert_eq!(lhs.len, rhs.len);
+            if lhs.len == 0 {
+                return;
+            }
+
+            let mask_low = vld1q_u16(MASK_16_LOW.as_ptr());
+            let mask_high = vld1q_u16(MASK_16_HIGH.as_ptr());
+            let num_loops = roundup_loops(lhs.len, 16);
+            let mut lhs_ptr = lhs.ptr.as_ptr();
+            let mut rhs_ptr = rhs.ptr.as_ptr();
+            let dst = dst as *mut u16;
+
+            for simd_index in 0..num_loops {
+                let lhs_0 = $load_fn(lhs_ptr);
+                let lhs_1 = $load_fn(lhs_ptr.add(8));
+                let rhs_0 = $load_fn(rhs_ptr);
+                let rhs_1 = $load_fn(rhs_ptr.add(8));
+                let cmp_0 = vandq_u16($cmp_func(lhs_0, rhs_0), mask_low);
+                let cmp_1 = vandq_u16($cmp_func(lhs_1, rhs_1), mask_high);
+                let mask = vaddvq_u16(vaddq_u16(cmp_0, cmp_1));
+                $(
+                    let mask = if $not{
+                        mask ^ u16::MAX
+                    }else{
+                        mask
+                    };
+                )?
+                *dst.add(simd_index) = mask as _;
+                lhs_ptr = lhs_ptr.add(16);
+                rhs_ptr = rhs_ptr.add(16);
+            }
+        }
+    };
+}
+
+macro_rules! cmp_word {
+    ($func_name:ident, $ty:ty, $load_fn:ident, $cmp_func:ident, $($not:expr)?) => {
+        #[target_feature(enable = "neon")]
+        #[inline]
+        pub(crate) unsafe fn $func_name(lhs: &AlignedVec<$ty>, rhs: &AlignedVec<$ty>, dst: *mut BitStore) {
+            debug_assert_eq!(lhs.len, rhs.len);
+            if lhs.len == 0 {
+                return;
+            }
+
+            let mask_low = vld1q_u16(MASK_16_LOW.as_ptr());
+            let mask_high = vld1q_u16(MASK_16_HIGH.as_ptr());
+            let num_loops = roundup_loops(lhs.len, 16);
+            let mut lhs_ptr = lhs.ptr.as_ptr();
+            let mut rhs_ptr = rhs.ptr.as_ptr();
+            let dst = dst as *mut u16;
+
+            for simd_index in 0..num_loops {
+                let lhs_0 = $load_fn(lhs_ptr);
+                let lhs_1 = $load_fn(lhs_ptr.add(4));
+                let lhs_2 = $load_fn(lhs_ptr.add(8));
+                let lhs_3 = $load_fn(lhs_ptr.add(12));
+                let rhs_0 = $load_fn(rhs_ptr);
+                let rhs_1 = $load_fn(rhs_ptr.add(4));
+                let rhs_2 = $load_fn(rhs_ptr.add(8));
+                let rhs_3 = $load_fn(rhs_ptr.add(12));
+
+                let cmp_0 = $cmp_func(lhs_0, rhs_0);
+                let cmp_1 = $cmp_func(lhs_1, rhs_1);
+                let cmp_2 = $cmp_func(lhs_2, rhs_2);
+                let cmp_3 = $cmp_func(lhs_3, rhs_3);
+                let uzp_0 = vuzp1q_u16(vreinterpretq_u16_u32(cmp_0), vreinterpretq_u16_u32(cmp_1));
+                let uzp_1 = vuzp1q_u16(vreinterpretq_u16_u32(cmp_2), vreinterpretq_u16_u32(cmp_3));
+                let uzp_0 = vandq_u16(uzp_0, mask_low);
+                let uzp_1 = vandq_u16(uzp_1, mask_high);
+                let mask = vaddvq_u16(vaddq_u16(uzp_0, uzp_1));
+                $(
+                    let mask = if $not{
+                        mask ^ u16::MAX
+                    }else{
+                        mask
+                    };
+                )?
+                *dst.add(simd_index) = mask;
+                lhs_ptr = lhs_ptr.add(16);
+                rhs_ptr = rhs_ptr.add(16);
+            }
+        }
+    };
+}
+
+macro_rules! cmp_double_word {
+    ($func_name:ident, $ty:ty, $load_fn:ident, $cmp_func:ident, $($not:expr)?) => {
+        #[target_feature(enable = "neon")]
+        #[inline]
+        pub(crate) unsafe fn $func_name(lhs: &AlignedVec<$ty>, rhs: &AlignedVec<$ty>, dst: *mut BitStore) {
+            debug_assert_eq!(lhs.len, rhs.len);
+            if lhs.len == 0 {
+                return;
+            }
+
+            let num_loops = roundup_loops(lhs.len, 8);
+            let mask_low = vld1q_u16(MASK_16_LOW.as_ptr());
+            let mut lhs_ptr = lhs.ptr.as_ptr();
+            let mut rhs_ptr = rhs.ptr.as_ptr();
+            let dst = dst as *mut u8;
+
+            for simd_index in 0..num_loops {
+                let lhs_0 = $load_fn(lhs_ptr);
+                let lhs_1 = $load_fn(lhs_ptr.add(2));
+                let lhs_2 = $load_fn(lhs_ptr.add(4));
+                let lhs_3 = $load_fn(lhs_ptr.add(6));
+
+                let rhs_0 = $load_fn(rhs_ptr);
+                let rhs_1 = $load_fn(rhs_ptr.add(2));
+                let rhs_2 = $load_fn(rhs_ptr.add(4));
+                let rhs_3 = $load_fn(rhs_ptr.add(6));
+
+                let cmp_0 = $cmp_func(lhs_0, rhs_0);
+                let cmp_1 = $cmp_func(lhs_1, rhs_1);
+                let cmp_2 = $cmp_func(lhs_2, rhs_2);
+                let cmp_3 = $cmp_func(lhs_3, rhs_3);
+
+                let uzp_0 = vuzp1q_u32(vreinterpretq_u32_u64(cmp_0), vreinterpretq_u32_u64(cmp_1));
+                let uzp_1 = vuzp1q_u32(vreinterpretq_u32_u64(cmp_2), vreinterpretq_u32_u64(cmp_3));
+                let uzp = vuzp1q_u16(vreinterpretq_u16_u32(uzp_0), vreinterpretq_u16_u32(uzp_1));
+                let mask = vaddvq_u16(vandq_u16(uzp, mask_low)) as u8;
+
+                $(
+                    let mask = if $not{
+                        mask ^ u8::MAX
+                    }else{
+                        mask
+                    };
+                )?
+
+                *dst.add(simd_index) = mask;
+                lhs_ptr = lhs_ptr.add(8);
+                rhs_ptr = lhs_ptr.add(8);
+            }
+        }
+    };
+}
+
+cmp!(i8, s8, cmp_byte);
+cmp!(u8, u8, cmp_byte);
+cmp!(i16, s16, cmp_half_word);
+cmp!(u16, u16, cmp_half_word);
+cmp!(i32, s32, cmp_word);
+cmp!(u32, u32, cmp_word);
+cmp!(i64, s64, cmp_double_word);
 
 #[cfg(test)]
 mod tests {
@@ -554,17 +769,25 @@ mod tests {
     fn test_timestamp_equal_scalar() {
         let lhs = AlignedVec::from_slice(&[10, 8, -3, -9, 10, -10, 3, 2, 15, 10]);
         let rhs = 10_000;
-        cmp_assert!(&lhs, rhs, timestamp_eq_scalar_neon::<1000>, &[0x211]);
-        cmp_assert!(&lhs, rhs, timestamp_ne_scalar_neon::<1000>, &[!0x211]);
+        cmp_assert!(&lhs, rhs, timestamp_eq_scalar_neon::<1000, 1>, &[0x211]);
+        cmp_assert!(&lhs, rhs, timestamp_ne_scalar_neon::<1000, 1>, &[!0x211]);
     }
 
     #[test]
     fn test_timestamp_order_scalar() {
         let lhs = AlignedVec::from_slice(&[10, 8, 33, -9, 10, 11, 3, 2, 10, 7]);
         let rhs = 10_000;
-        cmp_assert!(&lhs, rhs, timestamp_gt_scalar_neon::<1000>, &[0x024]);
-        cmp_assert!(&lhs, rhs, timestamp_ge_scalar_neon::<1000>, &[0x135]);
-        cmp_assert!(&lhs, rhs, timestamp_lt_scalar_neon::<1000>, &[!0x135]);
-        cmp_assert!(&lhs, rhs, timestamp_le_scalar_neon::<1000>, &[!0x024]);
+        cmp_assert!(&lhs, rhs, timestamp_gt_scalar_neon::<1000, 1>, &[0x024]);
+        cmp_assert!(&lhs, rhs, timestamp_ge_scalar_neon::<1000, 1>, &[0x135]);
+        cmp_assert!(&lhs, rhs, timestamp_lt_scalar_neon::<1000, 1>, &[!0x135]);
+        cmp_assert!(&lhs, rhs, timestamp_le_scalar_neon::<1000, 1>, &[!0x024]);
+    }
+
+    #[test]
+    fn test_equal_i8() {
+        let lhs = AlignedVec::from_slice(&[-5_i8, 9, 4, -7, -111, 111, -5, -4, 4, 4]);
+        let rhs = AlignedVec::from_slice(&[-5_i8, 0, 5, -7, 111, -111, -5, 1, 0, 4]);
+        cmp_assert!(&lhs, &rhs, eq_i8_neon, &[0x0249]);
+        cmp_assert!(&lhs, &rhs, ne_i8_neon, &[!0x0249]);
     }
 }

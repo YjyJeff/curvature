@@ -43,7 +43,7 @@ mod private {
 
 #[cfg(test)]
 macro_rules! cmp_assert {
-    ($lhs:expr, $rhs:ident, $cmp_func:path, $gt:expr) => {
+    ($lhs:expr, $rhs:expr, $cmp_func:path, $gt:expr) => {
         unsafe {
             let len = $lhs.len();
             let mut dst = Bitmap::with_capacity(len);

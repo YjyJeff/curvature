@@ -327,38 +327,8 @@ pub unsafe fn le_scalar<T>(
     T::le_scalar(selection, array, scalar, temp)
 }
 
-#[inline]
-fn timestamp_eq_func<const MULTIPLIER: i64>(lhs: i64, rhs: i64) -> bool {
-    lhs * MULTIPLIER == rhs
-}
-
-#[inline]
-fn timestamp_ne_func<const MULTIPLIER: i64>(lhs: i64, rhs: i64) -> bool {
-    lhs * MULTIPLIER != rhs
-}
-
-#[inline]
-fn timestamp_gt_func<const MULTIPLIER: i64>(lhs: i64, rhs: i64) -> bool {
-    lhs * MULTIPLIER > rhs
-}
-
-#[inline]
-fn timestamp_ge_func<const MULTIPLIER: i64>(lhs: i64, rhs: i64) -> bool {
-    lhs * MULTIPLIER >= rhs
-}
-
-#[inline]
-fn timestamp_lt_func<const MULTIPLIER: i64>(lhs: i64, rhs: i64) -> bool {
-    lhs * MULTIPLIER < rhs
-}
-
-#[inline]
-fn timestamp_le_func<const MULTIPLIER: i64>(lhs: i64, rhs: i64) -> bool {
-    lhs * MULTIPLIER <= rhs
-}
-
 /// Default implementation
-unsafe fn timestamp_cmp_scalar_default<const MULTIPLIER: i64>(
+unsafe fn timestamp_cmp_scalar_default<const AM: i64, const SM: i64>(
     selection: &mut Bitmap,
     array: &PrimitiveArray<i64>,
     scalar: i64,
