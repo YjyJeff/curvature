@@ -362,28 +362,30 @@ fn check_timestamp_array_and_multiplier<const MULTIPLIER: i64>(array: &Primitive
         LogicalType::Timestamp(unit) => {
             match unit {
                 TimeUnit::Second => {
-                    if MULTIPLIER != 1_000 || MULTIPLIER != 1_000_000 || MULTIPLIER != 1_000_000_000{
-                        panic!("Timestamp::Microsecond, the multiplier can only be `1_000`. However, the passed multiplier is `{}`", MULTIPLIER)
+                    if MULTIPLIER != 1 || MULTIPLIER != 1_000 || MULTIPLIER != 1_000_000 || MULTIPLIER != 1_000_000_000{
+                        panic!("Timestamp::Second, the multiplier can only be `1`/`1_000`/`1_000_000`/`1_000_000_000`. However, the passed multiplier is `{}`", MULTIPLIER)
                     }
                 }
                 TimeUnit::Millisecond => {
-                    if MULTIPLIER != 1_000 || MULTIPLIER != 1_000_000{
-                        panic!("Timestamp::Microsecond, the multiplier can only be `1_000`/`1_000_000`. However, the passed multiplier is `{}`", MULTIPLIER)
+                    if MULTIPLIER != 1 || MULTIPLIER != 1_000 || MULTIPLIER != 1_000_000{
+                        panic!("Timestamp::Millisecond, the multiplier can only be `1`/`1_000`/`1_000_000`. However, the passed multiplier is `{}`", MULTIPLIER)
                     }
                 }
                 TimeUnit::Microsecond => {
-                    if MULTIPLIER != 1_000{
-                        panic!("Timestamp::Microsecond, the multiplier can only be `1_000`. However, the passed multiplier is `{}`", MULTIPLIER)
+                    if MULTIPLIER != 1 || MULTIPLIER != 1_000{
+                        panic!("Timestamp::Microsecond, the multiplier can only be `1`/`1_000`. However, the passed multiplier is `{}`", MULTIPLIER)
                     }
                 }
                 TimeUnit::Nanosecond => {
-                    panic!("timestamp_cmp_scalar is not suitable for Timestamp::Nanosecond, use cmp_scalar instead")
+                    if MULTIPLIER != 1{
+                        panic!("Timestamp::Nanosecond, the multiplier can only be `1`. However, the passed multiplier is `{}`", MULTIPLIER)
+                    }
                 }
             }
         }
         LogicalType::Timestamptz { .. } => {
-            if MULTIPLIER != 1_000 {
-                panic!("Timestamptz is stored in microsecond, the multiplier can only be `1000`. However, the passed multiplier is `{}`", MULTIPLIER)
+            if MULTIPLIER != 1 || MULTIPLIER != 1_000 {
+                panic!("Timestamptz is stored in microsecond, the multiplier can only be `1`/`1000`. However, the passed multiplier is `{}`", MULTIPLIER)
             }
         }
         ty  => panic!("timestamp_cmp_scalar function should only be called on Int64Array that has logical type `Timestamp` or `Timestamptz`, called on array that has logical type: {:?}", ty),
