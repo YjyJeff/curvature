@@ -36,6 +36,33 @@ unsafe fn cmp_scalar<F>(
     }
 }
 
+unsafe fn cmp<F>(selection: &mut Bitmap, lhs: &StringArray, rhs: &StringArray, cmp_func: F)
+where
+    for<'a, 'b> F: Fn(StringView<'a>, StringView<'b>) -> bool,
+{
+    debug_assert_selection_is_valid!(selection, lhs);
+    debug_assert_eq!(lhs.len(), rhs.len());
+
+    // TBD: Fast path?
+    if selection.all_valid() && lhs.validity().all_valid() && rhs.validity.all_valid() {
+        selection.mutate().reset(
+            lhs.len(),
+            lhs.values_iter()
+                .zip(rhs.values_iter())
+                .map(|(lhs, rhs)| cmp_func(lhs, rhs)),
+        );
+    } else {
+        and_inplace(selection, lhs.validity());
+        and_inplace(selection, rhs.validity());
+        selection.mutate().mutate_ones(|index| {
+            cmp_func(
+                lhs.get_value_unchecked(index),
+                rhs.get_value_unchecked(index),
+            )
+        });
+    }
+}
+
 /// Perform `array == scalar` between an [`StringArray`] and [`StringView`]
 ///
 /// # Safety
@@ -114,4 +141,76 @@ pub unsafe fn le_scalar(selection: &mut Bitmap, array: &StringArray, scalar: Str
     cmp_scalar(selection, array, scalar, |element, scalar| {
         element <= scalar
     })
+}
+
+/// Perform `StringArray == StringArray`
+///
+/// # Safety
+///
+/// - If the `selection` is not empty, `array` and `selection` should have same length.
+/// Otherwise, undefined behavior happens
+///
+/// - `selection` should not be referenced by any array
+pub unsafe fn eq(selection: &mut Bitmap, lhs: &StringArray, rhs: &StringArray) {
+    cmp(selection, lhs, rhs, |element, scalar| element == scalar)
+}
+
+/// Perform `StringArray != StringArray`
+///
+/// # Safety
+///
+/// - If the `selection` is not empty, `array` and `selection` should have same length.
+/// Otherwise, undefined behavior happens
+///
+/// - `selection` should not be referenced by any array
+pub unsafe fn ne(selection: &mut Bitmap, lhs: &StringArray, rhs: &StringArray) {
+    cmp(selection, lhs, rhs, |element, scalar| element != scalar)
+}
+
+/// Perform `StringArray > StringArray`
+///
+/// # Safety
+///
+/// - If the `selection` is not empty, `array` and `selection` should have same length.
+/// Otherwise, undefined behavior happens
+///
+/// - `selection` should not be referenced by any array
+pub unsafe fn gt(selection: &mut Bitmap, lhs: &StringArray, rhs: &StringArray) {
+    cmp(selection, lhs, rhs, |element, scalar| element > scalar)
+}
+
+/// Perform `StringArray >= StringArray`
+///
+/// # Safety
+///
+/// - If the `selection` is not empty, `array` and `selection` should have same length.
+/// Otherwise, undefined behavior happens
+///
+/// - `selection` should not be referenced by any array
+pub unsafe fn ge(selection: &mut Bitmap, lhs: &StringArray, rhs: &StringArray) {
+    cmp(selection, lhs, rhs, |element, scalar| element >= scalar)
+}
+
+/// Perform `StringArray < StringArray`
+///
+/// # Safety
+///
+/// - If the `selection` is not empty, `array` and `selection` should have same length.
+/// Otherwise, undefined behavior happens
+///
+/// - `selection` should not be referenced by any array
+pub unsafe fn lt(selection: &mut Bitmap, lhs: &StringArray, rhs: &StringArray) {
+    cmp(selection, lhs, rhs, |element, scalar| element < scalar)
+}
+
+/// Perform `StringArray <= StringArray`
+///
+/// # Safety
+///
+/// - If the `selection` is not empty, `array` and `selection` should have same length.
+/// Otherwise, undefined behavior happens
+///
+/// - `selection` should not be referenced by any array
+pub unsafe fn le(selection: &mut Bitmap, lhs: &StringArray, rhs: &StringArray) {
+    cmp(selection, lhs, rhs, |element, scalar| element <= scalar)
 }

@@ -91,7 +91,44 @@ unsafe fn cmp_scalar_default<T>(
     }
 }
 
-/// Primitive type but not intrinsic type
+/// Default implementation
+unsafe fn cmp_default<T>(
+    selection: &mut Bitmap,
+    lhs: &PrimitiveArray<T>,
+    rhs: &PrimitiveArray<T>,
+    temp: &mut BooleanArray,
+    partial_cmp_threshold: f64,
+    cmp_scalars_func: impl Fn(T, T) -> bool,
+) where
+    PrimitiveArray<T>: Array<Element = T>,
+    T: PrimitiveType,
+{
+    debug_assert_selection_is_valid!(selection, lhs);
+    debug_assert_eq!(lhs.len(), rhs.len());
+
+    and_inplace(selection, lhs.validity());
+    and_inplace(selection, rhs.validity());
+    if selection.ones_ratio() < partial_cmp_threshold {
+        selection.mutate().mutate_ones(|index| {
+            cmp_scalars_func(
+                lhs.get_value_unchecked(index),
+                rhs.get_value_unchecked(index),
+            )
+        })
+    } else {
+        // It may still faster 😊
+        temp.data_mut().mutate().reset(
+            lhs.len(),
+            lhs.values_iter()
+                .zip(rhs.values_iter())
+                .map(|(lhs, rhs)| cmp_scalars_func(lhs, rhs)),
+        );
+        and_inplace(selection, temp.data());
+    }
+}
+
+/// Primitive type but not intrinsic type. Using this trait to avoid intrinsic type using
+/// this function
 pub trait NonIntrinsicPrimitiveType: PrimitiveType + PartialOrd {
     /// If the selectivity is smaller than this threshold, partial computation is used
     const PARTIAL_CMP_THRESHOLD: f64;
@@ -293,6 +330,204 @@ pub unsafe fn le_scalar<T>(
         selection,
         array,
         scalar,
+        dst,
+        T::PARTIAL_CMP_THRESHOLD,
+        private::le,
+    )
+}
+
+/// Perform `PrimitiveArray<T> == PrimitiveArray<T>`
+///
+/// # Safety
+///
+/// - If the `selection` is not empty, `lhs`/`rhs` and `selection` should have same length.
+/// Otherwise, undefined behavior happens
+///
+/// - `selection` should not be referenced by any array
+///
+/// - `lhs`/`rhs`'s data and validity should not reference `temp`'s data and validity. In the computation
+/// graph, `lhs`/`rhs` must be the descendant of `temp`
+///
+/// - No other arrays that reference the `temp`'s data and validity are accessed! In the
+/// computation graph, it will never happens
+pub unsafe fn eq<T>(
+    selection: &mut Bitmap,
+    lhs: &PrimitiveArray<T>,
+    rhs: &PrimitiveArray<T>,
+    dst: &mut BooleanArray,
+) where
+    PrimitiveArray<T>: Array<Element = T>,
+    T: NonIntrinsicPrimitiveType,
+{
+    cmp_default(
+        selection,
+        lhs,
+        rhs,
+        dst,
+        T::PARTIAL_CMP_THRESHOLD,
+        private::eq,
+    )
+}
+
+/// Perform `PrimitiveArray<T> != PrimitiveArray<T>`
+///
+/// # Safety
+///
+/// - If the `selection` is not empty, `lhs`/`rhs` and `selection` should have same length.
+/// Otherwise, undefined behavior happens
+///
+/// - `selection` should not be referenced by any array
+///
+/// - `lhs`/`rhs`'s data and validity should not reference `temp`'s data and validity. In the computation
+/// graph, `lhs`/`rhs` must be the descendant of `temp`
+///
+/// - No other arrays that reference the `temp`'s data and validity are accessed! In the
+/// computation graph, it will never happens
+pub unsafe fn ne<T>(
+    selection: &mut Bitmap,
+    lhs: &PrimitiveArray<T>,
+    rhs: &PrimitiveArray<T>,
+    dst: &mut BooleanArray,
+) where
+    PrimitiveArray<T>: Array<Element = T>,
+    T: NonIntrinsicPrimitiveType,
+{
+    cmp_default(
+        selection,
+        lhs,
+        rhs,
+        dst,
+        T::PARTIAL_CMP_THRESHOLD,
+        private::ne,
+    )
+}
+
+/// Perform `PrimitiveArray<T> > PrimitiveArray<T>`
+///
+/// # Safety
+///
+/// - If the `selection` is not empty, `lhs`/`rhs` and `selection` should have same length.
+/// Otherwise, undefined behavior happens
+///
+/// - `selection` should not be referenced by any array
+///
+/// - `lhs`/`rhs`'s data and validity should not reference `temp`'s data and validity. In the computation
+/// graph, `lhs`/`rhs` must be the descendant of `temp`
+///
+/// - No other arrays that reference the `temp`'s data and validity are accessed! In the
+/// computation graph, it will never happens
+pub unsafe fn gt<T>(
+    selection: &mut Bitmap,
+    lhs: &PrimitiveArray<T>,
+    rhs: &PrimitiveArray<T>,
+    dst: &mut BooleanArray,
+) where
+    PrimitiveArray<T>: Array<Element = T>,
+    T: NonIntrinsicPrimitiveType,
+{
+    cmp_default(
+        selection,
+        lhs,
+        rhs,
+        dst,
+        T::PARTIAL_CMP_THRESHOLD,
+        private::gt,
+    )
+}
+
+/// Perform `PrimitiveArray<T> >= PrimitiveArray<T>`
+///
+/// # Safety
+///
+/// - If the `selection` is not empty, `lhs`/`rhs` and `selection` should have same length.
+/// Otherwise, undefined behavior happens
+///
+/// - `selection` should not be referenced by any array
+///
+/// - `lhs`/`rhs`'s data and validity should not reference `temp`'s data and validity. In the computation
+/// graph, `lhs`/`rhs` must be the descendant of `temp`
+///
+/// - No other arrays that reference the `temp`'s data and validity are accessed! In the
+/// computation graph, it will never happens
+pub unsafe fn ge<T>(
+    selection: &mut Bitmap,
+    lhs: &PrimitiveArray<T>,
+    rhs: &PrimitiveArray<T>,
+    dst: &mut BooleanArray,
+) where
+    PrimitiveArray<T>: Array<Element = T>,
+    T: NonIntrinsicPrimitiveType,
+{
+    cmp_default(
+        selection,
+        lhs,
+        rhs,
+        dst,
+        T::PARTIAL_CMP_THRESHOLD,
+        private::ge,
+    )
+}
+
+/// Perform `PrimitiveArray<T> < PrimitiveArray<T>`
+///
+/// # Safety
+///
+/// - If the `selection` is not empty, `lhs`/`rhs` and `selection` should have same length.
+/// Otherwise, undefined behavior happens
+///
+/// - `selection` should not be referenced by any array
+///
+/// - `lhs`/`rhs`'s data and validity should not reference `temp`'s data and validity. In the computation
+/// graph, `lhs`/`rhs` must be the descendant of `temp`
+///
+/// - No other arrays that reference the `temp`'s data and validity are accessed! In the
+/// computation graph, it will never happens
+pub unsafe fn lt<T>(
+    selection: &mut Bitmap,
+    lhs: &PrimitiveArray<T>,
+    rhs: &PrimitiveArray<T>,
+    dst: &mut BooleanArray,
+) where
+    PrimitiveArray<T>: Array<Element = T>,
+    T: NonIntrinsicPrimitiveType,
+{
+    cmp_default(
+        selection,
+        lhs,
+        rhs,
+        dst,
+        T::PARTIAL_CMP_THRESHOLD,
+        private::lt,
+    )
+}
+
+/// Perform `PrimitiveArray<T> <= PrimitiveArray<T>`
+///
+/// # Safety
+///
+/// - If the `selection` is not empty, `lhs`/`rhs` and `selection` should have same length.
+/// Otherwise, undefined behavior happens
+///
+/// - `selection` should not be referenced by any array
+///
+/// - `lhs`/`rhs`'s data and validity should not reference `temp`'s data and validity. In the computation
+/// graph, `lhs`/`rhs` must be the descendant of `temp`
+///
+/// - No other arrays that reference the `temp`'s data and validity are accessed! In the
+/// computation graph, it will never happens
+pub unsafe fn le<T>(
+    selection: &mut Bitmap,
+    lhs: &PrimitiveArray<T>,
+    rhs: &PrimitiveArray<T>,
+    dst: &mut BooleanArray,
+) where
+    PrimitiveArray<T>: Array<Element = T>,
+    T: NonIntrinsicPrimitiveType,
+{
+    cmp_default(
+        selection,
+        lhs,
+        rhs,
         dst,
         T::PARTIAL_CMP_THRESHOLD,
         private::le,

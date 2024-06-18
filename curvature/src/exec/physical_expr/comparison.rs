@@ -165,7 +165,7 @@ impl PhysicalExpr for Comparison {
                 (self.function_set.array_cmp_scalar)(selection, left_array, right_array, output)
             }
             (_, _) => {
-                todo!()
+                (self.function_set.array_cmp_array)(selection, left_array, right_array, output)
             }
         }
 

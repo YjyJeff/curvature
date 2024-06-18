@@ -118,3 +118,52 @@ crate::dynamic_auto_vectorization_func!(
     (lhs: &[T], rhs: T, dst: &mut [bool]),
     where T: PartialOrd + Copy
 );
+
+use data_block::array::{Array, BooleanArray, PrimitiveArray};
+use data_block::bitmap::Bitmap;
+use data_block::compute::logical::and_inplace;
+use data_block::types::PrimitiveType;
+
+unsafe fn cmp_scalar_default<T>(
+    selection: &mut Bitmap,
+    array: &PrimitiveArray<T>,
+    scalar: T,
+    temp: &mut BooleanArray,
+    partial_cmp_threshold: f64,
+    cmp_scalars_func: impl Fn(T, T) -> bool,
+) where
+    PrimitiveArray<T>: Array<Element = T>,
+    T: PrimitiveType,
+{
+    and_inplace(selection, array.validity());
+    if selection.ones_ratio() < partial_cmp_threshold {
+        selection
+            .mutate()
+            .mutate_ones(|index| cmp_scalars_func(array.get_value_unchecked(index), scalar))
+    } else {
+        // It may still faster 😊
+        temp.data_mut().mutate().reset(
+            array.len(),
+            array
+                .values_iter()
+                .map(|element| cmp_scalars_func(element, scalar)),
+        );
+        and_inplace(selection, temp.data());
+    }
+}
+
+/// ge
+///
+/// # Safety
+#[inline]
+pub unsafe fn ge<T>(
+    selection: &mut Bitmap,
+    array: &PrimitiveArray<T>,
+    scalar: T,
+    temp: &mut BooleanArray,
+) where
+    PrimitiveArray<T>: Array<Element = T>,
+    T: PrimitiveType + PartialOrd,
+{
+    cmp_scalar_default(selection, array, scalar, temp, 0.0, |lhs, rhs| lhs >= rhs)
+}

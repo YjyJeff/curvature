@@ -5,7 +5,7 @@
 use crate::array::{Array, BooleanArray};
 use crate::bitmap::{BitStore, Bitmap};
 use crate::compute::combine_validities;
-use std::ops::{BitAnd, BitOr};
+use std::ops::{BitAnd, BitOr, BitXor};
 
 /// This will be optimized for different target feature
 #[inline(always)]
@@ -44,6 +44,78 @@ macro_rules! or_bitmaps {
 
 crate::dynamic_func!(
     or_bitmaps,
+    ,
+    (lhs: &[BitStore], rhs: &[BitStore], dst: &mut [BitStore]),
+);
+
+macro_rules! xor_bitmaps {
+    ($lhs:ident, $rhs:ident, $dst:ident) => {
+        raw_bitmap_compute($lhs, $rhs, $dst, BitXor::bitxor)
+    };
+}
+
+crate::dynamic_func!(
+    xor_bitmaps,
+    ,
+    (lhs: &[BitStore], rhs: &[BitStore], dst: &mut [BitStore]),
+);
+
+macro_rules! not_xor_bitmaps {
+    ($lhs:ident, $rhs:ident, $dst:ident) => {
+        raw_bitmap_compute($lhs, $rhs, $dst, |lhs, rhs| !(lhs ^ rhs))
+    };
+}
+
+crate::dynamic_func!(
+    not_xor_bitmaps,
+    ,
+    (lhs: &[BitStore], rhs: &[BitStore], dst: &mut [BitStore]),
+);
+
+macro_rules! and_not_bitmaps {
+    ($lhs:ident, $rhs:ident, $dst:ident) => {
+        raw_bitmap_compute($lhs, $rhs, $dst, |lhs, rhs| lhs & !rhs)
+    };
+}
+
+crate::dynamic_func!(
+    and_not_bitmaps,
+    ,
+    (lhs: &[BitStore], rhs: &[BitStore], dst: &mut [BitStore]),
+);
+
+macro_rules! or_not_bitmaps {
+    ($lhs:ident, $rhs:ident, $dst:ident) => {
+        raw_bitmap_compute($lhs, $rhs, $dst, |lhs, rhs| lhs | !rhs)
+    };
+}
+
+crate::dynamic_func!(
+    or_not_bitmaps,
+    ,
+    (lhs: &[BitStore], rhs: &[BitStore], dst: &mut [BitStore]),
+);
+
+macro_rules! not_and_bitmaps {
+    ($lhs:ident, $rhs:ident, $dst:ident) => {
+        raw_bitmap_compute($lhs, $rhs, $dst, |lhs, rhs| !lhs & rhs)
+    };
+}
+
+crate::dynamic_func!(
+    not_and_bitmaps,
+    ,
+    (lhs: &[BitStore], rhs: &[BitStore], dst: &mut [BitStore]),
+);
+
+macro_rules! not_or_bitmaps {
+    ($lhs:ident, $rhs:ident, $dst:ident) => {
+        raw_bitmap_compute($lhs, $rhs, $dst, |lhs, rhs| !lhs | rhs)
+    };
+}
+
+crate::dynamic_func!(
+    not_or_bitmaps,
     ,
     (lhs: &[BitStore], rhs: &[BitStore], dst: &mut [BitStore]),
 );
@@ -135,6 +207,28 @@ pub unsafe fn or(lhs: &BooleanArray, rhs: &BooleanArray, dst: &mut BooleanArray)
         rhs.data.as_raw_slice(),
         dst.data.as_mut().mutate().clear_and_resize(lhs.len()),
     )
+}
+
+/// Perform `^` operation on two [`BooleanArray`]s, combine the validity
+///
+/// Note that caller should guarantee `lhs` and `rhs` have same length
+///
+/// # Safety
+///
+/// - `lhs`/`rhs`'s data and validity should not reference `dst`'s data and validity. In the computation
+/// graph, `lhs`/`rhs` must be the descendant of `dst`
+///
+/// - No other arrays that reference the `dst`'s data and validity are accessed! In the
+/// computation graph, it will never happens
+pub unsafe fn xor(lhs: &BooleanArray, rhs: &BooleanArray, dst: &mut BooleanArray) {
+    debug_assert_eq!(lhs.len(), rhs.len());
+
+    combine_validities(&lhs.validity, &rhs.validity, &mut dst.validity);
+    xor_bitmaps_dynamic(
+        lhs.data.as_raw_slice(),
+        rhs.data.as_raw_slice(),
+        dst.data.as_mut().mutate().clear_and_resize(lhs.len()),
+    );
 }
 
 /// Perform `and` operation on [`BooleanArray`] and scalar

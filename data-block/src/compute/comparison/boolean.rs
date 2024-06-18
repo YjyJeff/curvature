@@ -1,8 +1,11 @@
 //! Comparison between boolean arrays
 
 use crate::array::{Array, BooleanArray};
-use crate::bitmap::Bitmap;
-use crate::compute::logical::{and_inplace, and_not_inplace};
+use crate::bitmap::{BitStore, Bitmap};
+use crate::compute::logical::{
+    and_inplace, and_not_bitmaps_dynamic, and_not_inplace, not_and_bitmaps_dynamic,
+    not_or_bitmaps_dynamic, not_xor_bitmaps_dynamic, or_not_bitmaps_dynamic, xor_bitmaps_dynamic,
+};
 
 /// Perform `array == scalar` between [`BooleanArray`] and `bool`
 ///
@@ -13,6 +16,8 @@ use crate::compute::logical::{and_inplace, and_not_inplace};
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn eq_scalar(selection: &mut Bitmap, array: &BooleanArray, scalar: bool) {
+    debug_assert_selection_is_valid!(selection, array);
+
     and_inplace(selection, array.validity());
     if scalar {
         and_inplace(selection, array.data());
@@ -30,6 +35,8 @@ pub unsafe fn eq_scalar(selection: &mut Bitmap, array: &BooleanArray, scalar: bo
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn ne_scalar(selection: &mut Bitmap, array: &BooleanArray, scalar: bool) {
+    debug_assert_selection_is_valid!(selection, array);
+
     and_inplace(selection, array.validity());
 
     if !scalar {
@@ -48,6 +55,8 @@ pub unsafe fn ne_scalar(selection: &mut Bitmap, array: &BooleanArray, scalar: bo
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn gt_scalar(selection: &mut Bitmap, array: &BooleanArray, scalar: bool) {
+    debug_assert_selection_is_valid!(selection, array);
+
     and_inplace(selection, array.validity());
 
     if !scalar {
@@ -71,6 +80,8 @@ pub unsafe fn gt_scalar(selection: &mut Bitmap, array: &BooleanArray, scalar: bo
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn ge_scalar(selection: &mut Bitmap, array: &BooleanArray, scalar: bool) {
+    debug_assert_selection_is_valid!(selection, array);
+
     and_inplace(selection, array.validity());
     if scalar {
         and_inplace(selection, array.data())
@@ -86,6 +97,8 @@ pub unsafe fn ge_scalar(selection: &mut Bitmap, array: &BooleanArray, scalar: bo
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn lt_scalar(selection: &mut Bitmap, array: &BooleanArray, scalar: bool) {
+    debug_assert_selection_is_valid!(selection, array);
+
     and_inplace(selection, array.validity());
 
     if scalar {
@@ -109,11 +122,138 @@ pub unsafe fn lt_scalar(selection: &mut Bitmap, array: &BooleanArray, scalar: bo
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn le_scalar(selection: &mut Bitmap, array: &BooleanArray, scalar: bool) {
+    debug_assert_selection_is_valid!(selection, array);
+
     and_inplace(selection, array.validity());
 
     if !scalar {
         and_not_inplace(selection, array.data(), array.len());
     }
+}
+
+#[inline]
+unsafe fn cmp(
+    selection: &mut Bitmap,
+    lhs: &BooleanArray,
+    rhs: &BooleanArray,
+    temp: &mut BooleanArray,
+    func: impl Fn(&[BitStore], &[BitStore], &mut [BitStore]),
+) {
+    debug_assert_selection_is_valid!(selection, lhs);
+    debug_assert_eq!(lhs.len(), rhs.len());
+
+    and_inplace(selection, lhs.validity());
+    and_inplace(selection, rhs.validity());
+
+    func(
+        lhs.data.as_raw_slice(),
+        rhs.data.as_raw_slice(),
+        temp.data.as_mut().mutate().clear_and_resize(lhs.len()),
+    );
+
+    and_inplace(selection, &temp.data);
+}
+
+/// Perform `BooleanArray == BooleanArray`
+///
+/// # Safety
+///
+/// - If the `selection` is not empty, `array` and `selection` should have same length.
+/// Otherwise, undefined behavior happens
+///
+/// - `selection` should not be referenced by any array
+pub unsafe fn eq(
+    selection: &mut Bitmap,
+    lhs: &BooleanArray,
+    rhs: &BooleanArray,
+    temp: &mut BooleanArray,
+) {
+    cmp(selection, lhs, rhs, temp, not_xor_bitmaps_dynamic);
+}
+
+/// Perform `BooleanArray != BooleanArray`
+///
+/// # Safety
+///
+/// - If the `selection` is not empty, `array` and `selection` should have same length.
+/// Otherwise, undefined behavior happens
+///
+/// - `selection` should not be referenced by any array
+pub unsafe fn ne(
+    selection: &mut Bitmap,
+    lhs: &BooleanArray,
+    rhs: &BooleanArray,
+    temp: &mut BooleanArray,
+) {
+    cmp(selection, lhs, rhs, temp, xor_bitmaps_dynamic)
+}
+
+/// Perform `BooleanArray > BooleanArray`
+///
+/// # Safety
+///
+/// - If the `selection` is not empty, `array` and `selection` should have same length.
+/// Otherwise, undefined behavior happens
+///
+/// - `selection` should not be referenced by any array
+pub unsafe fn gt(
+    selection: &mut Bitmap,
+    lhs: &BooleanArray,
+    rhs: &BooleanArray,
+    temp: &mut BooleanArray,
+) {
+    cmp(selection, lhs, rhs, temp, and_not_bitmaps_dynamic)
+}
+
+/// Perform `BooleanArray >= BooleanArray`
+///
+/// # Safety
+///
+/// - If the `selection` is not empty, `array` and `selection` should have same length.
+/// Otherwise, undefined behavior happens
+///
+/// - `selection` should not be referenced by any array
+pub unsafe fn ge(
+    selection: &mut Bitmap,
+    lhs: &BooleanArray,
+    rhs: &BooleanArray,
+    temp: &mut BooleanArray,
+) {
+    cmp(selection, lhs, rhs, temp, or_not_bitmaps_dynamic)
+}
+
+/// Perform `BooleanArray < BooleanArray`
+///
+/// # Safety
+///
+/// - If the `selection` is not empty, `array` and `selection` should have same length.
+/// Otherwise, undefined behavior happens
+///
+/// - `selection` should not be referenced by any array
+pub unsafe fn lt(
+    selection: &mut Bitmap,
+    lhs: &BooleanArray,
+    rhs: &BooleanArray,
+    temp: &mut BooleanArray,
+) {
+    cmp(selection, lhs, rhs, temp, not_and_bitmaps_dynamic)
+}
+
+/// Perform `BooleanArray <= BooleanArray`
+///
+/// # Safety
+///
+/// - If the `selection` is not empty, `array` and `selection` should have same length.
+/// Otherwise, undefined behavior happens
+///
+/// - `selection` should not be referenced by any array
+pub unsafe fn le(
+    selection: &mut Bitmap,
+    lhs: &BooleanArray,
+    rhs: &BooleanArray,
+    temp: &mut BooleanArray,
+) {
+    cmp(selection, lhs, rhs, temp, not_or_bitmaps_dynamic)
 }
 
 #[cfg(test)]

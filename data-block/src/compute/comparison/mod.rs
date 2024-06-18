@@ -12,7 +12,7 @@ use crate::bitmap::Bitmap;
 use crate::compute::logical::and_inplace;
 use crate::element::{Element, ElementRef};
 
-/// A default `cmp(array, scalar)` function. It is not optimal in some cases
+/// A default `cmp(array, scalar)` function. It is not optimal in most of the cases
 #[inline]
 unsafe fn cmp_scalar<A: Array, F>(
     selection: &mut Bitmap,
@@ -241,6 +241,130 @@ pub fn timestamp_scalar_lt_scalar<const LM: i64, const RM: i64>(lhs: i64, rhs: i
 #[inline]
 pub fn timestamp_scalar_le_scalar<const LM: i64, const RM: i64>(lhs: i64, rhs: i64) -> bool {
     lhs * LM <= rhs * RM
+}
+
+/// A default `cmp(array, array)` function. It is not optimal in most of the cases
+#[inline]
+unsafe fn cmp<A: Array, F>(selection: &mut Bitmap, lhs: &A, rhs: &A, cmp_func: F)
+where
+    F: Fn(<A::Element as Element>::ElementRef<'_>, <A::Element as Element>::ElementRef<'_>) -> bool,
+{
+    debug_assert_selection_is_valid!(selection, lhs);
+    debug_assert_eq!(lhs.len(), rhs.len());
+
+    if selection.all_valid() && lhs.validity().all_valid() && rhs.validity().all_valid() {
+        selection.mutate().reset(
+            lhs.len(),
+            lhs.values_iter()
+                .zip(rhs.values_iter())
+                .map(|(lhs, rhs)| cmp_func(lhs, rhs)),
+        );
+    } else {
+        and_inplace(selection, lhs.validity());
+        and_inplace(selection, rhs.validity());
+        selection.mutate().mutate_ones(|index| {
+            cmp_func(
+                lhs.get_value_unchecked(index),
+                rhs.get_value_unchecked(index),
+            )
+        });
+    }
+}
+
+/// Perform `array == array`
+///
+/// # Safety
+///
+/// - If the `selection` is not empty, `array` and `selection` should have same length.
+/// Otherwise, undefined behavior happens
+///
+/// - `selection` should not be referenced by any array
+pub unsafe fn eq<A: Array>(selection: &mut Bitmap, lhs: &A, rhs: &A)
+where
+    for<'a, 'b> <A::Element as Element>::ElementRef<'a>:
+        PartialEq<<A::Element as Element>::ElementRef<'b>>,
+{
+    cmp(selection, lhs, rhs, |lhs, rhs| lhs == rhs)
+}
+
+/// Perform `array != array`
+///
+/// # Safety
+///
+/// - If the `selection` is not empty, `array` and `selection` should have same length.
+/// Otherwise, undefined behavior happens
+///
+/// - `selection` should not be referenced by any array
+pub unsafe fn ne<A: Array>(selection: &mut Bitmap, lhs: &A, rhs: &A)
+where
+    for<'a, 'b> <A::Element as Element>::ElementRef<'a>:
+        PartialEq<<A::Element as Element>::ElementRef<'b>>,
+{
+    cmp(selection, lhs, rhs, |lhs, rhs| lhs != rhs)
+}
+
+/// Perform `array > array`
+///
+/// # Safety
+///
+/// - If the `selection` is not empty, `array` and `selection` should have same length.
+/// Otherwise, undefined behavior happens
+///
+/// - `selection` should not be referenced by any array
+pub unsafe fn gt<A: Array>(selection: &mut Bitmap, lhs: &A, rhs: &A)
+where
+    for<'a, 'b> <A::Element as Element>::ElementRef<'a>:
+        PartialOrd<<A::Element as Element>::ElementRef<'b>>,
+{
+    cmp(selection, lhs, rhs, |lhs, rhs| lhs > rhs)
+}
+
+/// Perform `array >= array`
+///
+/// # Safety
+///
+/// - If the `selection` is not empty, `array` and `selection` should have same length.
+/// Otherwise, undefined behavior happens
+///
+/// - `selection` should not be referenced by any array
+pub unsafe fn ge<A: Array>(selection: &mut Bitmap, lhs: &A, rhs: &A)
+where
+    for<'a, 'b> <A::Element as Element>::ElementRef<'a>:
+        PartialOrd<<A::Element as Element>::ElementRef<'b>>,
+{
+    cmp(selection, lhs, rhs, |lhs, rhs| lhs >= rhs)
+}
+
+/// Perform `array < array`
+///
+/// # Safety
+///
+/// - If the `selection` is not empty, `array` and `selection` should have same length.
+/// Otherwise, undefined behavior happens
+///
+/// - `selection` should not be referenced by any array
+pub unsafe fn lt<A: Array>(selection: &mut Bitmap, lhs: &A, rhs: &A)
+where
+    for<'a, 'b> <A::Element as Element>::ElementRef<'a>:
+        PartialOrd<<A::Element as Element>::ElementRef<'b>>,
+{
+    cmp(selection, lhs, rhs, |lhs, rhs| lhs < rhs)
+}
+
+/// Perform `array <= array`
+///
+/// # Safety
+///
+/// - If the `selection` is not empty, `array` and `selection` should have same length.
+/// Otherwise, undefined behavior happens
+///
+/// - `selection` should not be referenced by any array
+pub unsafe fn le<A: Array>(selection: &mut Bitmap, lhs: &A, rhs: &A)
+where
+    for<'a, 'b> <A::Element as Element>::ElementRef<'a>:
+        PartialOrd<<A::Element as Element>::ElementRef<'b>>,
+{
+    cmp(selection, lhs, rhs, |lhs, rhs| lhs <= rhs)
 }
 
 #[cfg(test)]

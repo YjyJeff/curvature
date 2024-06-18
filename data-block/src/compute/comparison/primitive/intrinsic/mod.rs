@@ -12,7 +12,6 @@
 
 use crate::array::{Array, BooleanArray, PrimitiveArray};
 use crate::bitmap::Bitmap;
-use crate::compute::logical::and_inplace;
 use crate::types::IntrinsicType;
 
 #[cfg(feature = "portable_simd")]
@@ -167,6 +166,132 @@ pub trait PartialOrdExt: PartialOrd + IntrinsicType {
         selection: &mut Bitmap,
         array: &PrimitiveArray<Self>,
         scalar: Self,
+        temp: &mut BooleanArray,
+    );
+
+    /// Equality between two arrays
+    ///
+    /// # Safety
+    ///
+    /// - If the `selection` is not empty, `lhs`/`rhs` and `selection` should have same length.
+    /// Otherwise, undefined behavior happens
+    ///
+    /// - `selection` should not be referenced by any array
+    ///
+    /// - `lhs`/`rhs`'s data and validity should not reference `temp`'s data and validity. In the computation
+    /// graph, `lhs`/`rhs` must be the descendant of `temp`
+    ///
+    /// - No other arrays that reference the `temp`'s data and validity are accessed! In the
+    /// computation graph, it will never happens
+    unsafe fn eq(
+        selection: &mut Bitmap,
+        lhs: &PrimitiveArray<Self>,
+        rhs: &PrimitiveArray<Self>,
+        temp: &mut BooleanArray,
+    );
+
+    /// Not equal between two arrays
+    ///
+    /// # Safety
+    ///
+    /// - If the `selection` is not empty, `lhs`/`rhs` and `selection` should have same length.
+    /// Otherwise, undefined behavior happens
+    ///
+    /// - `selection` should not be referenced by any array
+    ///
+    /// - `lhs`/`rhs`'s data and validity should not reference `temp`'s data and validity. In the computation
+    /// graph, `lhs`/`rhs` must be the descendant of `temp`
+    ///
+    /// - No other arrays that reference the `temp`'s data and validity are accessed! In the
+    /// computation graph, it will never happens
+    unsafe fn ne(
+        selection: &mut Bitmap,
+        lhs: &PrimitiveArray<Self>,
+        rhs: &PrimitiveArray<Self>,
+        temp: &mut BooleanArray,
+    );
+
+    /// Array greater than another array
+    ///
+    /// # Safety
+    ///
+    /// - If the `selection` is not empty, `lhs`/`rhs` and `selection` should have same length.
+    /// Otherwise, undefined behavior happens
+    ///
+    /// - `selection` should not be referenced by any array
+    ///
+    /// - `lhs`/`rhs`'s data and validity should not reference `temp`'s data and validity. In the computation
+    /// graph, `lhs`/`rhs` must be the descendant of `temp`
+    ///
+    /// - No other arrays that reference the `temp`'s data and validity are accessed! In the
+    /// computation graph, it will never happens
+    unsafe fn gt(
+        selection: &mut Bitmap,
+        lhs: &PrimitiveArray<Self>,
+        rhs: &PrimitiveArray<Self>,
+        temp: &mut BooleanArray,
+    );
+
+    /// Array greater than or equal to another array
+    ///
+    /// # Safety
+    ///
+    /// - If the `selection` is not empty, `lhs`/`rhs` and `selection` should have same length.
+    /// Otherwise, undefined behavior happens
+    ///
+    /// - `selection` should not be referenced by any array
+    ///
+    /// - `lhs`/`rhs`'s data and validity should not reference `temp`'s data and validity. In the computation
+    /// graph, `lhs`/`rhs` must be the descendant of `temp`
+    ///
+    /// - No other arrays that reference the `temp`'s data and validity are accessed! In the
+    /// computation graph, it will never happens
+    unsafe fn ge(
+        selection: &mut Bitmap,
+        lhs: &PrimitiveArray<Self>,
+        rhs: &PrimitiveArray<Self>,
+        temp: &mut BooleanArray,
+    );
+
+    /// Array less than another array
+    ///
+    /// # Safety
+    ///
+    /// - If the `selection` is not empty, `lhs`/`rhs` and `selection` should have same length.
+    /// Otherwise, undefined behavior happens
+    ///
+    /// - `selection` should not be referenced by any array
+    ///
+    /// - `lhs`/`rhs`'s data and validity should not reference `temp`'s data and validity. In the computation
+    /// graph, `lhs`/`rhs` must be the descendant of `temp`
+    ///
+    /// - No other arrays that reference the `temp`'s data and validity are accessed! In the
+    /// computation graph, it will never happens
+    unsafe fn lt(
+        selection: &mut Bitmap,
+        lhs: &PrimitiveArray<Self>,
+        rhs: &PrimitiveArray<Self>,
+        temp: &mut BooleanArray,
+    );
+
+    /// Array less than or equal to another array
+    ///
+    /// # Safety
+    ///
+    /// - If the `selection` is not empty, `lhs`/`rhs` and `selection` should have same length.
+    /// Otherwise, undefined behavior happens
+    ///
+    /// - `selection` should not be referenced by any array
+    ///
+    /// - `lhs`/`rhs`'s data and validity should not reference `temp`'s data and validity. In the computation
+    /// graph, `lhs`/`rhs` must be the descendant of `temp`
+    ///
+    /// - No other arrays that reference the `temp`'s data and validity are accessed! In the
+    /// computation graph, it will never happens
+    unsafe fn le(
+        selection: &mut Bitmap,
+        lhs: &PrimitiveArray<Self>,
+        rhs: &PrimitiveArray<Self>,
         temp: &mut BooleanArray,
     );
 }
@@ -327,32 +452,160 @@ pub unsafe fn le_scalar<T>(
     T::le_scalar(selection, array, scalar, temp)
 }
 
-/// Default implementation
-unsafe fn timestamp_cmp_scalar_default<const AM: i64, const SM: i64>(
+/// Perform `PrimitiveArray<T> == PrimitiveArray<T>`
+///
+/// # Safety
+///
+/// - If the `selection` is not empty, `lhs`/`rhs` and `selection` should have same length.
+/// Otherwise, undefined behavior happens
+///
+/// - `selection` should not be referenced by any array
+///
+/// - `lhs`/`rhs`'s data and validity should not reference `temp`'s data and validity. In the computation
+/// graph, `lhs`/`rhs` must be the descendant of `temp`
+///
+/// - No other arrays that reference the `temp`'s data and validity are accessed! In the
+/// computation graph, it will never happens
+pub unsafe fn eq<T>(
     selection: &mut Bitmap,
-    array: &PrimitiveArray<i64>,
-    scalar: i64,
+    lhs: &PrimitiveArray<T>,
+    rhs: &PrimitiveArray<T>,
     temp: &mut BooleanArray,
-    partial_cmp_threshold: f64,
-    cmp_scalars_func: impl Fn(i64, i64) -> bool,
-) {
-    debug_assert_selection_is_valid!(selection, array);
+) where
+    T: PartialOrdExt,
+    PrimitiveArray<T>: Array<Element = T>,
+{
+    <T as PartialOrdExt>::eq(selection, lhs, rhs, temp)
+}
 
-    and_inplace(selection, array.validity());
-    if selection.ones_ratio() < partial_cmp_threshold {
-        selection
-            .mutate()
-            .mutate_ones(|index| cmp_scalars_func(array.get_value_unchecked(index), scalar))
-    } else {
-        // It may still faster 😊
-        temp.data_mut().mutate().reset(
-            array.len(),
-            array
-                .values_iter()
-                .map(|element| cmp_scalars_func(element, scalar)),
-        );
-        and_inplace(selection, temp.data());
-    }
+/// Perform `PrimitiveArray<T> != PrimitiveArray<T>`
+///
+/// # Safety
+///
+/// - If the `selection` is not empty, `lhs`/`rhs` and `selection` should have same length.
+/// Otherwise, undefined behavior happens
+///
+/// - `selection` should not be referenced by any array
+///
+/// - `lhs`/`rhs`'s data and validity should not reference `temp`'s data and validity. In the computation
+/// graph, `lhs`/`rhs` must be the descendant of `temp`
+///
+/// - No other arrays that reference the `temp`'s data and validity are accessed! In the
+/// computation graph, it will never happens
+pub unsafe fn ne<T>(
+    selection: &mut Bitmap,
+    lhs: &PrimitiveArray<T>,
+    rhs: &PrimitiveArray<T>,
+    temp: &mut BooleanArray,
+) where
+    T: PartialOrdExt,
+    PrimitiveArray<T>: Array<Element = T>,
+{
+    <T as PartialOrdExt>::ne(selection, lhs, rhs, temp)
+}
+
+/// Perform `PrimitiveArray<T> > PrimitiveArray<T>`
+///
+/// # Safety
+///
+/// - If the `selection` is not empty, `lhs`/`rhs` and `selection` should have same length.
+/// Otherwise, undefined behavior happens
+///
+/// - `selection` should not be referenced by any array
+///
+/// - `lhs`/`rhs`'s data and validity should not reference `temp`'s data and validity. In the computation
+/// graph, `lhs`/`rhs` must be the descendant of `temp`
+///
+/// - No other arrays that reference the `temp`'s data and validity are accessed! In the
+/// computation graph, it will never happens
+pub unsafe fn gt<T>(
+    selection: &mut Bitmap,
+    lhs: &PrimitiveArray<T>,
+    rhs: &PrimitiveArray<T>,
+    temp: &mut BooleanArray,
+) where
+    T: PartialOrdExt,
+    PrimitiveArray<T>: Array<Element = T>,
+{
+    <T as PartialOrdExt>::gt(selection, lhs, rhs, temp)
+}
+
+/// Perform `PrimitiveArray<T> >= PrimitiveArray<T>`
+///
+/// # Safety
+///
+/// - If the `selection` is not empty, `lhs`/`rhs` and `selection` should have same length.
+/// Otherwise, undefined behavior happens
+///
+/// - `selection` should not be referenced by any array
+///
+/// - `lhs`/`rhs`'s data and validity should not reference `temp`'s data and validity. In the computation
+/// graph, `lhs`/`rhs` must be the descendant of `temp`
+///
+/// - No other arrays that reference the `temp`'s data and validity are accessed! In the
+/// computation graph, it will never happens
+pub unsafe fn ge<T>(
+    selection: &mut Bitmap,
+    lhs: &PrimitiveArray<T>,
+    rhs: &PrimitiveArray<T>,
+    temp: &mut BooleanArray,
+) where
+    T: PartialOrdExt,
+    PrimitiveArray<T>: Array<Element = T>,
+{
+    <T as PartialOrdExt>::ge(selection, lhs, rhs, temp)
+}
+
+/// Perform `PrimitiveArray<T> < PrimitiveArray<T>`
+///
+/// # Safety
+///
+/// - If the `selection` is not empty, `lhs`/`rhs` and `selection` should have same length.
+/// Otherwise, undefined behavior happens
+///
+/// - `selection` should not be referenced by any array
+///
+/// - `lhs`/`rhs`'s data and validity should not reference `temp`'s data and validity. In the computation
+/// graph, `lhs`/`rhs` must be the descendant of `temp`
+///
+/// - No other arrays that reference the `temp`'s data and validity are accessed! In the
+/// computation graph, it will never happens
+pub unsafe fn lt<T>(
+    selection: &mut Bitmap,
+    lhs: &PrimitiveArray<T>,
+    rhs: &PrimitiveArray<T>,
+    temp: &mut BooleanArray,
+) where
+    T: PartialOrdExt,
+    PrimitiveArray<T>: Array<Element = T>,
+{
+    <T as PartialOrdExt>::lt(selection, lhs, rhs, temp)
+}
+
+/// Perform `PrimitiveArray<T> <= PrimitiveArray<T>`
+///
+/// # Safety
+///
+/// - If the `selection` is not empty, `lhs`/`rhs` and `selection` should have same length.
+/// Otherwise, undefined behavior happens
+///
+/// - `selection` should not be referenced by any array
+///
+/// - `lhs`/`rhs`'s data and validity should not reference `temp`'s data and validity. In the computation
+/// graph, `lhs`/`rhs` must be the descendant of `temp`
+///
+/// - No other arrays that reference the `temp`'s data and validity are accessed! In the
+/// computation graph, it will never happens
+pub unsafe fn le<T>(
+    selection: &mut Bitmap,
+    lhs: &PrimitiveArray<T>,
+    rhs: &PrimitiveArray<T>,
+    temp: &mut BooleanArray,
+) where
+    T: PartialOrdExt,
+    PrimitiveArray<T>: Array<Element = T>,
+{
+    <T as PartialOrdExt>::le(selection, lhs, rhs, temp)
 }
 
 #[cfg(debug_assertions)]
