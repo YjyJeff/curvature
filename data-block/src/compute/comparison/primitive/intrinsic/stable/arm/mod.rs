@@ -417,7 +417,12 @@ pub(super) unsafe fn timestamp_eq_scalar_neon<const AM: i64, const SM: i64>(
     scalar: i64,
     dst: *mut BitStore,
 ) {
-    timestamp_cmp_scalar_neon::<AM, false>(array, scalar * SM, dst, vceqq_s64)
+    let scalar = scalar * SM;
+    if AM == 1 {
+        eq_scalar_i64_neon(array, scalar, dst)
+    } else {
+        timestamp_cmp_scalar_neon::<AM, false>(array, scalar, dst, vceqq_s64)
+    }
 }
 
 #[target_feature(enable = "neon")]
@@ -426,7 +431,12 @@ pub(super) unsafe fn timestamp_ne_scalar_neon<const AM: i64, const SM: i64>(
     scalar: i64,
     dst: *mut BitStore,
 ) {
-    timestamp_cmp_scalar_neon::<AM, true>(array, scalar * SM, dst, vceqq_s64)
+    let scalar = scalar * SM;
+    if AM == 1 {
+        ne_scalar_i64_neon(array, scalar, dst)
+    } else {
+        timestamp_cmp_scalar_neon::<AM, true>(array, scalar, dst, vceqq_s64)
+    }
 }
 
 #[target_feature(enable = "neon")]
@@ -435,7 +445,12 @@ pub(super) unsafe fn timestamp_gt_scalar_neon<const AM: i64, const SM: i64>(
     scalar: i64,
     dst: *mut BitStore,
 ) {
-    timestamp_cmp_scalar_neon::<AM, false>(array, scalar * SM, dst, vcgtq_s64)
+    let scalar = scalar * SM;
+    if AM == 1 {
+        gt_scalar_i64_neon(array, scalar, dst);
+    } else {
+        timestamp_cmp_scalar_neon::<AM, false>(array, scalar, dst, vcgtq_s64)
+    }
 }
 
 #[target_feature(enable = "neon")]
@@ -444,7 +459,12 @@ pub(super) unsafe fn timestamp_ge_scalar_neon<const AM: i64, const SM: i64>(
     scalar: i64,
     dst: *mut BitStore,
 ) {
-    timestamp_cmp_scalar_neon::<AM, false>(array, scalar * SM, dst, vcgeq_s64)
+    let scalar = scalar * SM;
+    if AM == 1 {
+        ge_scalar_i64_neon(array, scalar, dst);
+    } else {
+        timestamp_cmp_scalar_neon::<AM, false>(array, scalar, dst, vcgeq_s64)
+    }
 }
 
 #[target_feature(enable = "neon")]
@@ -453,7 +473,12 @@ pub(super) unsafe fn timestamp_lt_scalar_neon<const AM: i64, const SM: i64>(
     scalar: i64,
     dst: *mut BitStore,
 ) {
-    timestamp_cmp_scalar_neon::<AM, false>(array, scalar * SM, dst, vcltq_s64)
+    let scalar = scalar * SM;
+    if AM == 1 {
+        lt_scalar_i64_neon(array, scalar, dst);
+    } else {
+        timestamp_cmp_scalar_neon::<AM, false>(array, scalar, dst, vcltq_s64)
+    }
 }
 
 #[target_feature(enable = "neon")]
@@ -462,7 +487,12 @@ pub(super) unsafe fn timestamp_le_scalar_neon<const AM: i64, const SM: i64>(
     scalar: i64,
     dst: *mut BitStore,
 ) {
-    timestamp_cmp_scalar_neon::<AM, false>(array, scalar * SM, dst, vcleq_s64)
+    let scalar = scalar * SM;
+    if AM == 1 {
+        le_scalar_i64_neon(array, scalar, dst);
+    } else {
+        timestamp_cmp_scalar_neon::<AM, false>(array, scalar, dst, vcleq_s64)
+    }
 }
 
 // Compare between arrays
