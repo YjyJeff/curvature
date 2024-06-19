@@ -12,7 +12,7 @@ macro_rules! x86_target_use {
 /// Compare integer scalar with specified target_feature
 macro_rules! cmp_int_scalar {
     // Signed integer match this pattern
-    ($target_feature:expr, $func_suffix:expr, $prefix:ident, $int_ty:ty, $suffix:ident) => {
+    ($target_feature:expr, $func_suffix:ident, $prefix:ident, $int_ty:ty, $suffix:ident) => {
         paste::paste! {
             #[target_feature(enable = $target_feature)]
             pub(crate) unsafe fn [<eq_scalar_ $int_ty _ $func_suffix>] (lhs: &AlignedVec<$int_ty>, rhs: $int_ty, dst: *mut BitStore) {
@@ -41,7 +41,7 @@ macro_rules! cmp_int_scalar {
         }
     };
     // Unsigned integer match this pattern, because sse2 and avx2 does not support unsigned integer
-    ($target_feature:expr, $func_suffix:expr, $prefix:ident, $uint_ty:ty, $int_ty:ty, $suffix:ident) => {
+    ($target_feature:expr, $func_suffix:ident, $prefix:ident, $uint_ty:ty, $int_ty:ty, $suffix:ident) => {
         paste::paste! {
             #[target_feature(enable = $target_feature)]
             pub(crate) unsafe fn [<eq_scalar_ $uint_ty _ $func_suffix>] (lhs: &AlignedVec<$uint_ty>, rhs: $uint_ty, dst: *mut BitStore) {
@@ -72,9 +72,10 @@ macro_rules! cmp_int_scalar {
 }
 
 /// Compare float scalar with specified target_feature
-macro_rules! cmp_float_scalar {
-    ($target_feature:expr, $func_suffix:expr, $prefix:ident, $ty:ty, $suffix:ident) => {
+macro_rules! cmp_float {
+    ($target_feature:expr, $func_suffix:ident, $prefix:ident, $ty:ty, $suffix:ident) => {
         paste::paste! {
+            // array cmp scalar
             #[target_feature(enable = $target_feature)]
             pub(crate) unsafe fn [<eq_scalar_ $ty _ $func_suffix>] (lhs: &AlignedVec<$ty>, rhs: $ty, dst: *mut BitStore) {
                 [<cmp_scalar_ $ty _ $func_suffix>](lhs, rhs, dst as _, |a, b| [<$prefix _cmpeq_ $suffix>](a, b))
@@ -99,6 +100,32 @@ macro_rules! cmp_float_scalar {
             pub(crate) unsafe fn [<le_scalar_ $ty _ $func_suffix>] (lhs: &AlignedVec<$ty>, rhs: $ty, dst: *mut BitStore) {
                 [<cmp_scalar_ $ty _ $func_suffix>](lhs, rhs, dst as _, |a, b| [<$prefix _cmple_ $suffix>](a, b))
             }
+
+            // // array cmp array
+            // #[target_feature(enable = $target_feature)]
+            // pub(crate) unsafe fn [<eq_ $ty _ $func_suffix>] (lhs: &AlignedVec<$ty>, rhs: &AlignedVec<$ty>, dst: *mut BitStore) {
+            //     [<cmp_ $ty _ $func_suffix>](lhs, rhs, dst as _, |a, b| [<$prefix _cmpeq_ $suffix>](a, b))
+            // }
+            // #[target_feature(enable = $target_feature)]
+            // pub(crate) unsafe fn [<ne_ $ty _ $func_suffix>] (lhs: &AlignedVec<$ty>, rhs: &AlignedVec<$ty>, dst: *mut BitStore) {
+            //     [<cmp_ $ty _ $func_suffix>](lhs, rhs, dst as _, |a, b| [<$prefix _cmpneq_ $suffix>](a, b))
+            // }
+            // #[target_feature(enable = $target_feature)]
+            // pub(crate) unsafe fn [<gt_ $ty _ $func_suffix>] (lhs: &AlignedVec<$ty>, rhs: &AlignedVec<$ty>, dst: *mut BitStore) {
+            //     [<cmp_ $ty _ $func_suffix>](lhs, rhs, dst as _, |a, b| [<$prefix _cmpgt_ $suffix>](a, b))
+            // }
+            // #[target_feature(enable = $target_feature)]
+            // pub(crate) unsafe fn [<ge_ $ty _ $func_suffix>] (lhs: &AlignedVec<$ty>, rhs: &AlignedVec<$ty>, dst: *mut BitStore) {
+            //     [<cmp_ $ty _ $func_suffix>](lhs, rhs, dst as _, |a, b| [<$prefix _cmpge_ $suffix>](a, b))
+            // }
+            // #[target_feature(enable = $target_feature)]
+            // pub(crate) unsafe fn [<lt_ $ty _ $func_suffix>] (lhs: &AlignedVec<$ty>, rhs: &AlignedVec<$ty>, dst: *mut BitStore) {
+            //     [<cmp_ $ty _ $func_suffix>](lhs, rhs, dst as _, |a, b| [<$prefix _cmplt_ $suffix>](a, b))
+            // }
+            // #[target_feature(enable = $target_feature)]
+            // pub(crate) unsafe fn [<le_ $ty _ $func_suffix>] (lhs: &AlignedVec<$ty>, rhs: &AlignedVec<$ty>, dst: *mut BitStore) {
+            //     [<cmp_ $ty _ $func_suffix>](lhs, rhs, dst as _, |a, b| [<$prefix _cmple_ $suffix>](a, b))
+            // }
         }
     };
 }

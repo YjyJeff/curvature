@@ -172,6 +172,7 @@ macro_rules! dynamic_arith_scalar_func {
         }
         dynamic_arith_scalar_func!(#[cfg(target_arch = "aarch64")], "neon", neon, $func_name, $ext_trait, $arith_func, $transformer);
         dynamic_arith_scalar_func!(#[cfg(any(target_arch = "x86", target_arch = "x86_64"))], "avx2", avx2, $func_name, $ext_trait, $arith_func, $transformer);
+        #[cfg(feature = "avx512")]
         dynamic_arith_scalar_func!(#[cfg(any(target_arch = "x86", target_arch = "x86_64"))], "avx512f", avx512, $func_name, $ext_trait, $arith_func, $transformer);
     };
     (#[$target_arch:meta], $target_feature:expr, $func_suffix:ident, $func_name:ident, $ext_trait:ident, $arith_func:path, $transformer:path) => {
@@ -194,7 +195,7 @@ macro_rules! dynamic_arith_scalar_func {
                     array,
                     scalar,
                     dst,
-                    T::NEON_PARTIAL_ARITH_THRESHOLD,
+                    T::[<$func_suffix:upper _PARTIAL_ARITH_THRESHOLD>],
                     $arith_func,
                     $transformer,
                 )
@@ -264,6 +265,7 @@ macro_rules! dynamic_arith_arrays_func {
         }
         dynamic_arith_arrays_func!(#[cfg(target_arch = "aarch64")], "neon", neon, $func_name, $ext_trait, $arith_func);
         dynamic_arith_arrays_func!(#[cfg(any(target_arch = "x86", target_arch = "x86_64"))], "avx2", avx2, $func_name, $ext_trait, $arith_func);
+        #[cfg(feature = "avx512")]
         dynamic_arith_arrays_func!(#[cfg(any(target_arch = "x86", target_arch = "x86_64"))], "avx512f", avx512, $func_name, $ext_trait, $arith_func);
     };
     (#[$target_arch:meta], $target_feature:expr, $func_suffix:ident, $func_name:ident, $ext_trait:ident, $arith_func:path) => {
@@ -286,7 +288,7 @@ macro_rules! dynamic_arith_arrays_func {
                     lhs,
                     rhs,
                     dst,
-                    T::NEON_PARTIAL_ARITH_THRESHOLD,
+                    T::[<$func_suffix:upper _PARTIAL_ARITH_THRESHOLD>],
                     $arith_func,
                 )
             }

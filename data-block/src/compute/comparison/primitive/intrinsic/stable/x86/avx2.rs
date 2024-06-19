@@ -58,19 +58,39 @@ x86_target_use!(
 macro_rules! cmp_int_scalar_avx2 {
     // Signed integer match this pattern
     ($int_ty:ty, $suffix:ident) => {
-        cmp_int_scalar!("avx2", "avx2", _mm256, $int_ty, $suffix);
+        cmp_int_scalar!("avx2", avx2, _mm256, $int_ty, $suffix);
     };
     // Unsigned integer match this pattern
     ($uint_ty:ty, $int_ty:ty, $suffix:ident) => {
-        cmp_int_scalar!("avx2", "avx2", _mm256, $uint_ty, $int_ty, $suffix);
+        cmp_int_scalar!("avx2", avx2, _mm256, $uint_ty, $int_ty, $suffix);
     };
 }
 
 /// Compare float scalar with avx2
-macro_rules! cmp_float_scalar_avx2 {
+macro_rules! cmp_float_avx2 {
     ($ty:ty, $suffix:ident) => {
-        cmp_float_scalar!("avx2", "avx2", _mm256, $ty, $suffix);
+        cmp_float!("avx2", avx2, _mm256, $ty, $suffix);
     };
+}
+
+#[inline(always)]
+unsafe fn byte_and_half_word_cmp_template<const NOT: bool>(
+    len: usize,
+    load_and_compare: impl Fn(usize) -> i32,
+    dst: *mut u32,
+) {
+    const SHIFT_BITS: usize = 5;
+    const BASE: usize = 1 << SHIFT_BITS;
+
+    let num_loops = roundup_loops(len, BASE);
+
+    for simd_index in 0..num_loops {
+        let mut mask = load_and_compare(simd_index << SHIFT_BITS);
+        if NOT {
+            mask ^= -1;
+        }
+        *dst.add(simd_index) = mask as u32;
+    }
 }
 
 /// Compare array of i8 with the given i8
@@ -82,43 +102,77 @@ macro_rules! cmp_float_scalar_avx2 {
 #[inline]
 #[target_feature(enable = "avx2")]
 unsafe fn cmp_scalar_i8_avx2<const NOT: bool, const FLIP_SIGN: bool, F>(
-    lhs: &AlignedVec<i8>,
-    rhs: i8,
+    array: &AlignedVec<i8>,
+    scalar: i8,
     dst: *mut u32,
     cmp_func: F,
 ) where
     F: Fn(__m256i, __m256i) -> __m256i,
 {
-    const SHIFT_BITS: usize = 5;
-    const BASE: usize = 1 << SHIFT_BITS;
-
-    if lhs.len == 0 {
+    if array.is_empty() {
         return;
     }
 
-    let num_loops = roundup_loops(lhs.len(), BASE);
-    let mut rhs = _mm256_set1_epi8(rhs);
+    let mut rhs = _mm256_set1_epi8(scalar);
 
     let flip_sign = _mm256_set1_epi8(i8::MIN);
     if FLIP_SIGN {
         rhs = _mm256_xor_si256(rhs, flip_sign);
     }
 
-    for simd_index in 0..num_loops {
+    let array_ptr = array.ptr.as_ptr();
+
+    let load_and_compare = |offset: usize| {
         // AlignedVec's capacity is always multiple of 512bit/64byte, using tumbling window
         // with window size 256bit/32byte is always valid
-        let mut lhs = _mm256_load_si256(lhs.ptr.as_ptr().add(simd_index << SHIFT_BITS) as _);
+        let mut lhs = _mm256_load_si256(array_ptr.add(offset) as _);
         if FLIP_SIGN {
             lhs = _mm256_xor_si256(lhs, flip_sign);
         }
         let cmp = cmp_func(lhs, rhs);
         // Convert to bitmap of i32
-        let mut mask = _mm256_movemask_epi8(cmp);
-        if NOT {
-            mask ^= -1;
-        }
-        *dst.add(simd_index) = mask as u32;
+        _mm256_movemask_epi8(cmp)
+    };
+
+    byte_and_half_word_cmp_template::<NOT>(array.len(), load_and_compare, dst);
+}
+
+#[inline]
+#[target_feature(enable = "avx2")]
+unsafe fn cmp_i8_avx2<const NOT: bool, const FLIP_SIGN: bool, F>(
+    lhs: &AlignedVec<i8>,
+    rhs: &AlignedVec<i8>,
+    dst: *mut u32,
+    cmp_func: F,
+) where
+    F: Fn(__m256i, __m256i) -> __m256i,
+{
+    debug_assert_eq!(lhs.len(), rhs.len());
+
+    if lhs.is_empty() {
+        return;
     }
+
+    let flip_sign = _mm256_set1_epi8(i8::MIN);
+
+    let lhs_ptr = lhs.ptr.as_ptr();
+    let rhs_ptr = rhs.ptr.as_ptr();
+
+    let load_and_compare = |offset: usize| {
+        // AlignedVec's capacity is always multiple of 512bit/64byte, using tumbling window
+        // with window size 256bit/32byte is always valid
+        let mut lhs = _mm256_load_si256(lhs_ptr.add(offset) as _);
+        let mut rhs = _mm256_load_si256(rhs_ptr.add(offset) as _);
+        if FLIP_SIGN {
+            lhs = _mm256_xor_si256(lhs, flip_sign);
+            rhs = _mm256_xor_si256(rhs, flip_sign);
+        }
+        let cmp = cmp_func(lhs, rhs);
+        // Convert to bitmap of i32
+        _mm256_movemask_epi8(cmp)
+    };
+
+    byte_and_half_word_cmp_template::<NOT>(lhs.len(), load_and_compare, dst);
 }
 
 #[inline]
@@ -136,24 +190,20 @@ unsafe fn _mm256_cmplt_epi8(a: __m256i, b: __m256i) -> __m256i {
 #[inline]
 #[target_feature(enable = "avx2")]
 unsafe fn cmp_scalar_i16_avx2<const NOT: bool, const FLIP_SIGN: bool, F>(
-    lhs: &AlignedVec<i16>,
-    rhs: i16,
+    array: &AlignedVec<i16>,
+    scalar: i16,
     dst: *mut u32,
     cmp_func: F,
 ) where
     F: Fn(__m256i, __m256i) -> __m256i,
 {
-    const SHIFT_BITS: usize = 5;
-    const BASE: usize = 1 << SHIFT_BITS;
     const CTRL_BIT: i32 = 0xd8;
 
-    if lhs.len == 0 {
+    if array.is_empty() {
         return;
     }
 
-    let num_loops = roundup_loops(lhs.len(), BASE);
-
-    let mut rhs = _mm256_set1_epi16(rhs);
+    let mut rhs = _mm256_set1_epi16(scalar);
 
     // These two will be optimized away based on the NOT and FLIP_SIGN
     let flip_sign = _mm256_set1_epi16(i16::MIN);
@@ -161,12 +211,13 @@ unsafe fn cmp_scalar_i16_avx2<const NOT: bool, const FLIP_SIGN: bool, F>(
         rhs = _mm256_xor_si256(rhs, flip_sign);
     }
 
-    for simd_index in 0..num_loops {
+    let array_ptr = array.ptr.as_ptr();
+
+    let load_and_compare = |offset: usize| {
         // AlignedVec's capacity is always multiple of 512bit/64byte, using tumbling window
         // with window size 512bit/64byte is always valid
-        let mut lhs_0 = _mm256_load_si256(lhs.ptr.as_ptr().add(simd_index << SHIFT_BITS) as _);
-        let mut lhs_1 =
-            _mm256_load_si256(lhs.ptr.as_ptr().add((simd_index << SHIFT_BITS) + 16) as _);
+        let mut lhs_0 = _mm256_load_si256(array_ptr.add(offset) as _);
+        let mut lhs_1 = _mm256_load_si256(array_ptr.add(offset + 16) as _);
 
         if FLIP_SIGN {
             lhs_0 = _mm256_xor_si256(lhs_0, flip_sign);
@@ -186,13 +237,57 @@ unsafe fn cmp_scalar_i16_avx2<const NOT: bool, const FLIP_SIGN: bool, F>(
         packed = _mm256_permute4x64_epi64::<CTRL_BIT>(packed);
 
         // Convert to bitmap of i32
-        let mut mask = _mm256_movemask_epi8(packed);
+        _mm256_movemask_epi8(packed)
+    };
 
-        if NOT {
-            mask ^= -1;
-        }
-        *dst.add(simd_index) = mask as u32;
+    byte_and_half_word_cmp_template::<NOT>(array.len(), load_and_compare, dst);
+}
+
+#[inline]
+#[target_feature(enable = "avx2")]
+unsafe fn cmp_i16_avx2<const NOT: bool, const FLIP_SIGN: bool, F>(
+    lhs: &AlignedVec<i16>,
+    rhs: &AlignedVec<i16>,
+    dst: *mut u32,
+    cmp_func: F,
+) where
+    F: Fn(__m256i, __m256i) -> __m256i,
+{
+    const CTRL_BIT: i32 = 0xd8;
+
+    debug_assert_eq!(lhs.len(), rhs.len());
+
+    if lhs.is_empty() {
+        return;
     }
+
+    let flip_sign = _mm256_set1_epi16(i16::MIN);
+    let lhs_ptr = lhs.ptr.as_ptr();
+    let rhs_ptr = rhs.ptr.as_ptr();
+
+    let load_and_compare = |offset: usize| {
+        // AlignedVec's capacity is always multiple of 512bit/64byte, using tumbling window
+        // with window size 512bit/64byte is always valid
+        let mut lhs_0 = _mm256_load_si256(lhs_ptr.add(offset) as _);
+        let mut lhs_1 = _mm256_load_si256(lhs_ptr.add(offset + 16) as _);
+        let mut rhs_0 = _mm256_load_si256(rhs_ptr.add(offset) as _);
+        let mut rhs_1 = _mm256_load_si256(rhs_ptr.add(offset + 16) as _);
+
+        if FLIP_SIGN {
+            lhs_0 = _mm256_xor_si256(lhs_0, flip_sign);
+            lhs_1 = _mm256_xor_si256(lhs_1, flip_sign);
+            rhs_0 = _mm256_xor_si256(rhs_0, flip_sign);
+            rhs_1 = _mm256_xor_si256(rhs_1, flip_sign);
+        }
+
+        let cmp_0 = cmp_func(lhs_0, rhs_0);
+        let cmp_1 = cmp_func(lhs_1, rhs_1);
+        let mut packed = _mm256_packs_epi16(cmp_0, cmp_1);
+        packed = _mm256_permute4x64_epi64::<CTRL_BIT>(packed);
+        _mm256_movemask_epi8(packed)
+    };
+
+    byte_and_half_word_cmp_template::<NOT>(lhs.len(), load_and_compare, dst);
 }
 
 #[inline]
@@ -208,6 +303,53 @@ struct CacheLineAlignArray([i32; 8]);
 const PERMUTE: CacheLineAlignArray =
     CacheLineAlignArray([0x00, 0x04, 0x01, 0x05, 0x02, 0x06, 0x03, 0x07]);
 
+#[inline(always)]
+unsafe fn word_cmp_template<const NOT: bool>(
+    len: usize,
+    load_and_compare: impl Fn(usize) -> __m256i,
+    dst: *mut u32,
+) {
+    const SHIFT_BITS: usize = 4;
+    const BASE: usize = 1 << SHIFT_BITS;
+    const CTRL_BIT: i32 = 0xd8;
+
+    let num_loops = roundup_loops(len, BASE);
+    let permute = _mm256_load_si256(PERMUTE.0.as_ptr() as _);
+
+    if num_loops > 1 {
+        for simd_index in (0..num_loops - 1).step_by(2) {
+            let packed_0 = load_and_compare(simd_index << SHIFT_BITS);
+            // There exist
+            let packed_1 = load_and_compare((simd_index + 1) << SHIFT_BITS);
+            let packed =
+                _mm256_permutevar8x32_epi32(_mm256_packs_epi16(packed_0, packed_1), permute);
+            let mask = _mm256_movemask_epi8(packed);
+            let mask = if NOT { (mask ^ -1) as u32 } else { mask as u32 };
+            *dst.add(simd_index >> 1) = mask;
+        }
+    }
+    if num_loops & 0x01 != 0 {
+        // Handle last
+        let simd_index = num_loops - 1;
+        // packed: 00 11 22 33 88 99 aa bb 44 55 66 77 cc dd ee ff
+        let packed = load_and_compare(simd_index << SHIFT_BITS);
+        // Compiler will only extract hi, lo is the xmm register
+        // hi: 44 55 66 77 cc dd ee ff
+        let hi = _mm256_extracti128_si256(packed, 1);
+        // lo: 00 11 22 33 88 99 aa bb
+        let lo = _mm256_extracti128_si256(packed, 0);
+        // packed: 0 1 2 3 8 9 a b 4 5 6 7 c d e f
+        let mut packed = _mm_packs_epi16(lo, hi);
+        // shuffle the packed to following bytes:
+        // 0 1 2 3 4 5 6 7 8 9 a b c d e f
+        packed = _mm_shuffle_epi32::<CTRL_BIT>(packed);
+
+        let mask = _mm_movemask_epi8(packed);
+        let mask = if NOT { (mask ^ -1) as u32 } else { mask as u32 };
+        *dst.add(simd_index >> 1) = mask;
+    }
+}
+
 /// Compare array of i32 with the given i32
 ///
 /// # Safety
@@ -217,25 +359,19 @@ const PERMUTE: CacheLineAlignArray =
 #[inline]
 #[target_feature(enable = "avx2")]
 unsafe fn cmp_scalar_i32_avx2<const NOT: bool, const FLIP_SIGN: bool, F>(
-    lhs: &AlignedVec<i32>,
-    rhs: i32,
+    array: &AlignedVec<i32>,
+    scalar: i32,
     dst: *mut u32,
     cmp_func: F,
 ) where
     F: Fn(__m256i, __m256i) -> __m256i,
 {
-    const SHIFT_BITS: usize = 4;
-    const BASE: usize = 1 << SHIFT_BITS;
-    const CTRL_BIT: i32 = 0xd8;
-
-    if lhs.len == 0 {
+    if array.is_empty() {
         return;
     }
 
-    let num_loops = roundup_loops(lhs.len(), BASE);
-
-    let mut rhs = _mm256_set1_epi32(rhs);
-    let lhs_ptr = lhs.ptr.as_ptr();
+    let mut rhs = _mm256_set1_epi32(scalar);
+    let array_ptr = array.ptr.as_ptr();
 
     // These two will be optimized away based on the NOT and FLIP_SIGN
     let flip_sign = _mm256_set1_epi32(i32::MIN);
@@ -243,13 +379,11 @@ unsafe fn cmp_scalar_i32_avx2<const NOT: bool, const FLIP_SIGN: bool, F>(
         rhs = _mm256_xor_si256(rhs, flip_sign);
     }
 
-    let permute = _mm256_load_si256(PERMUTE.0.as_ptr() as _);
-
-    let load_and_compare = |base: usize| {
+    let load_and_compare = |offset: usize| {
         // AlignedVec's capacity is always multiple of 512bit/64byte, using tumbling window
         // with window size 512bit/64byte is always valid
-        let mut lhs_0 = _mm256_load_si256(lhs_ptr.add(base) as _);
-        let mut lhs_1 = _mm256_load_si256(lhs_ptr.add(base + 8) as _);
+        let mut lhs_0 = _mm256_load_si256(array_ptr.add(offset) as _);
+        let mut lhs_1 = _mm256_load_si256(array_ptr.add(offset + 8) as _);
         if FLIP_SIGN {
             lhs_0 = _mm256_xor_si256(lhs_0, flip_sign);
             lhs_1 = _mm256_xor_si256(lhs_1, flip_sign);
@@ -263,51 +397,44 @@ unsafe fn cmp_scalar_i32_avx2<const NOT: bool, const FLIP_SIGN: bool, F>(
         _mm256_packs_epi32(cmp_0, cmp_1)
     };
 
-    let packs_to_mask = |packed_0: __m256i, packed_1: __m256i| {
-        let packed = _mm256_permutevar8x32_epi32(_mm256_packs_epi16(packed_0, packed_1), permute);
-        let mask = _mm256_movemask_epi8(packed);
-        if NOT {
-            (mask ^ -1) as u32
-        } else {
-            mask as u32
-        }
-    };
+    word_cmp_template::<NOT>(array.len(), load_and_compare, dst);
+}
 
-    // packed: 00 11 22 33 88 99 aa bb 44 55 66 77 cc dd ee ff
-    let pack_to_mask = |packed: __m256i| {
-        // Compiler will only extract hi, lo is the xmm register
-        // hi: 44 55 66 77 cc dd ee ff
-        let hi = _mm256_extracti128_si256(packed, 1);
-        // lo: 00 11 22 33 88 99 aa bb
-        let lo = _mm256_extracti128_si256(packed, 0);
-        // packed: 0 1 2 3 8 9 a b 4 5 6 7 c d e f
-        let mut packed = _mm_packs_epi16(lo, hi);
-        // shuffle the packed to following bytes:
-        // 0 1 2 3 4 5 6 7 8 9 a b c d e f
-        packed = _mm_shuffle_epi32::<CTRL_BIT>(packed);
+#[inline]
+#[target_feature(enable = "avx2")]
+unsafe fn cmp_i32_avx2<const NOT: bool, const FLIP_SIGN: bool, F>(
+    lhs: &AlignedVec<i32>,
+    rhs: &AlignedVec<i32>,
+    dst: *mut u32,
+    cmp_func: F,
+) where
+    F: Fn(__m256i, __m256i) -> __m256i,
+{
+    debug_assert_eq!(lhs.len(), rhs.len());
 
-        let mask = _mm_movemask_epi8(packed);
-        if NOT {
-            (mask ^ -1) as u32
-        } else {
-            mask as u32
-        }
-    };
-
-    if num_loops > 1 {
-        for simd_index in (0..num_loops - 1).step_by(2) {
-            let packed_0 = load_and_compare(simd_index << SHIFT_BITS);
-            // There exist
-            let packed_1 = load_and_compare((simd_index + 1) << SHIFT_BITS);
-            *dst.add(simd_index >> 1) = packs_to_mask(packed_0, packed_1);
-        }
+    if lhs.len == 0 {
+        return;
     }
-    if num_loops & 0x01 != 0 {
-        // Handle last
-        let simd_index = num_loops - 1;
-        let packed = load_and_compare(simd_index << SHIFT_BITS);
-        *dst.add(simd_index >> 1) = pack_to_mask(packed);
-    }
+    let flip_sign = _mm256_set1_epi32(i32::MIN);
+    let lhs_ptr = lhs.ptr.as_ptr();
+    let rhs_ptr = rhs.ptr.as_ptr();
+
+    let load_and_compare = |offset: usize| {
+        let mut lhs_0 = _mm256_load_si256(lhs_ptr.add(offset) as _);
+        let mut lhs_1 = _mm256_load_si256(lhs_ptr.add(offset + 8) as _);
+        let mut rhs_0 = _mm256_load_si256(rhs_ptr.add(offset) as _);
+        let mut rhs_1 = _mm256_load_si256(rhs_ptr.add(offset + 8) as _);
+        if FLIP_SIGN {
+            lhs_0 = _mm256_xor_si256(lhs_0, flip_sign);
+            lhs_1 = _mm256_xor_si256(lhs_1, flip_sign);
+            rhs_0 = _mm256_xor_si256(rhs_0, flip_sign);
+            rhs_1 = _mm256_xor_si256(rhs_1, flip_sign);
+        }
+        let cmp_0 = cmp_func(lhs_0, rhs_0);
+        let cmp_1 = cmp_func(lhs_1, rhs_1);
+        _mm256_packs_epi32(cmp_0, cmp_1)
+    };
+    word_cmp_template::<NOT>(lhs.len(), load_and_compare, dst);
 }
 
 #[inline]
@@ -324,61 +451,54 @@ unsafe fn _mm256_cmplt_epi32(a: __m256i, b: __m256i) -> __m256i {
 /// - dst should have adequate space
 #[inline]
 #[target_feature(enable = "avx2")]
-unsafe fn cmp_scalar_f32_avx2<F>(lhs: &AlignedVec<f32>, rhs: f32, dst: *mut u32, cmp_func: F)
+unsafe fn cmp_scalar_f32_avx2<F>(array: &AlignedVec<f32>, scalar: f32, dst: *mut u32, cmp_func: F)
 where
     F: Fn(__m256, __m256) -> __m256,
 {
-    const SHIFT_BITS: usize = 4;
-    const BASE: usize = 1 << SHIFT_BITS;
-    const CTRL_BIT: i32 = 0xd8;
-
-    if lhs.len == 0 {
+    if array.is_empty() {
         return;
     }
 
-    let num_loops = roundup_loops(lhs.len(), BASE);
-    let lhs_ptr = lhs.ptr.as_ptr();
+    let array_ptr = array.ptr.as_ptr();
 
-    let rhs = _mm256_set1_ps(rhs);
-    let permute = _mm256_load_si256(PERMUTE.0.as_ptr() as _);
+    let rhs = _mm256_set1_ps(scalar);
 
-    let load_and_compare = |base: usize| {
-        let lhs_0 = _mm256_load_ps(lhs_ptr.add(base) as _);
-        let lhs_1 = _mm256_load_ps(lhs_ptr.add(base + 8) as _);
+    let load_and_compare = |offset: usize| {
+        let lhs_0 = _mm256_load_ps(array_ptr.add(offset) as _);
+        let lhs_1 = _mm256_load_ps(array_ptr.add(offset + 8) as _);
         let cmp_0 = cmp_func(lhs_0, rhs);
         let cmp_1 = cmp_func(lhs_1, rhs);
         _mm256_packs_epi32(_mm256_castps_si256(cmp_0), _mm256_castps_si256(cmp_1))
     };
+    word_cmp_template::<false>(array.len(), load_and_compare, dst);
+}
 
-    if num_loops > 1 {
-        for simd_index in (0..num_loops - 1).step_by(2) {
-            let packed_0 = load_and_compare(simd_index << SHIFT_BITS);
-            let packed_1 = load_and_compare((simd_index + 1) << SHIFT_BITS);
-            let packed =
-                _mm256_permutevar8x32_epi32(_mm256_packs_epi16(packed_0, packed_1), permute);
-            let mask = _mm256_movemask_epi8(packed) as u32;
-            *dst.add(simd_index >> 1) = mask;
-        }
+#[inline]
+#[target_feature(enable = "avx2")]
+unsafe fn cmp_f32_avx2<F>(lhs: &AlignedVec<f32>, rhs: &AlignedVec<f32>, dst: *mut u32, cmp_func: F)
+where
+    F: Fn(__m256, __m256) -> __m256,
+{
+    debug_assert_eq!(lhs.len(), rhs.len());
+
+    if lhs.is_empty() {
+        return;
     }
 
-    if num_loops & 0x01 != 0 {
-        // Handle last
-        let simd_index = num_loops - 1;
-        let packed = load_and_compare(simd_index << SHIFT_BITS);
-        // Compiler will only extract hi, lo is the xmm register
-        // hi: 44 55 66 77 cc dd ee ff
-        let hi = _mm256_extracti128_si256(packed, 1);
-        // lo: 00 11 22 33 88 99 aa bb
-        let lo = _mm256_extracti128_si256(packed, 0);
-        // packed: 0 1 2 3 8 9 a b 4 5 6 7 c d e f
-        let mut packed = _mm_packs_epi16(lo, hi);
-        // shuffle the packed to following bytes:
-        // 0 1 2 3 4 5 6 7 8 9 a b c d e f
-        packed = _mm_shuffle_epi32::<CTRL_BIT>(packed);
-        let mask = _mm_movemask_epi8(packed) as u32;
+    let lhs_ptr = lhs.ptr.as_ptr();
+    let rhs_ptr = rhs.ptr.as_ptr();
 
-        *dst.add(simd_index >> 1) = mask;
-    }
+    let load_and_compare = |offset: usize| {
+        let lhs_0 = _mm256_load_ps(lhs_ptr.add(offset) as _);
+        let lhs_1 = _mm256_load_ps(lhs_ptr.add(offset + 8) as _);
+        let rhs_0 = _mm256_load_ps(rhs_ptr.add(offset) as _);
+        let rhs_1 = _mm256_load_ps(rhs_ptr.add(offset + 8) as _);
+        let cmp_0 = cmp_func(lhs_0, rhs_0);
+        let cmp_1 = cmp_func(lhs_1, rhs_1);
+        _mm256_packs_epi32(_mm256_castps_si256(cmp_0), _mm256_castps_si256(cmp_1))
+    };
+
+    word_cmp_template::<false>(lhs.len(), load_and_compare, dst);
 }
 
 #[inline]
@@ -539,6 +659,126 @@ where
             let mask_8 = _mm256_movemask_ps(_mm256_castsi256_ps(packed)) as u32;
             mask |= mask_8 << (simd_index << 3);
             lhs_ptr = lhs_ptr.add(8);
+        }
+        *dst.add(num_loops >> 2) = mask;
+    }
+}
+
+#[inline]
+#[target_feature(enable = "avx2")]
+unsafe fn cmp_f64_avx2<F>(lhs: &AlignedVec<f64>, rhs: &AlignedVec<f64>, dst: *mut u32, cmp_func: F)
+where
+    F: Fn(__m256d, __m256d) -> __m256d + Copy,
+{
+    const SHIFT_BITS: usize = 3;
+    const BASE: usize = 1 << SHIFT_BITS;
+
+    if lhs.len == 0 {
+        return;
+    }
+
+    let num_loops = roundup_loops(lhs.len, BASE);
+
+    let mut lhs_ptr = lhs.ptr.as_ptr();
+    let mut rhs_ptr = rhs.ptr.as_ptr();
+
+    // https://stackoverflow.com/questions/70974476/efficiently-load-compute-pack-64-double-comparison-results-in-uint64-t-bitmask
+
+    let shuffle = _mm256_load_si256(SHUFFLE_64.0.as_ptr() as _);
+
+    // Function instead of closure here. Closure can not be inlined 😂 Bug?
+    #[inline(always)]
+    unsafe fn load_and_compare_4<F>(lhs_ptr: *mut f64, rhs_ptr: *mut f64, cmp_func: F) -> __m256d
+    where
+        F: Fn(__m256d, __m256d) -> __m256d + Copy,
+    {
+        cmp_func(_mm256_load_pd(lhs_ptr), _mm256_load_pd(rhs_ptr))
+    }
+
+    // Compare 8 numbers, combine 8 results into the following bytes:
+    // 0000 4444 1111 5555  2222 6666 3333 7777
+    #[inline(always)]
+    unsafe fn load_and_compare_8<F>(lhs_ptr: *mut f64, rhs_ptr: *mut f64, cmp_func: F) -> __m256i
+    where
+        F: Fn(__m256d, __m256d) -> __m256d + Copy,
+    {
+        let cmp_0 = load_and_compare_4(lhs_ptr, rhs_ptr, cmp_func);
+        let cmp_1 = load_and_compare_4(lhs_ptr.add(4), rhs_ptr.add(4), cmp_func);
+        _mm256_castps_si256(_mm256_blend_ps::<0xaa>(
+            _mm256_castpd_ps(cmp_0),
+            _mm256_castpd_ps(cmp_1),
+        ))
+    }
+
+    // Compare 16 numbers, combine 16 results into following bytes:
+    // 00 44 11 55  88 CC 99 DD  22 66 33 77  AA EE BB FF
+    #[inline(always)]
+    unsafe fn load_and_compare_16<F>(lhs_ptr: *mut f64, rhs_ptr: *mut f64, cmp_func: F) -> __m256i
+    where
+        F: Fn(__m256d, __m256d) -> __m256d + Copy,
+    {
+        _mm256_packs_epi32(
+            load_and_compare_8(lhs_ptr, rhs_ptr, cmp_func),
+            load_and_compare_8(lhs_ptr.add(8), rhs_ptr.add(8), cmp_func),
+        )
+    }
+
+    // Compare 16 numbers, combine 16 results into following bytes:
+    // 00 44 11 55  88 CC 99 DD  22 66 33 77  AA EE BB FF
+    #[inline(always)]
+    unsafe fn load_and_compare_32<F>(
+        lhs_ptr: *mut f64,
+        rhs_ptr: *mut f64,
+        cmp_func: F,
+        shuffle: __m256i,
+    ) -> u32
+    where
+        F: Fn(__m256d, __m256d) -> __m256d + Copy,
+    {
+        // We got the 32 bytes, but the byte order is screwed up in that vector:
+        // 0   4   1   5   8   12  9   13  16  20  17  21  24  28  25  29
+        // 2   6   3   7   10  14  11  15  18  22  19  23  26  30  27  31
+        // The following 2 instructions are fixing the order
+        let mut scrwed = _mm256_packs_epi16(
+            load_and_compare_16(lhs_ptr, rhs_ptr, cmp_func),
+            load_and_compare_16(lhs_ptr.add(16), rhs_ptr, cmp_func),
+        );
+        // Shuffle 8-byte pieces across the complete vector
+        // That instruction is relatively expensive on most CPUs, but we only doing it once per 32 numbers
+        scrwed = _mm256_permute4x64_epi64::<0xd8>(scrwed);
+        // The order of bytes in the vector is still wrong:
+        // 0    4   1   5   8  12   9  13    2   6   3   7  10  14  11  15
+        // 13  16  20  17  21  24  28  25   18  22  19  23  26  30  27  31
+        // Need one more shuffle instruction
+        let ordered = _mm256_shuffle_epi8(scrwed, shuffle);
+        _mm256_movemask_epi8(ordered) as u32
+    }
+
+    if num_loops >= 4 {
+        for simd_index in (0..num_loops - 3).step_by(4) {
+            let mask = load_and_compare_32(lhs_ptr, rhs_ptr, cmp_func, shuffle);
+            *dst.add(simd_index >> 2) = mask as _;
+            lhs_ptr = lhs_ptr.add(32);
+            rhs_ptr = rhs_ptr.add(32);
+        }
+    }
+    // Handle remained
+    if num_loops & 0x03 != 0 {
+        let mut mask = 0;
+        for simd_index in 0..num_loops {
+            let lhs_0 = _mm256_load_pd(lhs_ptr);
+            let lhs_1 = _mm256_load_pd(lhs_ptr.add(4));
+            let rhs_0 = _mm256_load_pd(rhs_ptr);
+            let rhs_1 = _mm256_load_pd(rhs_ptr.add(4));
+            let cmp_0 = cmp_func(lhs_0, rhs_0);
+            let cmp_1 = cmp_func(lhs_1, rhs_1);
+            let mut packed =
+                _mm256_packs_epi32(_mm256_castpd_si256(cmp_0), _mm256_castpd_si256(cmp_1));
+            packed = _mm256_permute4x64_epi64::<0xd8>(packed);
+            let mask_8 = _mm256_movemask_ps(_mm256_castsi256_ps(packed)) as u32;
+            mask |= mask_8 << (simd_index << 3);
+            lhs_ptr = lhs_ptr.add(8);
+            rhs_ptr = rhs_ptr.add(8);
         }
         *dst.add(num_loops >> 2) = mask;
     }
@@ -739,6 +979,168 @@ unsafe fn cmp_scalar_i64_avx2<const NOT: bool, const FLIP_SIGN: bool, F>(
 
 #[inline]
 #[target_feature(enable = "avx2")]
+unsafe fn cmp_i64_avx2<const NOT: bool, const FLIP_SIGN: bool, F>(
+    lhs: &AlignedVec<i64>,
+    rhs: &AlignedVec<i64>,
+    dst: *mut u32,
+    cmp_func: F,
+) where
+    F: Fn(__m256i, __m256i) -> __m256i + Copy,
+{
+    const SHIFT_BITS: usize = 3;
+    const BASE: usize = 1 << SHIFT_BITS;
+
+    if lhs.len == 0 {
+        return;
+    }
+
+    let num_loops = roundup_loops(lhs.len, BASE);
+    let flip_sign = _mm256_set1_epi64x(i64::MIN);
+
+    let mut lhs_ptr = lhs.ptr.as_ptr();
+    let mut rhs_ptr = rhs.ptr.as_ptr();
+
+    // https://stackoverflow.com/questions/70974476/efficiently-load-compute-pack-64-double-comparison-results-in-uint64-t-bitmask
+
+    let shuffle = _mm256_load_si256(SHUFFLE_64.0.as_ptr() as _);
+
+    // Function instead of closure here. Closure can not be inlined 😂 Bug?
+    #[inline(always)]
+    unsafe fn load_and_compare_4<const FLIP_SIGN: bool, F>(
+        lhs_ptr: *mut i64,
+        rhs_ptr: *mut i64,
+        cmp_func: F,
+        flip_sign: __m256i,
+    ) -> __m256i
+    where
+        F: Fn(__m256i, __m256i) -> __m256i + Copy,
+    {
+        let mut lhs = _mm256_load_si256(lhs_ptr as _);
+        let mut rhs = _mm256_load_si256(rhs_ptr as _);
+        if FLIP_SIGN {
+            lhs = _mm256_xor_si256(lhs, flip_sign);
+            rhs = _mm256_xor_si256(rhs, flip_sign);
+        }
+        cmp_func(lhs, rhs)
+    }
+
+    // Compare 8 numbers, combine 8 results into the following bytes:
+    // 0000 4444 1111 5555  2222 6666 3333 7777
+    #[inline(always)]
+    unsafe fn load_and_compare_8<const FLIP_SIGN: bool, F>(
+        lhs_ptr: *mut i64,
+        rhs_ptr: *mut i64,
+        cmp_func: F,
+        flip_sign: __m256i,
+    ) -> __m256i
+    where
+        F: Fn(__m256i, __m256i) -> __m256i + Copy,
+    {
+        let cmp_0 = load_and_compare_4::<FLIP_SIGN, _>(lhs_ptr, rhs_ptr, cmp_func, flip_sign);
+        let cmp_1 =
+            load_and_compare_4::<FLIP_SIGN, _>(lhs_ptr.add(4), rhs_ptr.add(4), cmp_func, flip_sign);
+        _mm256_blend_epi32::<0xaa>(cmp_0, cmp_1)
+    }
+
+    // Compare 16 numbers, combine 16 results into following bytes:
+    // 00 44 11 55  88 CC 99 DD  22 66 33 77  AA EE BB FF
+    #[inline(always)]
+    unsafe fn load_and_compare_16<const FLIP_SIGN: bool, F>(
+        lhs_ptr: *mut i64,
+        rhs_ptr: *mut i64,
+        cmp_func: F,
+        flip_sign: __m256i,
+    ) -> __m256i
+    where
+        F: Fn(__m256i, __m256i) -> __m256i + Copy,
+    {
+        _mm256_packs_epi32(
+            load_and_compare_8::<FLIP_SIGN, _>(lhs_ptr, rhs_ptr, cmp_func, flip_sign),
+            load_and_compare_8::<FLIP_SIGN, _>(lhs_ptr.add(8), rhs_ptr.add(8), cmp_func, flip_sign),
+        )
+    }
+
+    // Compare 16 numbers, combine 16 results into following bytes:
+    // 00 44 11 55  88 CC 99 DD  22 66 33 77  AA EE BB FF
+    #[inline(always)]
+    unsafe fn load_and_compare_32<const FLIP_SIGN: bool, F>(
+        lhs_ptr: *mut i64,
+        rhs_ptr: *mut i64,
+        cmp_func: F,
+        flip_sign: __m256i,
+        shuffle: __m256i,
+    ) -> i32
+    where
+        F: Fn(__m256i, __m256i) -> __m256i + Copy,
+    {
+        // We got the 32 bytes, but the byte order is screwed up in that vector:
+        // 0   4   1   5   8   12  9   13  16  20  17  21  24  28  25  29
+        // 2   6   3   7   10  14  11  15  18  22  19  23  26  30  27  31
+        // The following 2 instructions are fixing the order
+        let mut scrwed = _mm256_packs_epi16(
+            load_and_compare_16::<FLIP_SIGN, _>(lhs_ptr, rhs_ptr, cmp_func, flip_sign),
+            load_and_compare_16::<FLIP_SIGN, _>(
+                lhs_ptr.add(16),
+                rhs_ptr.add(16),
+                cmp_func,
+                flip_sign,
+            ),
+        );
+        // Shuffle 8-byte pieces across the complete vector
+        // That instruction is relatively expensive on most CPUs, but we only doing it once per 32 numbers
+        scrwed = _mm256_permute4x64_epi64::<0xd8>(scrwed);
+        // The order of bytes in the vector is still wrong:
+        // 0    4   1   5   8  12   9  13    2   6   3   7  10  14  11  15
+        // 13  16  20  17  21  24  28  25   18  22  19  23  26  30  27  31
+        // Need one more shuffle instruction
+        let ordered = _mm256_shuffle_epi8(scrwed, shuffle);
+        _mm256_movemask_epi8(ordered)
+    }
+
+    if num_loops >= 4 {
+        for simd_index in (0..num_loops - 3).step_by(4) {
+            let mut mask =
+                load_and_compare_32::<FLIP_SIGN, _>(lhs_ptr, rhs_ptr, cmp_func, flip_sign, shuffle);
+            if NOT {
+                mask ^= -1;
+            }
+            *dst.add(simd_index >> 2) = mask as _;
+            lhs_ptr = lhs_ptr.add(32);
+            rhs_ptr = rhs_ptr.add(32);
+        }
+    }
+    // Handle remained
+    if num_loops & 0x03 != 0 {
+        let mut mask = 0;
+        for simd_index in 0..num_loops {
+            let mut lhs_0 = _mm256_load_si256(lhs_ptr as _);
+            let mut lhs_1 = _mm256_load_si256(lhs_ptr.add(4) as _);
+            let mut rhs_0 = _mm256_load_si256(rhs_ptr as _);
+            let mut rhs_1 = _mm256_load_si256(rhs_ptr.add(4) as _);
+            if FLIP_SIGN {
+                lhs_0 = _mm256_xor_si256(lhs_0, flip_sign);
+                lhs_1 = _mm256_xor_si256(lhs_1, flip_sign);
+                rhs_0 = _mm256_xor_si256(rhs_0, flip_sign);
+                rhs_1 = _mm256_xor_si256(rhs_1, flip_sign);
+            }
+            let cmp_0 = cmp_func(lhs_0, rhs_0);
+            let cmp_1 = cmp_func(lhs_1, rhs_1);
+            let mut packed = _mm256_packs_epi32(cmp_0, cmp_1);
+            packed = _mm256_permute4x64_epi64::<0xd8>(packed);
+            let mask_8 = _mm256_movemask_ps(_mm256_castsi256_ps(packed));
+            mask |= mask_8 << (simd_index << 3);
+            lhs_ptr = lhs_ptr.add(8);
+            rhs_ptr = rhs_ptr.add(8);
+        }
+        if NOT {
+            mask ^= -1;
+        }
+        *dst.add(num_loops >> 2) = mask as _;
+    }
+}
+
+#[inline]
+#[target_feature(enable = "avx2")]
 unsafe fn _mm256_cmplt_epi64(a: __m256i, b: __m256i) -> __m256i {
     _mm256_cmpgt_epi64(b, a)
 }
@@ -752,8 +1154,8 @@ cmp_int_scalar_avx2!(u32, i32, epi32);
 cmp_int_scalar_avx2!(i64, epi64);
 cmp_int_scalar_avx2!(u64, i64, epi64);
 
-cmp_float_scalar_avx2!(f32, ps);
-cmp_float_scalar_avx2!(f64, pd);
+cmp_float_avx2!(f32, ps);
+cmp_float_avx2!(f64, pd);
 
 #[cfg(target_feature = "avx2")]
 #[cfg(test)]
