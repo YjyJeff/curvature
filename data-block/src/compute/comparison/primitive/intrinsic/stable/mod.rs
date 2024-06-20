@@ -232,9 +232,6 @@ const TIMESTAMP_NEON_PARTIAL_CMP_THRESHOLD: f64 = 0.0;
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 /// If the selectivity is smaller than this threshold, partial computation is used
 const TIMESTAMP_AVX2_PARTIAL_CMP_THRESHOLD: f64 = 0.0;
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-// /// If the selectivity is smaller than this threshold, partial computation is used
-// const TIMESTAMP_AVX512_PARTIAL_CMP_THRESHOLD: f64 = 0.0;
 
 macro_rules! timestamp_cmp_scalar {
     ($cmp:ident, $cmp_symbol:tt) => {
