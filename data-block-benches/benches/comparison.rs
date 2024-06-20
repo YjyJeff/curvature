@@ -15,7 +15,6 @@ use data_block_benches::{
     create_var_string_array_iter,
 };
 use rand::distributions::{Distribution, Standard};
-use rand::Rng;
 
 #[cfg(not(feature = "portable_simd"))]
 fn bench_primitive_array<T, U>(c: &mut Criterion, rhs: T, null_density: f32, seed: u64)
@@ -85,15 +84,15 @@ where
             });
         });
 
-        group.bench_function(
-            BenchmarkId::new("Reset(manually unrolling): scalar", size),
-            |b| {
-                b.iter(|| unsafe {
-                    data_block_benches::comparison::ge(&mut selection, &lhs, rhs, &mut dst);
-                    selection.mutate().clear();
-                })
-            },
-        );
+        // group.bench_function(
+        //     BenchmarkId::new("Reset(manually unrolling): scalar", size),
+        //     |b| {
+        //         b.iter(|| unsafe {
+        //             data_block_benches::comparison::ge(&mut selection, &lhs, rhs, &mut dst);
+        //             selection.mutate().clear();
+        //         })
+        //     },
+        // );
 
         // group.bench_function(BenchmarkId::new("Arrow2: scalar", size), |b| {
         //     b.iter(|| arrow2::compute::comparison::primitive::gt_eq_scalar(&arr_arrow2, rhs))
@@ -103,11 +102,11 @@ where
         //     b.iter(|| arrow::compute::kernels::cmp::gt_eq(&arr_arrow, &arrow_rhs).unwrap())
         // });
 
-        let mut dst = vec![false; size];
+        // let mut dst = vec![false; size];
 
-        group.bench_function(BenchmarkId::new("Naive: scalar", size), |b| {
-            b.iter(|| data_block_benches::comparison::ge_dynamic(lhs.values(), rhs, &mut dst))
-        });
+        // group.bench_function(BenchmarkId::new("Naive: scalar", size), |b| {
+        //     b.iter(|| data_block_benches::comparison::ge_dynamic(lhs.values(), rhs, &mut dst))
+        // });
     });
 }
 
@@ -298,15 +297,59 @@ fn bench_string_array(c: &mut Criterion, rhs: StringView<'_>, null_density: f32,
     })
 }
 
+fn bench_timestamp(c: &mut Criterion, rhs: i64, null_density: f32, seed: u64) {
+    let mut group = c.benchmark_group("CompareTimestamp");
+
+    (10..=12).step_by(2).for_each(|log2_size| {
+        let size = black_box(2usize.pow(log2_size));
+        let array = create_primitive_array_with_seed::<i64>(size, null_density, seed);
+        let mut selection = Bitmap::new();
+        let mut temp = BooleanArray::default();
+
+        // Equal
+        unsafe {
+            let mut selection_ = Bitmap::default();
+            comparison::primitive::intrinsic::ge_scalar(&mut selection_, &array, rhs, &mut temp);
+            data_block::compute::comparison::primitive::intrinsic::timestamp_ge_scalar::<1, 1>(
+                &mut selection,
+                &array,
+                rhs,
+                &mut temp,
+            );
+
+            assert_eq!(
+                selection.iter().collect::<Vec<_>>(),
+                selection_.iter().collect::<Vec<_>>()
+            );
+        }
+
+        // Have same performance
+        selection.mutate().clear();
+        group.bench_function(
+            BenchmarkId::new("DataBlock: Timestamp same unit", size),
+            |b| {
+                b.iter(|| unsafe {
+                    data_block::compute::comparison::primitive::intrinsic::timestamp_ge_scalar::<
+                        1,
+                        1,
+                    >(&mut selection, &array, rhs, &mut temp);
+                    selection.mutate().clear();
+                })
+            },
+        );
+    })
+}
+
 fn comparison_benchmark(c: &mut Criterion) {
-    bench_primitive_array::<i8, arrow::datatypes::Int8Type>(c, 0, 0.0, 42);
-    bench_primitive_array::<i16, arrow::datatypes::Int16Type>(c, 0, 0.0, 42);
-    bench_primitive_array::<i32, arrow::datatypes::Int32Type>(c, 0, 0.0, 42);
+    // bench_primitive_array::<i8, arrow::datatypes::Int8Type>(c, 0, 0.0, 42);
+    // bench_primitive_array::<i16, arrow::datatypes::Int16Type>(c, 0, 0.0, 42);
+    // bench_primitive_array::<i32, arrow::datatypes::Int32Type>(c, 0, 0.0, 42);
     bench_primitive_array::<i64, arrow::datatypes::Int64Type>(c, 0, 0.0, 42);
-    bench_primitive_array::<f32, arrow::datatypes::Float32Type>(c, 0.5, 0.0, 42);
+    // bench_primitive_array::<f32, arrow::datatypes::Float32Type>(c, 0.5, 0.0, 42);
     bench_primitive_array::<f64, arrow::datatypes::Float64Type>(c, 0.5, 0.0, 42);
     // bench_boolean_array(c, true, 0.0, 0.2, 42);
     // bench_string_array(c, StringView::from_static_str("lmnolollmnolol"), 0.2, 42);
+    bench_timestamp(c, 0, 0.0, 42);
 }
 
 criterion_group!(name = benches; config = Criterion::default().with_profiler(PProfProfiler::new(100, Output::Flamegraph(None))); targets = comparison_benchmark);

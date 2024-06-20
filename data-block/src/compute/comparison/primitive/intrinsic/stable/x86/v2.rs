@@ -51,17 +51,17 @@ x86_target_use!(
     _mm_cmple_pd
 );
 
-macro_rules! cmp_int_scalar_v2 {
+macro_rules! cmp_int_v2 {
     ($int_ty:ty, $suffix:ident) => {
-        cmp_int_scalar!("sse4.2", v2, _mm, $int_ty, $suffix);
+        cmp_int!("sse4.2", v2, _mm, $int_ty, $suffix);
     };
     // unsigned integer
     ($uint_ty:ty, $int_ty:ty, $suffix:ident) => {
-        cmp_int_scalar!("sse4.2", v2, _mm, $uint_ty, $int_ty, $suffix);
+        cmp_int!("sse4.2", v2, _mm, $uint_ty, $int_ty, $suffix);
     };
 }
 
-macro_rules! cmp_float_scalar_v2 {
+macro_rules! cmp_float_v2 {
     ($ty:ty, $suffix:ident) => {
         cmp_float!("sse4.2", v2, _mm, $ty, $suffix);
     };
@@ -98,14 +98,12 @@ unsafe fn cmp_template<const NOT: bool>(
 /// - dst should have adequate space
 #[target_feature(enable = "sse2")]
 #[inline]
-unsafe fn cmp_scalar_i8_v2<const NOT: bool, const FLIP_SIGN: bool, F>(
+unsafe fn cmp_scalar_i8_v2<const NOT: bool, const FLIP_SIGN: bool>(
     array: &AlignedVec<i8>,
     scalar: i8,
     dst: *mut u16,
-    cmp_func: F,
-) where
-    F: Fn(__m128i, __m128i) -> __m128i,
-{
+    cmp_func: unsafe fn(__m128i, __m128i) -> __m128i,
+) {
     if array.is_empty() {
         return;
     }
@@ -119,7 +117,7 @@ unsafe fn cmp_scalar_i8_v2<const NOT: bool, const FLIP_SIGN: bool, F>(
         rhs = _mm_xor_si128(rhs, flip_sign);
     }
 
-    let array_ptr = array.ptr.as_ptr();
+    let array_ptr = array.as_ptr();
 
     let load_and_compare = |offset: usize| {
         // Load 16 i8 into __m128i. Ptr in [`AlignedVec`] is guaranteed to be
@@ -144,24 +142,22 @@ unsafe fn cmp_scalar_i8_v2<const NOT: bool, const FLIP_SIGN: bool, F>(
 
 #[target_feature(enable = "sse2")]
 #[inline]
-unsafe fn cmp_i8_v2<const NOT: bool, const FLIP_SIGN: bool, F>(
+unsafe fn cmp_i8_v2<const NOT: bool, const FLIP_SIGN: bool>(
     lhs: &AlignedVec<i8>,
     rhs: &AlignedVec<i8>,
     dst: *mut u16,
-    cmp_func: F,
-) where
-    F: Fn(__m128i, __m128i) -> __m128i,
-{
+    cmp_func: unsafe fn(__m128i, __m128i) -> __m128i,
+) {
     debug_assert_eq!(lhs.len(), rhs.len());
 
-    if lhs.len() == 0 {
+    if lhs.is_empty() {
         return;
     }
 
     let flip_sign = _mm_set1_epi8(i8::MIN);
 
-    let lhs_ptr = lhs.ptr.as_ptr();
-    let rhs_ptr = rhs.ptr.as_ptr();
+    let lhs_ptr = lhs.as_ptr();
+    let rhs_ptr = rhs.as_ptr();
 
     let load_and_compare = |offset: usize| {
         let mut lhs = _mm_load_si128(lhs_ptr.add(offset) as _);
@@ -188,14 +184,12 @@ unsafe fn cmp_i8_v2<const NOT: bool, const FLIP_SIGN: bool, F>(
 /// [Getting Bitmasks from SSE Vector Comparisons]: https://giannitedesco.github.io/2019/03/08/simd-cmp-bitmasks.html
 #[target_feature(enable = "sse2")]
 #[inline]
-unsafe fn cmp_scalar_i16_v2<const NOT: bool, const FLIP_SIGN: bool, F>(
+unsafe fn cmp_scalar_i16_v2<const NOT: bool, const FLIP_SIGN: bool>(
     array: &AlignedVec<i16>,
     scalar: i16,
     dst: *mut u16,
-    cmp_func: F,
-) where
-    F: Fn(__m128i, __m128i) -> __m128i,
-{
+    cmp_func: unsafe fn(__m128i, __m128i) -> __m128i,
+) {
     if array.is_empty() {
         return;
     }
@@ -209,7 +203,7 @@ unsafe fn cmp_scalar_i16_v2<const NOT: bool, const FLIP_SIGN: bool, F>(
         rhs = _mm_xor_si128(rhs, flip_sign);
     }
 
-    let array_ptr = array.ptr.as_ptr();
+    let array_ptr = array.as_ptr();
 
     let load_and_compare = |offset: usize| {
         // Load 8 i16 into __m128i. Ptr in [`CacheAlineAlignedVec`] is guaranteed to be
@@ -241,14 +235,12 @@ unsafe fn cmp_scalar_i16_v2<const NOT: bool, const FLIP_SIGN: bool, F>(
 
 #[target_feature(enable = "sse2")]
 #[inline]
-unsafe fn cmp_i16_v2<const NOT: bool, const FLIP_SIGN: bool, F>(
+unsafe fn cmp_i16_v2<const NOT: bool, const FLIP_SIGN: bool>(
     lhs: &AlignedVec<i16>,
     rhs: &AlignedVec<i16>,
     dst: *mut u16,
-    cmp_func: F,
-) where
-    F: Fn(__m128i, __m128i) -> __m128i,
-{
+    cmp_func: unsafe fn(__m128i, __m128i) -> __m128i,
+) {
     debug_assert_eq!(lhs.len(), rhs.len());
 
     if lhs.len == 0 {
@@ -256,8 +248,8 @@ unsafe fn cmp_i16_v2<const NOT: bool, const FLIP_SIGN: bool, F>(
     }
 
     let flip_sign = _mm_set1_epi16(i16::MIN);
-    let lhs_ptr = lhs.ptr.as_ptr();
-    let rhs_ptr = rhs.ptr.as_ptr();
+    let lhs_ptr = lhs.as_ptr();
+    let rhs_ptr = rhs.as_ptr();
 
     let load_and_compare = |offset: usize| {
         let mut lhs_0 = _mm_load_si128(lhs_ptr.add(offset) as _);
@@ -287,14 +279,12 @@ unsafe fn cmp_i16_v2<const NOT: bool, const FLIP_SIGN: bool, F>(
 /// - dst should have adequate space
 #[target_feature(enable = "sse2")]
 #[inline]
-unsafe fn cmp_scalar_i32_v2<const NOT: bool, const FLIP_SIGN: bool, F>(
+unsafe fn cmp_scalar_i32_v2<const NOT: bool, const FLIP_SIGN: bool>(
     array: &AlignedVec<i32>,
     scalar: i32,
     dst: *mut u16,
-    cmp_func: F,
-) where
-    F: Fn(__m128i, __m128i) -> __m128i,
-{
+    cmp_func: unsafe fn(__m128i, __m128i) -> __m128i,
+) {
     if array.is_empty() {
         return;
     }
@@ -308,7 +298,7 @@ unsafe fn cmp_scalar_i32_v2<const NOT: bool, const FLIP_SIGN: bool, F>(
         rhs = _mm_xor_si128(rhs, flip_sign);
     }
 
-    let array_ptr = array.ptr.as_ptr();
+    let array_ptr = array.as_ptr();
 
     let load_and_compare = |offset: usize| {
         // Load 4 i32 into __m128i. Ptr in [`CacheAlineAlignedVec`] is guaranteed to be
@@ -353,22 +343,20 @@ unsafe fn cmp_scalar_i32_v2<const NOT: bool, const FLIP_SIGN: bool, F>(
 
 #[target_feature(enable = "sse2")]
 #[inline]
-unsafe fn cmp_i32_v2<const NOT: bool, const FLIP_SIGN: bool, F>(
+unsafe fn cmp_i32_v2<const NOT: bool, const FLIP_SIGN: bool>(
     lhs: &AlignedVec<i32>,
     rhs: &AlignedVec<i32>,
     dst: *mut u16,
-    cmp_func: F,
-) where
-    F: Fn(__m128i, __m128i) -> __m128i,
-{
+    cmp_func: unsafe fn(__m128i, __m128i) -> __m128i,
+) {
     debug_assert_eq!(lhs.len(), rhs.len());
 
     if lhs.len == 0 {
         return;
     }
 
-    let lhs_ptr = lhs.ptr.as_ptr();
-    let rhs_ptr = rhs.ptr.as_ptr();
+    let lhs_ptr = lhs.as_ptr();
+    let rhs_ptr = rhs.as_ptr();
 
     let flip_sign = _mm_set1_epi32(i32::MIN);
     let load_and_compare = |offset: usize| {
@@ -464,21 +452,19 @@ unsafe fn cmp_double_word_template<const NOT: bool>(
 /// - dst should have adequate space
 #[target_feature(enable = "sse4.2")]
 #[inline]
-unsafe fn cmp_scalar_i64_v2<const NOT: bool, const FLIP_SIGN: bool, F>(
+unsafe fn cmp_scalar_i64_v2<const NOT: bool, const FLIP_SIGN: bool>(
     array: &AlignedVec<i64>,
     scalar: i64,
     dst: *mut u16,
-    cmp_func: F,
-) where
-    F: Fn(__m128i, __m128i) -> __m128i,
-{
+    cmp_func: unsafe fn(__m128i, __m128i) -> __m128i,
+) {
     const CTRL_BIT: i32 = 0x88;
 
     if array.is_empty() {
         return;
     }
 
-    let array_ptr = array.ptr.as_ptr();
+    let array_ptr = array.as_ptr();
     // Broadcast scalar to 128 bit
     let mut rhs = _mm_set1_epi64x(scalar);
 
@@ -488,11 +474,11 @@ unsafe fn cmp_scalar_i64_v2<const NOT: bool, const FLIP_SIGN: bool, F>(
         rhs = _mm_xor_si128(rhs, flip_sign);
     }
 
-    let load_and_compare = |base: usize| {
-        let mut lhs_0 = _mm_load_si128(array_ptr.add(base) as _);
-        let mut lhs_1 = _mm_load_si128(array_ptr.add(base + 2) as _);
-        let mut lhs_2 = _mm_load_si128(array_ptr.add(base + 4) as _);
-        let mut lhs_3 = _mm_load_si128(array_ptr.add(base + 6) as _);
+    let load_and_compare = |offset: usize| {
+        let mut lhs_0 = _mm_load_si128(array_ptr.add(offset) as _);
+        let mut lhs_1 = _mm_load_si128(array_ptr.add(offset + 2) as _);
+        let mut lhs_2 = _mm_load_si128(array_ptr.add(offset + 4) as _);
+        let mut lhs_3 = _mm_load_si128(array_ptr.add(offset + 6) as _);
 
         // If is static, will be optimized away
         if FLIP_SIGN {
@@ -521,14 +507,12 @@ unsafe fn cmp_scalar_i64_v2<const NOT: bool, const FLIP_SIGN: bool, F>(
 
 #[target_feature(enable = "sse4.2")]
 #[inline]
-unsafe fn cmp_i64_v2<const NOT: bool, const FLIP_SIGN: bool, F>(
+unsafe fn cmp_i64_v2<const NOT: bool, const FLIP_SIGN: bool>(
     lhs: &AlignedVec<i64>,
     rhs: &AlignedVec<i64>,
     dst: *mut u16,
-    cmp_func: F,
-) where
-    F: Fn(__m128i, __m128i) -> __m128i,
-{
+    cmp_func: unsafe fn(__m128i, __m128i) -> __m128i,
+) {
     const CTRL_BIT: i32 = 0x88;
 
     debug_assert_eq!(lhs.len(), rhs.len());
@@ -537,19 +521,19 @@ unsafe fn cmp_i64_v2<const NOT: bool, const FLIP_SIGN: bool, F>(
         return;
     }
 
-    let lhs_ptr = lhs.ptr.as_ptr();
-    let rhs_ptr = rhs.ptr.as_ptr();
+    let lhs_ptr = lhs.as_ptr();
+    let rhs_ptr = rhs.as_ptr();
     let flip_sign = _mm_set1_epi64x(i64::MIN);
 
-    let load_and_compare = |base: usize| {
-        let mut lhs_0 = _mm_load_si128(lhs_ptr.add(base) as _);
-        let mut lhs_1 = _mm_load_si128(lhs_ptr.add(base + 2) as _);
-        let mut lhs_2 = _mm_load_si128(lhs_ptr.add(base + 4) as _);
-        let mut lhs_3 = _mm_load_si128(lhs_ptr.add(base + 6) as _);
-        let mut rhs_0 = _mm_load_si128(rhs_ptr.add(base) as _);
-        let mut rhs_1 = _mm_load_si128(rhs_ptr.add(base + 2) as _);
-        let mut rhs_2 = _mm_load_si128(rhs_ptr.add(base + 4) as _);
-        let mut rhs_3 = _mm_load_si128(rhs_ptr.add(base + 6) as _);
+    let load_and_compare = |offset: usize| {
+        let mut lhs_0 = _mm_load_si128(lhs_ptr.add(offset) as _);
+        let mut lhs_1 = _mm_load_si128(lhs_ptr.add(offset + 2) as _);
+        let mut lhs_2 = _mm_load_si128(lhs_ptr.add(offset + 4) as _);
+        let mut lhs_3 = _mm_load_si128(lhs_ptr.add(offset + 6) as _);
+        let mut rhs_0 = _mm_load_si128(rhs_ptr.add(offset) as _);
+        let mut rhs_1 = _mm_load_si128(rhs_ptr.add(offset + 2) as _);
+        let mut rhs_2 = _mm_load_si128(rhs_ptr.add(offset + 4) as _);
+        let mut rhs_3 = _mm_load_si128(rhs_ptr.add(offset + 6) as _);
 
         // If is static, will be optimized away
         if FLIP_SIGN {
@@ -588,16 +572,18 @@ unsafe fn cmp_i64_v2<const NOT: bool, const FLIP_SIGN: bool, F>(
 /// - dst should have adequate space
 #[target_feature(enable = "sse2")]
 #[inline]
-unsafe fn cmp_scalar_f32_v2<F>(array: &AlignedVec<f32>, scalar: f32, dst: *mut u16, cmp_func: F)
-where
-    F: Fn(__m128, __m128) -> __m128,
-{
+unsafe fn cmp_scalar_f32_v2(
+    array: &AlignedVec<f32>,
+    scalar: f32,
+    dst: *mut u16,
+    cmp_func: unsafe fn(__m128, __m128) -> __m128,
+) {
     if array.is_empty() {
         return;
     }
 
     let rhs = _mm_set1_ps(scalar);
-    let array_ptr = array.ptr.as_ptr();
+    let array_ptr = array.as_ptr();
 
     let load_and_compare = |offset: usize| {
         let lhs_0 = _mm_load_ps(array_ptr.add(offset));
@@ -622,18 +608,20 @@ where
 
 #[target_feature(enable = "sse2")]
 #[inline]
-unsafe fn cmp_f32_v2<F>(lhs: &AlignedVec<f32>, rhs: &AlignedVec<f32>, dst: *mut u16, cmp_func: F)
-where
-    F: Fn(__m128, __m128) -> __m128,
-{
+unsafe fn cmp_f32_v2(
+    lhs: &AlignedVec<f32>,
+    rhs: &AlignedVec<f32>,
+    dst: *mut u16,
+    cmp_func: unsafe fn(__m128, __m128) -> __m128,
+) {
     debug_assert_eq!(lhs.len(), rhs.len());
 
     if lhs.is_empty() {
         return;
     }
 
-    let lhs_ptr = lhs.ptr.as_ptr();
-    let rhs_ptr = rhs.ptr.as_ptr();
+    let lhs_ptr = lhs.as_ptr();
+    let rhs_ptr = rhs.as_ptr();
 
     let load_and_compare = |offset: usize| {
         let lhs_0 = _mm_load_ps(lhs_ptr.add(offset));
@@ -668,26 +656,26 @@ where
 /// - dst should have adequate space
 #[target_feature(enable = "sse2")]
 #[inline]
-unsafe fn cmp_scalar_f64_v2<F>(array: &AlignedVec<f64>, scalar: f64, dst: *mut u16, cmp_func: F)
-where
-    F: Fn(__m128d, __m128d) -> __m128d,
-{
-    const SHIFT_BITS: usize = 3;
-    const BASE: usize = 1 << SHIFT_BITS;
+unsafe fn cmp_scalar_f64_v2(
+    array: &AlignedVec<f64>,
+    scalar: f64,
+    dst: *mut u16,
+    cmp_func: unsafe fn(__m128d, __m128d) -> __m128d,
+) {
     const CTRL_BIT: i32 = 0x88;
 
     if array.is_empty() {
         return;
     }
 
-    let array_ptr = array.ptr.as_ptr();
+    let array_ptr = array.as_ptr();
     let rhs = _mm_set1_pd(scalar);
 
-    let load_and_compare = |base: usize| {
-        let lhs_0 = _mm_load_pd(array_ptr.add(base));
-        let lhs_1 = _mm_load_pd(array_ptr.add(base + 2) as _);
-        let lhs_2 = _mm_load_pd(array_ptr.add(base + 4) as _);
-        let lhs_3 = _mm_load_pd(array_ptr.add(base + 6) as _);
+    let load_and_compare = |offset: usize| {
+        let lhs_0 = _mm_load_pd(array_ptr.add(offset));
+        let lhs_1 = _mm_load_pd(array_ptr.add(offset + 2) as _);
+        let lhs_2 = _mm_load_pd(array_ptr.add(offset + 4) as _);
+        let lhs_3 = _mm_load_pd(array_ptr.add(offset + 6) as _);
 
         let cmp_0 = cmp_func(lhs_0, rhs);
         let cmp_1 = cmp_func(lhs_1, rhs);
@@ -705,10 +693,12 @@ where
 
 #[target_feature(enable = "sse2")]
 #[inline]
-unsafe fn cmp_f64_v2<F>(lhs: &AlignedVec<f64>, rhs: &AlignedVec<f64>, dst: *mut u16, cmp_func: F)
-where
-    F: Fn(__m128d, __m128d) -> __m128d,
-{
+unsafe fn cmp_f64_v2(
+    lhs: &AlignedVec<f64>,
+    rhs: &AlignedVec<f64>,
+    dst: *mut u16,
+    cmp_func: unsafe fn(__m128d, __m128d) -> __m128d,
+) {
     const CTRL_BIT: i32 = 0x88;
 
     debug_assert_eq!(lhs.len(), rhs.len());
@@ -717,18 +707,18 @@ where
         return;
     }
 
-    let lhs_ptr = lhs.ptr.as_ptr();
-    let rhs_ptr = rhs.ptr.as_ptr();
+    let lhs_ptr = lhs.as_ptr();
+    let rhs_ptr = rhs.as_ptr();
 
-    let load_and_compare = |base: usize| {
-        let lhs_0 = _mm_load_pd(lhs_ptr.add(base));
-        let lhs_1 = _mm_load_pd(lhs_ptr.add(base + 2) as _);
-        let lhs_2 = _mm_load_pd(lhs_ptr.add(base + 4) as _);
-        let lhs_3 = _mm_load_pd(lhs_ptr.add(base + 6) as _);
-        let rhs_0 = _mm_load_pd(rhs_ptr.add(base));
-        let rhs_1 = _mm_load_pd(rhs_ptr.add(base + 2) as _);
-        let rhs_2 = _mm_load_pd(rhs_ptr.add(base + 4) as _);
-        let rhs_3 = _mm_load_pd(rhs_ptr.add(base + 6) as _);
+    let load_and_compare = |offset: usize| {
+        let lhs_0 = _mm_load_pd(lhs_ptr.add(offset));
+        let lhs_1 = _mm_load_pd(lhs_ptr.add(offset + 2) as _);
+        let lhs_2 = _mm_load_pd(lhs_ptr.add(offset + 4) as _);
+        let lhs_3 = _mm_load_pd(lhs_ptr.add(offset + 6) as _);
+        let rhs_0 = _mm_load_pd(rhs_ptr.add(offset));
+        let rhs_1 = _mm_load_pd(rhs_ptr.add(offset + 2) as _);
+        let rhs_2 = _mm_load_pd(rhs_ptr.add(offset + 4) as _);
+        let rhs_3 = _mm_load_pd(rhs_ptr.add(offset + 6) as _);
 
         let cmp_0 = cmp_func(lhs_0, rhs_0);
         let cmp_1 = cmp_func(lhs_1, rhs_1);
@@ -744,16 +734,313 @@ where
     cmp_double_word_template::<false>(lhs.len(), dst, load_and_compare);
 }
 
-cmp_int_scalar_v2!(i8, epi8);
-cmp_int_scalar_v2!(u8, i8, epi8);
-cmp_int_scalar_v2!(i16, epi16);
-cmp_int_scalar_v2!(u16, i16, epi16);
-cmp_int_scalar_v2!(i32, epi32);
-cmp_int_scalar_v2!(u32, i32, epi32);
-cmp_int_scalar_v2!(i64, epi64);
-cmp_int_scalar_v2!(u64, i64, epi64);
-cmp_float_scalar_v2!(f32, ps);
-cmp_float_scalar_v2!(f64, pd);
+cmp_int_v2!(i8, epi8);
+cmp_int_v2!(u8, i8, epi8);
+cmp_int_v2!(i16, epi16);
+cmp_int_v2!(u16, i16, epi16);
+cmp_int_v2!(i32, epi32);
+cmp_int_v2!(u32, i32, epi32);
+cmp_int_v2!(i64, epi64);
+cmp_int_v2!(u64, i64, epi64);
+cmp_float_v2!(f32, ps);
+cmp_float_v2!(f64, pd);
+
+// Timestamp
+
+/// 64 byte aligned, such that we can use aligned load
+#[repr(align(64))]
+struct AlignedArray([i64; 2]);
+
+impl AlignedArray {
+    #[inline]
+    fn as_ptr(&self) -> *const __m128i {
+        self.0.as_ptr() as *const _
+    }
+}
+
+#[target_feature(enable = "sse4.2")]
+#[inline]
+unsafe fn timestamp_cmp_scalar_v2<const AM: i64, const NOT: bool>(
+    array: &AlignedVec<i64>,
+    scalar: i64,
+    dst: *mut u16,
+    cmp_func: unsafe fn(__m128i, __m128i) -> __m128i,
+) {
+    const CTRL_BIT: i32 = 0x88;
+
+    if array.is_empty() {
+        return;
+    }
+
+    let array_ptr = array.as_ptr();
+    // Broadcast scalar to 128 bit
+    let rhs = _mm_set1_epi64x(scalar);
+
+    // These two will be optimized away based on the NOT and FLIP_SIGN
+
+    let load_and_compare = |offset: usize| {
+        // Compiler will perform auto-vectorization for the `* AM` operation 😊
+        let lhs_0 = _mm_load_si128(
+            AlignedArray([
+                *(array_ptr.add(offset)) * AM,
+                *(array_ptr.add(offset + 1)) * AM,
+            ])
+            .as_ptr(),
+        );
+        let lhs_1 = _mm_load_si128(
+            AlignedArray([
+                *(array_ptr.add(offset + 2)) * AM,
+                *(array_ptr.add(offset + 3)) * AM,
+            ])
+            .as_ptr(),
+        );
+        let lhs_2 = _mm_load_si128(
+            AlignedArray([
+                *(array_ptr.add(offset + 4)) * AM,
+                *(array_ptr.add(offset + 5)) * AM,
+            ])
+            .as_ptr(),
+        );
+        let lhs_3 = _mm_load_si128(
+            AlignedArray([
+                *(array_ptr.add(offset + 6)) * AM,
+                *(array_ptr.add(offset + 7)) * AM,
+            ])
+            .as_ptr(),
+        );
+
+        // Compare lhs with rhs
+        let cmp_0 = cmp_func(lhs_0, rhs);
+        let cmp_1 = cmp_func(lhs_1, rhs);
+        let cmp_2 = cmp_func(lhs_2, rhs);
+        let cmp_3 = cmp_func(lhs_3, rhs);
+
+        let shuffle_0 =
+            _mm_shuffle_ps::<CTRL_BIT>(_mm_castsi128_ps(cmp_0), _mm_castsi128_ps(cmp_1));
+        let shuffle_1 =
+            _mm_shuffle_ps::<CTRL_BIT>(_mm_castsi128_ps(cmp_2), _mm_castsi128_ps(cmp_3));
+
+        _mm_packs_epi32(_mm_castps_si128(shuffle_0), _mm_castps_si128(shuffle_1))
+    };
+
+    cmp_double_word_template::<NOT>(array.len(), dst, load_and_compare);
+}
+
+#[target_feature(enable = "sse4.2")]
+#[inline]
+pub(crate) unsafe fn timestamp_eq_scalar_v2<const AM: i64, const SM: i64>(
+    array: &AlignedVec<i64>,
+    scalar: i64,
+    dst: *mut BitStore,
+) {
+    let scalar = scalar * SM;
+    timestamp_cmp_scalar_v2::<AM, false>(array, scalar, dst as _, _mm_cmpeq_epi64);
+}
+
+#[target_feature(enable = "sse4.2")]
+#[inline]
+pub(crate) unsafe fn timestamp_ne_scalar_v2<const AM: i64, const SM: i64>(
+    array: &AlignedVec<i64>,
+    scalar: i64,
+    dst: *mut BitStore,
+) {
+    let scalar = scalar * SM;
+    timestamp_cmp_scalar_v2::<AM, true>(array, scalar, dst as _, _mm_cmpeq_epi64);
+}
+
+#[target_feature(enable = "sse4.2")]
+#[inline]
+pub(crate) unsafe fn timestamp_gt_scalar_v2<const AM: i64, const SM: i64>(
+    array: &AlignedVec<i64>,
+    scalar: i64,
+    dst: *mut BitStore,
+) {
+    let scalar = scalar * SM;
+    timestamp_cmp_scalar_v2::<AM, false>(array, scalar, dst as _, _mm_cmpgt_epi64);
+}
+
+#[target_feature(enable = "sse4.2")]
+#[inline]
+pub(crate) unsafe fn timestamp_ge_scalar_v2<const AM: i64, const SM: i64>(
+    array: &AlignedVec<i64>,
+    scalar: i64,
+    dst: *mut BitStore,
+) {
+    let scalar = scalar * SM;
+    timestamp_cmp_scalar_v2::<AM, true>(array, scalar, dst as _, _mm_cmplt_epi64);
+}
+
+#[target_feature(enable = "sse4.2")]
+#[inline]
+pub(crate) unsafe fn timestamp_lt_scalar_v2<const AM: i64, const SM: i64>(
+    array: &AlignedVec<i64>,
+    scalar: i64,
+    dst: *mut BitStore,
+) {
+    let scalar = scalar * SM;
+    timestamp_cmp_scalar_v2::<AM, false>(array, scalar, dst as _, _mm_cmplt_epi64);
+}
+
+#[target_feature(enable = "sse4.2")]
+#[inline]
+pub(crate) unsafe fn timestamp_le_scalar_v2<const AM: i64, const SM: i64>(
+    array: &AlignedVec<i64>,
+    scalar: i64,
+    dst: *mut BitStore,
+) {
+    let scalar = scalar * SM;
+    timestamp_cmp_scalar_v2::<AM, true>(array, scalar, dst as _, _mm_cmpgt_epi64);
+}
+
+#[target_feature(enable = "sse4.2")]
+#[inline]
+unsafe fn timestamp_cmp_v2<const LM: i64, const RM: i64, const NOT: bool>(
+    lhs: &AlignedVec<i64>,
+    rhs: &AlignedVec<i64>,
+    dst: *mut u16,
+    cmp_func: unsafe fn(__m128i, __m128i) -> __m128i,
+) {
+    const CTRL_BIT: i32 = 0x88;
+
+    debug_assert_eq!(lhs.len(), rhs.len());
+
+    if lhs.is_empty() {
+        return;
+    }
+
+    let lhs_ptr = lhs.as_ptr();
+    let rhs_ptr = rhs.as_ptr();
+
+    // These two will be optimized away based on the NOT and FLIP_SIGN
+
+    let load_and_compare = |offset: usize| {
+        // Compiler will perform auto-vectorization for the `* AM/RM` operation 😊
+        let lhs_0 = _mm_load_si128(
+            AlignedArray([*(lhs_ptr.add(offset)) * LM, *(lhs_ptr.add(offset + 1)) * LM]).as_ptr(),
+        );
+        let lhs_1 = _mm_load_si128(
+            AlignedArray([
+                *(lhs_ptr.add(offset + 2)) * LM,
+                *(lhs_ptr.add(offset + 3)) * LM,
+            ])
+            .as_ptr(),
+        );
+        let lhs_2 = _mm_load_si128(
+            AlignedArray([
+                *(lhs_ptr.add(offset + 4)) * LM,
+                *(lhs_ptr.add(offset + 5)) * LM,
+            ])
+            .as_ptr(),
+        );
+        let lhs_3 = _mm_load_si128(
+            AlignedArray([
+                *(lhs_ptr.add(offset + 6)) * LM,
+                *(lhs_ptr.add(offset + 7)) * LM,
+            ])
+            .as_ptr(),
+        );
+
+        let rhs_0 = _mm_load_si128(
+            AlignedArray([*(rhs_ptr.add(offset)) * RM, *(rhs_ptr.add(offset + 1)) * RM]).as_ptr(),
+        );
+        let rhs_1 = _mm_load_si128(
+            AlignedArray([
+                *(rhs_ptr.add(offset + 2)) * RM,
+                *(rhs_ptr.add(offset + 3)) * RM,
+            ])
+            .as_ptr(),
+        );
+        let rhs_2 = _mm_load_si128(
+            AlignedArray([
+                *(rhs_ptr.add(offset + 4)) * RM,
+                *(rhs_ptr.add(offset + 5)) * RM,
+            ])
+            .as_ptr(),
+        );
+        let rhs_3 = _mm_load_si128(
+            AlignedArray([
+                *(rhs_ptr.add(offset + 6)) * RM,
+                *(rhs_ptr.add(offset + 7)) * RM,
+            ])
+            .as_ptr(),
+        );
+
+        // Compare lhs with rhs
+        let cmp_0 = cmp_func(lhs_0, rhs_0);
+        let cmp_1 = cmp_func(lhs_1, rhs_1);
+        let cmp_2 = cmp_func(lhs_2, rhs_2);
+        let cmp_3 = cmp_func(lhs_3, rhs_3);
+
+        let shuffle_0 =
+            _mm_shuffle_ps::<CTRL_BIT>(_mm_castsi128_ps(cmp_0), _mm_castsi128_ps(cmp_1));
+        let shuffle_1 =
+            _mm_shuffle_ps::<CTRL_BIT>(_mm_castsi128_ps(cmp_2), _mm_castsi128_ps(cmp_3));
+
+        _mm_packs_epi32(_mm_castps_si128(shuffle_0), _mm_castps_si128(shuffle_1))
+    };
+
+    cmp_double_word_template::<NOT>(lhs.len(), dst, load_and_compare);
+}
+
+#[target_feature(enable = "sse4.2")]
+#[inline]
+pub(crate) unsafe fn timestamp_eq_v2<const AM: i64, const RM: i64>(
+    lhs: &AlignedVec<i64>,
+    rhs: &AlignedVec<i64>,
+    dst: *mut BitStore,
+) {
+    timestamp_cmp_v2::<AM, RM, false>(lhs, rhs, dst as _, _mm_cmpeq_epi64);
+}
+
+#[target_feature(enable = "sse4.2")]
+#[inline]
+pub(crate) unsafe fn timestamp_ne_v2<const AM: i64, const RM: i64>(
+    lhs: &AlignedVec<i64>,
+    rhs: &AlignedVec<i64>,
+    dst: *mut BitStore,
+) {
+    timestamp_cmp_v2::<AM, RM, true>(lhs, rhs, dst as _, _mm_cmpeq_epi64);
+}
+
+#[target_feature(enable = "sse4.2")]
+#[inline]
+pub(crate) unsafe fn timestamp_gt_v2<const AM: i64, const RM: i64>(
+    lhs: &AlignedVec<i64>,
+    rhs: &AlignedVec<i64>,
+    dst: *mut BitStore,
+) {
+    timestamp_cmp_v2::<AM, RM, false>(lhs, rhs, dst as _, _mm_cmpgt_epi64);
+}
+
+#[target_feature(enable = "sse4.2")]
+#[inline]
+pub(crate) unsafe fn timestamp_ge_v2<const AM: i64, const RM: i64>(
+    lhs: &AlignedVec<i64>,
+    rhs: &AlignedVec<i64>,
+    dst: *mut BitStore,
+) {
+    timestamp_cmp_v2::<AM, RM, true>(lhs, rhs, dst as _, _mm_cmplt_epi64);
+}
+
+#[target_feature(enable = "sse4.2")]
+#[inline]
+pub(crate) unsafe fn timestamp_lt_v2<const AM: i64, const RM: i64>(
+    lhs: &AlignedVec<i64>,
+    rhs: &AlignedVec<i64>,
+    dst: *mut BitStore,
+) {
+    timestamp_cmp_v2::<AM, RM, false>(lhs, rhs, dst as _, _mm_cmplt_epi64);
+}
+
+#[target_feature(enable = "sse4.2")]
+#[inline]
+pub(crate) unsafe fn timestamp_le_v2<const AM: i64, const RM: i64>(
+    lhs: &AlignedVec<i64>,
+    rhs: &AlignedVec<i64>,
+    dst: *mut BitStore,
+) {
+    timestamp_cmp_v2::<AM, RM, true>(lhs, rhs, dst as _, _mm_cmpgt_epi64);
+}
 
 #[cfg(test)]
 mod tests {
