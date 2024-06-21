@@ -140,18 +140,18 @@ pub trait SourceOperatorExt: PhysicalOperator {
         let local_state =
             downcast_mut_local_state!(self, local_state, Self::LocalSourceState, SOURCE);
 
-        // TBD: Can the morsel fetched from global state be empty?
-        // If the morsel can not be empty, we can remove the loop
-        loop {
-            let status = self.read_local_data(output, local_state)?;
-            match status {
-                SourceExecStatus::HaveMoreOutput => return Ok(SourceExecStatus::HaveMoreOutput),
-                SourceExecStatus::Finished => {
-                    // Morsel in local source is exhausted, fetch next morsel
-                    if !self.next_morsel(global_state, local_state) {
-                        // No more unassigned morsel, stop executing this thread
-                        return Ok(SourceExecStatus::Finished);
-                    }
+        let status = self.read_local_data(output, local_state)?;
+        match status {
+            SourceExecStatus::HaveMoreOutput => Ok(SourceExecStatus::HaveMoreOutput),
+            SourceExecStatus::Finished => {
+                // Morsel in local source is exhausted, fetch next morsel
+                if !self.next_morsel(global_state, local_state) {
+                    // No more unassigned morsel, stop executing this thread
+                    Ok(SourceExecStatus::Finished)
+                } else {
+                    // Have unassigned morsel, read data from this morsel. It should return
+                    // `HaveMoreOutput`
+                    self.read_local_data(output, local_state)
                 }
             }
         }

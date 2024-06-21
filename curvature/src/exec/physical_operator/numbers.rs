@@ -74,7 +74,7 @@ impl Numbers {
 
 #[derive(Debug)]
 /// Global source state of the [`Numbers`]
-pub struct NumbersGlobalSourceState(Arc<AtomicU64>);
+pub struct NumbersGlobalSourceState(AtomicU64);
 
 impl StateStringify for NumbersGlobalSourceState {
     fn name(&self) -> &'static str {
@@ -192,9 +192,7 @@ impl PhysicalOperator for Numbers {
     }
 
     fn global_source_state(&self, _client_ctx: &ClientContext) -> Arc<dyn GlobalSourceState> {
-        Arc::new(NumbersGlobalSourceState(Arc::new(AtomicU64::new(
-            self.start,
-        ))))
+        Arc::new(NumbersGlobalSourceState(AtomicU64::new(self.start)))
     }
 
     fn local_source_state(

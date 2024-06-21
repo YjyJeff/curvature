@@ -24,7 +24,7 @@ const NATIVE_PARTIAL_ARITH_THRESHOLD_32_BIT: f64 = 0.05;
 const NATIVE_PARTIAL_ARITH_THRESHOLD_64_BIT: f64 = 0.1;
 
 /// Generic array arith scalar function
-#[inline(always)]
+#[inline]
 unsafe fn arith_scalar<T, U, V>(
     selection: &Bitmap,
     array: &PrimitiveArray<T>,
@@ -68,7 +68,7 @@ unsafe fn arith_scalar<T, U, V>(
 /// Allow `into_iter_on_ref` here because rust analyzer has bug. If we use `iter` instead of
 /// `into_iter` in the block, the analyzer will tell us an error here. However, the code can
 /// compile!
-#[inline(always)]
+#[inline]
 #[allow(clippy::into_iter_on_ref)]
 unsafe fn arith_arrays<T, U, V>(
     selection: &Bitmap,

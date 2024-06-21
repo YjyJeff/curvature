@@ -2,7 +2,6 @@
 
 use data_block::block::DataBlock;
 use snafu::{ensure, ResultExt, Snafu};
-use std::convert::identity;
 
 use super::{Pipeline, Sink, SinkTrait};
 use crate::common::client_context::ClientContext;
@@ -141,7 +140,7 @@ impl<'a, S: SinkTrait> PipelineExecutor<'a, S> {
         let operators = &self.pipeline.operators;
         let local_operator_states = &mut self.local_operator_states;
         let blocks = &mut self.intermediate_blocks;
-        let current_index = self.in_process_operators.pop().map_or(0, identity);
+        let current_index = self.in_process_operators.pop().unwrap_or_default();
 
         // Iterator of the regular operator and its local states
         let iter = unsafe {
@@ -236,6 +235,12 @@ impl PipelineExecutor<'_, Sink> {
                 break;
             }
 
+            if unsafe { self.intermediate_blocks.get_unchecked(0).is_empty() } {
+                // Source output empty block. This happens because source contains
+                // filter and filters out all the block data
+                continue 'outer;
+            }
+
             // Inner loop here, because single input may produce multiple output
             'inner: loop {
                 // Execute regular
@@ -311,11 +316,20 @@ impl PipelineExecutor<'_, ()> {
             }
         } else {
             if self.in_process_operators.is_empty() {
-                // Read data from source
-                let exec_status = self.execute_source()?;
-                if matches!(exec_status, SourceExecStatus::Finished) {
-                    self.merge_local_metrics();
-                    return Ok(None);
+                loop {
+                    // Read data from source
+                    let exec_status = self.execute_source()?;
+                    if matches!(exec_status, SourceExecStatus::Finished) {
+                        self.merge_local_metrics();
+                        return Ok(None);
+                    }
+
+                    if unsafe { !self.intermediate_blocks.get_unchecked(0).is_empty() } {
+                        break;
+                    }
+
+                    // Source output empty block. This happens because source contains
+                    // filter and filters out all the block data. Continue execute source
                 }
             }
             // Execute regular operators

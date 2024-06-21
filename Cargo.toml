@@ -41,10 +41,10 @@ crossbeam-utils = "0.8"
 # Either is used in ping-pong
 # either = "1.10"
 [profile.release]
-lto = true
+lto = "fat"
 opt-level = 3
-codegen-units = 1
 debug = true
+# codegen-units = 1
 
 [profile.bench]
 debug = true
