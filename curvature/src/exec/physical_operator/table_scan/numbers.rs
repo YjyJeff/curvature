@@ -11,7 +11,7 @@ use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
 use std::time::Duration;
 
-use super::{
+use crate::exec::physical_operator::{
     impl_regular_for_non_regular, impl_sink_for_non_sink,
     use_types_for_impl_regular_for_non_regular, use_types_for_impl_sink_for_non_sink,
     GlobalSourceState, LocalSourceState, OperatorResult, ParallelismDegree, PhysicalOperator,

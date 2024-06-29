@@ -52,6 +52,7 @@ pub struct Comparison {
     /// this way is elegant and benchmark show that the impact of this extra indirection
     /// if negligible 😊
     function_set: ComparisonFunctionSet,
+    alias: String,
 }
 
 type Result<T> = std::result::Result<T, ComparisonError>;
@@ -62,6 +63,15 @@ impl Comparison {
         left: Arc<dyn PhysicalExpr>,
         op: CmpOperator,
         right: Arc<dyn PhysicalExpr>,
+    ) -> Result<Self> {
+        Self::try_new_with_alias(left, op, right, String::new())
+    }
+    /// Create a new [`Comparison`] expression
+    pub fn try_new_with_alias(
+        left: Arc<dyn PhysicalExpr>,
+        op: CmpOperator,
+        right: Arc<dyn PhysicalExpr>,
+        alias: String,
     ) -> Result<Self> {
         let function_set = if let Some(function_set) =
             infer_comparison_func_set(left.output_type(), right.output_type(), op)
@@ -89,6 +99,7 @@ impl Comparison {
             children: [left, right],
             op,
             function_set,
+            alias,
         })
     }
 
@@ -120,6 +131,10 @@ impl Stringify for Comparison {
         self.left_child().compact_display(f)?;
         write!(f, " {} ", self.op.symbol_ident())?;
         self.right_child().compact_display(f)
+    }
+
+    fn alias(&self) -> &str {
+        &self.alias
     }
 }
 

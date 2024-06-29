@@ -58,6 +58,7 @@ pub struct Arith {
     /// this way is elegant and benchmark show that the impact of this extra indirection
     /// if negligible 😊
     function_set: ArithFunctionSet,
+    alias: String,
 }
 
 impl Arith {
@@ -66,6 +67,16 @@ impl Arith {
         left: Arc<dyn PhysicalExpr>,
         op: ArithOperator,
         right: Arc<dyn PhysicalExpr>,
+    ) -> Result<Self> {
+        Self::try_new_with_alias(left, op, right, String::new())
+    }
+
+    /// Create a new [`Arith`] expression with alias
+    pub fn try_new_with_alias(
+        left: Arc<dyn PhysicalExpr>,
+        op: ArithOperator,
+        right: Arc<dyn PhysicalExpr>,
+        alias: String,
     ) -> Result<Self> {
         let function_set = if let Some(function_set) =
             infer_arithmetic_func_set(left.output_type(), right.output_type(), op)
@@ -94,6 +105,7 @@ impl Arith {
             children: [left, right],
             op,
             function_set,
+            alias,
         })
     }
 
@@ -125,6 +137,10 @@ impl Stringify for Arith {
         self.left_child().compact_display(f)?;
         write!(f, " {} ", self.op.symbol_ident())?;
         self.right_child().compact_display(f)
+    }
+
+    fn alias(&self) -> &str {
+        &self.alias
     }
 }
 

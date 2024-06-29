@@ -52,15 +52,31 @@ pub trait Stringify {
     ///
     /// It is used in two cases:
     ///
-    /// 1. Error message: Reporting which expression is failed
+    /// 1. Error message: Reporting which expression failed
     ///
-    /// 2. Display the operator: Displaying expressions the operator contains
+    /// 2. Display the operator: Displaying expressions in the operator
     fn compact_display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
+
+    // TBD: Handle it in logical? Do we need logical expression?
+
+    /// Alias of the expression. If the expression does not have alias, it should
+    /// return empty str. This method enforce each expression should have an `alias`
+    /// field
+    fn alias(&self) -> &str;
+
+    /// Ident name of the expression. It can ident the expression in the set of expressions.
+    /// It is the field name that user will view in the output data block
+    fn ident_name(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let alias = self.alias();
+        if !alias.is_empty() {
+            write!(f, "{}", alias)
+        } else {
+            self.compact_display(f)
+        }
+    }
 }
 
 /// Trait for all of the physical expressions
-///
-/// TODO: Add selection context
 pub trait PhysicalExpr: Stringify + Send + Sync {
     /// `as_any` for downcast
     fn as_any(&self) -> &dyn std::any::Any;

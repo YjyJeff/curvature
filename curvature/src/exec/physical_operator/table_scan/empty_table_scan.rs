@@ -6,13 +6,13 @@ use crate::common::client_context::ClientContext;
 use data_block::block::DataBlock;
 use data_block::types::LogicalType;
 
-use super::{
+use crate::exec::physical_operator::metric::MetricsSet;
+use crate::exec::physical_operator::{
     impl_regular_for_non_regular, impl_sink_for_non_sink,
     use_types_for_impl_regular_for_non_regular, use_types_for_impl_sink_for_non_sink,
     GlobalSourceState, LocalSourceState, OperatorResult, ParallelismDegree, PhysicalOperator,
     SourceExecStatus, StateStringify, Stringify,
 };
-use crate::exec::physical_operator::metric::MetricsSet;
 
 use_types_for_impl_regular_for_non_regular!();
 use_types_for_impl_sink_for_non_sink!();

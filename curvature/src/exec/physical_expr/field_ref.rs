@@ -26,16 +26,29 @@ pub struct FieldRef {
     field: String,
     /// It should always be empty! It can not have children
     children: [Arc<dyn PhysicalExpr>; 0],
+    /// Alias of the field
+    alias: String,
 }
 
 impl FieldRef {
     /// Create a new [`FieldRef`]
     pub fn new(field_index: usize, output_type: LogicalType, field: String) -> Self {
+        Self::new_with_alias(field_index, output_type, field, String::new())
+    }
+
+    /// Create a new [`FieldRef`] expression with explicit alias
+    pub fn new_with_alias(
+        field_index: usize,
+        output_type: LogicalType,
+        field: String,
+        alias: String,
+    ) -> Self {
         Self {
             field_index,
             output_type,
             field,
             children: [],
+            alias,
         }
     }
 
@@ -92,7 +105,11 @@ impl Stringify for FieldRef {
     }
 
     fn compact_display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}(#{})", self.field, self.field_index)
+        write!(f, "{}", self.field)
+    }
+
+    fn alias(&self) -> &str {
+        &self.alias
     }
 }
 

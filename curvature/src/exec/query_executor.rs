@@ -203,8 +203,8 @@ mod tests {
     use crate::common::client_context::ExecArgs;
     use crate::common::uuid::QueryId;
     use crate::exec::physical_expr::field_ref::FieldRef;
-    use crate::exec::physical_operator::numbers::Numbers;
     use crate::exec::physical_operator::projection::Projection;
+    use crate::exec::physical_operator::table_scan::numbers::Numbers;
     use data_block::array::ArrayImpl;
     use data_block::types::{Array, LogicalType};
     use snafu::Report;

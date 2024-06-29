@@ -356,8 +356,8 @@ mod tests {
 
     use super::*;
     use crate::exec::physical_expr::field_ref::FieldRef;
-    use crate::exec::physical_operator::numbers::Numbers;
     use crate::exec::physical_operator::projection::Projection;
+    use crate::exec::physical_operator::table_scan::numbers::Numbers;
     use crate::exec::physical_operator::PhysicalOperator;
     use crate::exec::pipeline::Pipelines;
     use data_block::array::{Array, ArrayImpl};

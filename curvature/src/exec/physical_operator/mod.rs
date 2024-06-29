@@ -3,13 +3,11 @@
 //! Heavily adapted from [`DuckDB`](https://duckdb.org/)
 
 pub mod aggregate;
-pub mod empty_table_scan;
 pub mod ext_traits;
 pub mod filter;
-pub mod memory_table_scan;
 pub mod metric;
-pub mod numbers;
 pub mod projection;
+pub mod table_scan;
 pub mod union;
 pub mod utils;
 

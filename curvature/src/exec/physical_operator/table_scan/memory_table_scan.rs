@@ -9,14 +9,14 @@ use std::mem::take;
 use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::Arc;
 
-use super::{
+use crate::common::client_context::ClientContext;
+use crate::exec::physical_operator::metric::MetricsSet;
+use crate::exec::physical_operator::{
     impl_regular_for_non_regular, impl_sink_for_non_sink,
     use_types_for_impl_regular_for_non_regular, use_types_for_impl_sink_for_non_sink,
     GlobalSourceState, LocalSourceState, OperatorResult, ParallelismDegree, PhysicalOperator,
     SourceExecStatus, SourceOperatorExt, StateStringify, Stringify, MAX_PARALLELISM_DEGREE,
 };
-use crate::common::client_context::ClientContext;
-use crate::exec::physical_operator::metric::MetricsSet;
 
 use snafu::{ensure, Snafu};
 
@@ -128,7 +128,7 @@ impl MemoryTableScan {
     /// # Note
     ///
     /// The `blocks` argument can not be empty, if you want to pass empty table scan to it,
-    /// use [`EmptyTableScan`](crate::exec::physical_operator::empty_table_scan::EmptyTableScan)
+    /// use [`EmptyTableScan`](crate::exec::physical_operator::table_scan::empty_table_scan::EmptyTableScan)
     /// instead
     pub fn try_new(blocks: Vec<SendableDataBlock>) -> Result<Self> {
         ensure!(!blocks.is_empty(), EmptyDataBlockSnafu);

@@ -425,11 +425,10 @@ mod tests {
     use data_block::array::{Int32Array, StringArray};
 
     use crate::common::client_context::tests::mock_client_context;
+    use crate::exec::physical_expr::field_ref::FieldRef;
     use crate::exec::physical_expr::function::aggregate::count::Count;
     use crate::exec::physical_expr::function::aggregate::min_max::Min;
-    use crate::exec::{
-        physical_expr::field_ref::FieldRef, physical_operator::empty_table_scan::EmptyTableScan,
-    };
+    use crate::exec::physical_operator::table_scan::empty_table_scan::EmptyTableScan;
 
     use super::*;
 

@@ -28,11 +28,20 @@ pub struct BooleanExprInputError {
 pub struct IsNull<const NOT: bool> {
     output_type: LogicalType,
     children: [Arc<dyn PhysicalExpr>; 1],
+    alias: String,
 }
 
 impl<const NOT: bool> IsNull<NOT> {
     /// Create a new [`IsNull`]
     pub fn try_new(input: Arc<dyn PhysicalExpr>) -> Result<Self, BooleanExprInputError> {
+        Self::try_new_with_alias(input, String::new())
+    }
+
+    /// Create a new [`IsNull`] with alias
+    pub fn try_new_with_alias(
+        input: Arc<dyn PhysicalExpr>,
+        alias: String,
+    ) -> Result<Self, BooleanExprInputError> {
         ensure!(
             input.output_type().physical_type() != PhysicalType::Boolean
                 || input.as_any().downcast_ref::<FieldRef>().is_some(),
@@ -44,6 +53,7 @@ impl<const NOT: bool> IsNull<NOT> {
         Ok(Self {
             output_type: LogicalType::Boolean,
             children: [input],
+            alias,
         })
     }
 }
@@ -69,6 +79,10 @@ impl<const NOT: bool> Stringify for IsNull<NOT> {
         write!(f, "(")?;
         self.children[0].compact_display(f)?;
         write!(f, ") {}", self.name())
+    }
+
+    fn alias(&self) -> &str {
+        &self.alias
     }
 }
 

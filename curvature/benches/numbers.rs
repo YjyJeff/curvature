@@ -10,7 +10,7 @@ use criterion::{criterion_group, criterion_main, Criterion};
 use curvature::common::client_context::{ClientContext, ExecArgs};
 use curvature::common::types::ParallelismDegree;
 use curvature::common::uuid::QueryId;
-use curvature::exec::physical_operator::numbers::Numbers;
+use curvature::exec::physical_operator::table_scan::numbers::Numbers;
 use curvature::exec::physical_operator::PhysicalOperator;
 use curvature::exec::query_executor::QueryExecutor;
 use curvature::STANDARD_VECTOR_SIZE;

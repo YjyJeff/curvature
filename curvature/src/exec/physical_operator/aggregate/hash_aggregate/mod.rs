@@ -1189,7 +1189,7 @@ mod tests {
     use crate::exec::physical_expr::function::aggregate::min_max::Min;
     use crate::exec::physical_expr::function::aggregate::AggregationFunction;
     use crate::exec::physical_expr::function::aggregate::{count::CountStar, sum::Sum};
-    use crate::exec::physical_operator::empty_table_scan::EmptyTableScan;
+    use crate::exec::physical_operator::table_scan::empty_table_scan::EmptyTableScan;
     use data_block::array::{Float32Array, Int32Array, Int64Array};
 
     fn mock_agg_funcs_list() -> AggregationFunctionList {

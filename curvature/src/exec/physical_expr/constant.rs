@@ -27,6 +27,7 @@ pub struct Constant {
     logical_type: LogicalType,
     constant: ArrayImpl,
     children: [Arc<dyn PhysicalExpr>; 0],
+    alias: String,
 }
 
 /// SAFETY:
@@ -46,12 +47,26 @@ impl Constant {
     /// The `constant` should not reference to other array and should not
     /// referenced by any array. It is the unique owner of the memory
     pub unsafe fn try_new(constant: ArrayImpl) -> Result<Self, ConstantError> {
+        Self::try_new_with_alias(constant, String::new())
+    }
+
+    /// Create a [`Constant expression`] with alias
+    ///
+    /// # Safety
+    ///
+    /// The `constant` should not reference to other array and should not
+    /// referenced by any array. It is the unique owner of the memory
+    pub unsafe fn try_new_with_alias(
+        constant: ArrayImpl,
+        alias: String,
+    ) -> Result<Self, ConstantError> {
         ensure!(constant.len() == 1, ConstantSnafu { array: constant });
         let logical_type = constant.logical_type().to_owned();
         Ok(Self {
             logical_type,
             constant,
             children: [],
+            alias,
         })
     }
 }
@@ -73,6 +88,10 @@ impl Stringify for Constant {
 
     fn compact_display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.display(f)
+    }
+
+    fn alias(&self) -> &str {
+        &self.alias
     }
 }
 

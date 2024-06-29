@@ -52,6 +52,7 @@ pub enum ConjunctionError {
 pub struct Conjunction<const IS_AND: bool> {
     output_type: LogicalType,
     children: Vec<Arc<dyn PhysicalExpr>>,
+    alias: String,
 }
 
 impl<const IS_AND: bool> Conjunction<IS_AND> {
@@ -67,6 +68,24 @@ impl<const IS_AND: bool> Conjunction<IS_AND> {
     /// - It is the planner/optimizers responsibility to flatten the inputs. The [`Conjunction`]
     /// only execute it efficiently
     pub fn try_new(inputs: Vec<Arc<dyn PhysicalExpr>>) -> Result<Self, ConjunctionError> {
+        Self::try_new_with_alias(inputs, String::new())
+    }
+
+    /// Create a new [`Conjunction`] with alias
+    ///
+    /// # Notes:
+    ///
+    /// The inputs should be flattened: `And(a, And(b, c))` is not allowed. In this case,
+    /// the inputs should be: `And(a, b, c)`. The reason is that:
+    ///
+    /// - We can efficiently reorder the expressions dynamically if the inputs is flattened
+    ///
+    /// - It is the planner/optimizers responsibility to flatten the inputs. The [`Conjunction`]
+    /// only execute it efficiently
+    pub fn try_new_with_alias(
+        inputs: Vec<Arc<dyn PhysicalExpr>>,
+        alias: String,
+    ) -> Result<Self, ConjunctionError> {
         ensure!(
             inputs.len() >= 2,
             TooFewInputsSnafu {
@@ -106,6 +125,7 @@ impl<const IS_AND: bool> Conjunction<IS_AND> {
         Ok(Self {
             output_type: LogicalType::Boolean,
             children: inputs,
+            alias,
         })
     }
 }
@@ -131,6 +151,10 @@ impl<const IS_AND: bool> Stringify for Conjunction<IS_AND> {
         write!(f, "{}(", self.name())?;
         compact_display_expressions(f, &self.children)?;
         write!(f, ")")
+    }
+
+    fn alias(&self) -> &str {
+        &self.alias
     }
 }
 

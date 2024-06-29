@@ -43,11 +43,21 @@ pub struct RegexMatch<const NEGATED: bool, const CASE_INSENSITIVE: bool> {
     pattern: String,
     output_type: LogicalType,
     children: [Arc<dyn PhysicalExpr>; 1],
+    alias: String,
 }
 
 impl<const NEGATED: bool, const CASE_INSENSITIVE: bool> RegexMatch<NEGATED, CASE_INSENSITIVE> {
     /// Try to create a [`RegexMatch`] expression
     pub fn try_new(input: Arc<dyn PhysicalExpr>, pattern: String) -> Result<Self, RegexMatchError> {
+        Self::try_new_with_alias(input, pattern, String::new())
+    }
+
+    /// Try to create a [`RegexMatch`] expression with alias
+    pub fn try_new_with_alias(
+        input: Arc<dyn PhysicalExpr>,
+        pattern: String,
+        alias: String,
+    ) -> Result<Self, RegexMatchError> {
         ensure!(
             input.output_type().physical_type() == PhysicalType::String,
             InvalidInputSnafu {
@@ -66,6 +76,7 @@ impl<const NEGATED: bool, const CASE_INSENSITIVE: bool> RegexMatch<NEGATED, CASE
                 pattern,
                 output_type: LogicalType::Boolean,
                 children: [input],
+                alias,
             }),
 
             Err(error) => Err(RegexMatchError::ConstructRegex {
@@ -103,6 +114,10 @@ impl<const NEGATED: bool, const CASE_INSENSITIVE: bool> Stringify
         write!(f, "(")?;
         self.children[0].compact_display(f)?;
         write!(f, ") {} {}", self.name(), self.pattern)
+    }
+
+    fn alias(&self) -> &str {
+        &self.alias
     }
 }
 

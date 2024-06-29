@@ -25,8 +25,8 @@ use curvature::exec::physical_operator::aggregate::hash_aggregate::serde::{
 use curvature::exec::physical_operator::aggregate::hash_aggregate::HashAggregate;
 use curvature::exec::physical_operator::aggregate::simple_aggregate::SimpleAggregate;
 use curvature::exec::physical_operator::filter::Filter;
-use curvature::exec::physical_operator::numbers::Numbers;
 use curvature::exec::physical_operator::projection::Projection;
+use curvature::exec::physical_operator::table_scan::numbers::Numbers;
 use curvature::exec::physical_operator::PhysicalOperator;
 use curvature::exec::query_executor::QueryExecutor;
 use curvature::tree_node::display::IndentDisplayWrapper;

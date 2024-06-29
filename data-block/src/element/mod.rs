@@ -279,7 +279,9 @@ crate::macros::for_all_variants!(element_impl);
 
 /// Reference to the [`ElementImpl`]
 ///
-/// FIXME: include it in macro
+/// FIXME:
+/// - include it in macro
+/// - lost logical info, can not display it
 #[derive(Debug, PartialEq)]
 pub enum ElementImplRef<'a> {
     /// Int8
