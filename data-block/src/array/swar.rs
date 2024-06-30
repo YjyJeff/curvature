@@ -83,6 +83,7 @@ impl<T> SwarPtr<T> {
     /// Mutably borrows the wrapped value.
     ///
     /// # Safety
+    ///
     /// You must enforce Rust’s aliasing rules. In particular, while this reference exists,
     /// the memory the pointer points to must not get accessed (read or written) through
     /// any other pointer.

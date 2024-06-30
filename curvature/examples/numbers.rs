@@ -25,6 +25,7 @@ use curvature::exec::physical_operator::aggregate::hash_aggregate::serde::{
 use curvature::exec::physical_operator::aggregate::hash_aggregate::HashAggregate;
 use curvature::exec::physical_operator::aggregate::simple_aggregate::SimpleAggregate;
 use curvature::exec::physical_operator::filter::Filter;
+use curvature::exec::physical_operator::limit::streaming_limit::StreamingLimit;
 use curvature::exec::physical_operator::projection::Projection;
 use curvature::exec::physical_operator::table_scan::numbers::Numbers;
 use curvature::exec::physical_operator::PhysicalOperator;
@@ -52,6 +53,9 @@ fn main() {
     let now = std::time::Instant::now();
 
     let physical_plan: Arc<dyn PhysicalOperator> = Arc::new(Numbers::new(0, SIMPLE_COUNT));
+
+    // let physical_plan: Arc<dyn PhysicalOperator> =
+    //     Arc::new(StreamingLimit::try_new(physical_plan, NonZeroU64::new(10).unwrap(), 0).unwrap());
 
     let payloads_ref = [FieldRef::new(
         0,

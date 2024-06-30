@@ -5,6 +5,7 @@
 pub mod aggregate;
 pub mod ext_traits;
 pub mod filter;
+pub mod limit;
 pub mod metric;
 pub mod projection;
 pub mod table_scan;

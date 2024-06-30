@@ -352,6 +352,30 @@ impl MutateBitmapGuard<'_> {
     pub fn set_all_invalid(&mut self, len: usize) {
         self.clear_and_resize(len).iter_mut().for_each(|v| *v = 0);
     }
+
+    /// Copy into self
+    #[inline]
+    pub fn copy(&mut self, source: &Bitmap, start: usize, len: usize) {
+        if source.is_empty() {
+            self.clear();
+        } else {
+            debug_assert!(start + len <= source.len());
+            if start % BIT_STORE_BITS == 0 {
+                let new_len = elts(len);
+                let dst = self.0.buffer.clear_and_resize(new_len);
+                unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        source.buffer.as_ptr(),
+                        dst.as_mut_ptr(),
+                        new_len,
+                    );
+                }
+                self.0.num_bits = len;
+            } else {
+                todo!()
+            }
+        }
+    }
 }
 
 fn count_ones(bitmap: &Bitmap) -> usize {

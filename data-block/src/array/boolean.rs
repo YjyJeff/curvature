@@ -186,6 +186,19 @@ impl Array for BooleanArray {
     {
         self.replace_with_trusted_len_iterator(len, trusted_len_iterator);
     }
+
+    unsafe fn clear(&mut self) {
+        self.data.as_mut().mutate().clear();
+        self.validity.as_mut().mutate().clear();
+    }
+
+    unsafe fn copy(&mut self, source: &Self, start: usize, len: usize) {
+        self.validity
+            .as_mut()
+            .mutate()
+            .copy(&source.validity, start, len);
+        self.data.as_mut().mutate().copy(&source.data, start, len);
+    }
 }
 
 impl Debug for BooleanArray {

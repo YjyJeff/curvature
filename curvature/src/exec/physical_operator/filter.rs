@@ -1,6 +1,5 @@
 //! Filter operator
 
-use std::convert::identity;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -193,8 +192,14 @@ impl PhysicalOperator for Filter {
 
         debug_assert!(selection.is_empty() || selection.len() == input.len());
 
-        let new_len = selection.count_ones().map_or(input.len(), identity);
-        if output.num_arrays() == 0 {
+        let new_len = selection.count_ones().unwrap_or(input.len());
+        if new_len == 0 {
+            // All of the rows have been filter out
+            unsafe {
+                output.clear();
+            }
+        } else if output.num_arrays() == 0 {
+            // Length only optimization
             unsafe {
                 output.set_len(new_len);
             };

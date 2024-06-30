@@ -288,6 +288,22 @@ where
     {
         self.replace_with_trusted_len_iterator(len, trusted_len_iterator);
     }
+
+    #[inline]
+    unsafe fn clear(&mut self) {
+        self.data.as_mut().clear();
+        self.validity.as_mut().mutate().clear();
+    }
+
+    unsafe fn copy(&mut self, source: &Self, start: usize, len: usize) {
+        self.validity
+            .as_mut()
+            .mutate()
+            .copy(&source.validity, start, len);
+
+        let dst = self.data.as_mut().clear_and_resize(len);
+        std::ptr::copy_nonoverlapping(source.data.as_ptr().add(start), dst.as_mut_ptr(), len);
+    }
 }
 
 impl<T: PrimitiveType> FromIterator<Option<T>> for PrimitiveArray<T> {
@@ -347,5 +363,15 @@ mod tests {
         let data = [Some(1.5), Some(4.6), None, Some(7.7)];
         let f64_array = Float64Array::from_iter(data);
         assert_eq!(f64_array.iter().collect::<Vec<_>>(), data);
+    }
+
+    #[test]
+    fn test_copy() {
+        let mut array = Int32Array::new(LogicalType::Integer).unwrap();
+        let source = Int32Array::from_values_iter([-1, -2, -3, 1, 2, 3]);
+
+        unsafe { array.copy(&source, 1, 3) }
+
+        assert_eq!(array.values_iter().collect::<Vec<_>>(), [-2, -3, 1]);
     }
 }

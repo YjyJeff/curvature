@@ -317,6 +317,36 @@ impl Array for BinaryArray {
                 }),
         );
     }
+
+    #[inline]
+    unsafe fn clear(&mut self) {
+        self.bytes.as_mut().clear();
+        let _ = self.offsets.as_mut().clear_and_resize(1);
+        self.validity.as_mut().mutate().clear();
+    }
+
+    unsafe fn copy(&mut self, source: &Self, start: usize, len: usize) {
+        self.validity
+            .as_mut()
+            .mutate()
+            .copy(&source.validity, start, len);
+
+        // Copy offset
+        let dst = self.offsets.as_mut().clear_and_resize(len + 1);
+        let src = source.offsets.as_ptr().add(start);
+        std::ptr::copy_nonoverlapping(src, dst.as_mut_ptr(), len + 1);
+        let calibrate = *src;
+        dst.iter_mut().for_each(|v| *v -= calibrate);
+
+        // Copy data
+        let data_len = *dst.last().unwrap_unchecked() as usize;
+        let dst = self.bytes.as_mut().clear_and_resize(data_len);
+        std::ptr::copy_nonoverlapping(
+            source.bytes.as_ptr().add(calibrate as usize),
+            dst.as_mut_ptr(),
+            data_len,
+        );
+    }
 }
 
 #[inline]
@@ -438,5 +468,31 @@ mod tests {
                 .map(|v| v.map(|v| v.as_bytes()))
                 .collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn test_copy() {
+        let mut array = BinaryArray::new(LogicalType::VarBinary).unwrap();
+
+        let source = BinaryArray::from_values_iter([
+            "arrow",
+            "quack",
+            "lock",
+            "curvature",
+            "Learn a lot from DuckDB and ClickHouse",
+            "Yes!",
+        ]);
+
+        unsafe {
+            array.copy(&source, 2, 3);
+        }
+
+        let gt = unsafe {
+            (2..5)
+                .map(|index| source.get_value_unchecked(index))
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(array.values_iter().collect::<Vec<_>>(), gt);
     }
 }

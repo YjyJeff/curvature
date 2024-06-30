@@ -209,6 +209,9 @@ impl DataBlock {
         self.length = new_len;
     }
 
+    /// Filter out elements that are not selected from source, copy the remained
+    /// elements into self
+    ///
     /// # Safety
     ///
     /// - If the `selection` is not empty, `source` and `selection` should have same length.
@@ -217,6 +220,8 @@ impl DataBlock {
     /// - If the `selection` is not empty, its count_ones must equal to length
     ///
     /// - `selection` should not be referenced by any array
+    ///
+    /// - In the computation graph, `self` should be descendant of `source`
     pub unsafe fn filter(
         &mut self,
         selection: &Bitmap,
@@ -229,6 +234,54 @@ impl DataBlock {
             .iter_mut()
             .zip(&source.arrays)
             .try_for_each(|(lhs, rhs)| lhs.filter(selection, rhs))
+    }
+
+    /// Copy the `source[start..start+len]` into self
+    ///
+    /// # Safety
+    ///
+    /// - `start + len <= source.len()`
+    ///
+    /// - In the computation graph, `self` should be descendant of `source`
+    pub unsafe fn copy(
+        &mut self,
+        source: &Self,
+        start: usize,
+        len: usize,
+    ) -> Result<(), ArrayError> {
+        debug_assert!(start + len <= source.len());
+
+        self.length = len;
+        self.arrays
+            .iter_mut()
+            .zip(&source.arrays)
+            .try_for_each(|(lhs, rhs)| lhs.copy(rhs, start, len))
+    }
+
+    /// Reference self to other data block
+    ///
+    /// # Safety
+    ///
+    /// - In the computation graph, `self` should be descendant of `other`
+    ///
+    /// - `self` should have same number of arrays with others
+    pub unsafe fn reference(&mut self, other: &Self) -> Result<(), ArrayError> {
+        debug_assert_eq!(self.arrays.len(), other.arrays.len());
+        self.length = other.length;
+        self.arrays
+            .iter_mut()
+            .zip(&other.arrays)
+            .try_for_each(|(lhs, rhs)| lhs.reference(rhs))
+    }
+
+    /// Clear the data block
+    ///
+    /// # Safety
+    ///
+    /// Satisfy the mutate condition
+    pub unsafe fn clear(&mut self) {
+        self.length = 0;
+        self.arrays.iter_mut().for_each(|array| array.clear());
     }
 
     /// Format the data block with given table builder

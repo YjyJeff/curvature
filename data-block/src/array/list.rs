@@ -199,4 +199,12 @@ impl Array for ListArray {
     {
         todo!()
     }
+
+    unsafe fn clear(&mut self) {
+        todo!()
+    }
+
+    unsafe fn copy(&mut self, _source: &Self, _start: usize, _len: usize) {
+        todo!()
+    }
 }

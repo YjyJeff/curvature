@@ -4,7 +4,6 @@
 
 pub mod binary;
 pub mod boolean;
-pub mod constant;
 pub mod iter;
 pub mod list;
 pub mod primitive;
@@ -269,6 +268,22 @@ pub trait Array: Sealed + Debug + 'static + Sized {
             crate::compute::filter::filter(selection, source, self)
         }
     }
+
+    /// Clear the array
+    ///
+    /// # Safety
+    ///
+    /// Satisfy the mutate condition
+    unsafe fn clear(&mut self);
+
+    /// Copy `source[start..start+len]` into self
+    ///
+    /// # Safety
+    ///
+    /// - `start + len <= source.len()`
+    ///
+    /// - Satisfy the mutate condition
+    unsafe fn copy(&mut self, source: &Self, start: usize, len: usize);
 }
 
 macro_rules! array_impl {
@@ -430,7 +445,7 @@ macro_rules! array_impl {
             }
 
             /// Filter out elements that are not selected from source, copy the remained
-            /// elemtns into self
+            /// elements into self
             ///
             /// If self and other do not have same physical type, return error
             ///
@@ -441,7 +456,7 @@ macro_rules! array_impl {
             ///
             /// - `selection` should not be referenced by any array
             pub unsafe fn filter(&mut self, selection: &Bitmap, source: &Self) -> Result<()> {
-                macro_rules! reference {
+                macro_rules! filter {
                     () => {
                         match (self, source) {
                             $(
@@ -457,8 +472,50 @@ macro_rules! array_impl {
                     };
                 }
 
-                reference!();
+                filter!();
                 Ok(())
+            }
+
+            /// Copy the `source[start..start+len]` into self
+            ///
+            /// # Safety
+            ///
+            /// - `start + len <= source.len()`
+            ///
+            /// - Satisfy the mutate condition
+            pub unsafe fn copy(&mut self, source: &Self, start: usize, len: usize) -> Result<()>{
+                debug_assert!(start + len <= source.len());
+                macro_rules! copy {
+                    () => {
+                        match (self, source) {
+                            $(
+                                (ArrayImpl::$variant(lhs), ArrayImpl::$variant(rhs)) => {
+                                    unsafe { lhs.copy(rhs, start, len) };
+                                }
+                            )+
+                            (lhs, rhs) => return FilterSnafu {
+                                array: self::utils::physical_array_name(lhs),
+                                other: self::utils::physical_array_name(rhs),
+                            }.fail()
+                        }
+                    };
+                }
+
+                copy!();
+                Ok(())
+            }
+
+            /// Clear the array
+            ///
+            /// # Safety
+            ///
+            /// Satisfy the mutate condition
+            pub unsafe fn clear(&mut self) {
+                match self {
+                    $(
+                        Self::$variant(array) => array.clear(),
+                    )+
+                }
             }
         }
 

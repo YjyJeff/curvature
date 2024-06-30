@@ -112,7 +112,7 @@ impl StringArray {
             views.len += 1;
         }
 
-        calibrate_pointers(bytes.ptr.as_ptr(), views.as_mut_slice(), &calibrate_offsets);
+        calibrate_pointers(bytes.as_ptr(), views.as_mut_slice(), &calibrate_offsets);
 
         Self {
             logical_type: LogicalType::VarChar,
@@ -233,7 +233,7 @@ impl Array for StringArray {
             });
 
         calibrate_pointers(
-            uninitiated_bytes.ptr.as_ptr(),
+            uninitiated_bytes.as_ptr(),
             uninitiated_views,
             &self._calibrate_offsets,
         )
@@ -295,7 +295,7 @@ impl Array for StringArray {
         });
 
         calibrate_pointers(
-            uninitiated_bytes.ptr.as_ptr(),
+            uninitiated_bytes.as_ptr(),
             uninitiated_views,
             &self._calibrate_offsets,
         )
@@ -332,6 +332,54 @@ impl Array for StringArray {
                 }
             }),
         );
+    }
+
+    #[inline]
+    unsafe fn clear(&mut self) {
+        self.views.as_mut().clear();
+        self._bytes.as_mut().clear();
+        self.validity.as_mut().mutate().clear();
+    }
+
+    unsafe fn copy(&mut self, source: &Self, start: usize, len: usize) {
+        self.validity
+            .as_mut()
+            .mutate()
+            .copy(&source.validity, start, len);
+
+        let mut bytes_len = 0;
+        let mut bytes_src = None;
+        self._calibrate_offsets.clear();
+        source
+            .views
+            .get_slice_unchecked(start, len)
+            .iter()
+            .for_each(|view| {
+                if view.is_inlined() {
+                    bytes_len += view.length as usize;
+                    self._calibrate_offsets.push(usize::MAX);
+                } else {
+                    if bytes_src.is_none() {
+                        bytes_src = Some(view.indirect_ptr());
+                    }
+                    self._calibrate_offsets.push(bytes_len);
+                }
+            });
+
+        // Copy View
+        let views_dst = self.views.as_mut().clear_and_resize(len);
+        std::ptr::copy_nonoverlapping(
+            source.views.as_ptr().add(start),
+            views_dst.as_mut_ptr(),
+            len,
+        );
+
+        // Copy bytes
+        let bytes_dst = self._bytes.as_mut().clear_and_resize(bytes_len);
+        if let Some(bytes_src) = bytes_src {
+            std::ptr::copy_nonoverlapping(bytes_src, bytes_dst.as_mut_ptr(), bytes_len);
+            calibrate_pointers(bytes_dst.as_ptr(), views_dst, &self._calibrate_offsets);
+        }
     }
 }
 
@@ -388,7 +436,7 @@ unsafe fn assign_string_view(
 }
 
 fn calibrate_pointers(
-    base_ptr: *mut u8,
+    base_ptr: *const u8,
     views: &mut [StringView<'static>],
     calibrate_offsets: &[usize],
 ) {
@@ -432,7 +480,7 @@ impl<V: AsRef<str> + Debug> FromIterator<Option<V>> for StringArray {
                 views.len += 1;
             }
 
-            calibrate_pointers(bytes.ptr.as_ptr(), views.as_mut_slice(), &calibrate_offsets);
+            calibrate_pointers(bytes.as_ptr(), views.as_mut_slice(), &calibrate_offsets);
         }
 
         Self {
@@ -504,5 +552,24 @@ mod tests {
                 .collect::<Vec<_>>(),
             data
         );
+    }
+
+    #[test]
+    fn test_copy() {
+        let mut array = StringArray::new(LogicalType::VarChar).unwrap();
+        let source = StringArray::from_values_iter([
+            "auto-vectorization",
+            "ClickHouse",
+            "Curvature is fast",
+            "auto-vectorization",
+            "Yes!",
+            "No",
+        ]);
+
+        unsafe {
+            array.copy(&source, 1, 5);
+        }
+
+        println!("{:?}", array);
     }
 }
