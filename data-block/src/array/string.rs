@@ -356,13 +356,13 @@ impl Array for StringArray {
             .iter()
             .for_each(|view| {
                 if view.is_inlined() {
-                    bytes_len += view.length as usize;
                     self._calibrate_offsets.push(usize::MAX);
                 } else {
                     if bytes_src.is_none() {
                         bytes_src = Some(view.indirect_ptr());
                     }
                     self._calibrate_offsets.push(bytes_len);
+                    bytes_len += view.length as usize;
                 }
             });
 
@@ -570,6 +570,15 @@ mod tests {
             array.copy(&source, 1, 5);
         }
 
-        println!("{:?}", array);
+        assert_eq!(
+            array.values_iter().collect::<Vec<_>>(),
+            [
+                StringView::from_static_str("ClickHouse"),
+                StringView::from_static_str("Curvature is fast"),
+                StringView::from_static_str("auto-vectorization"),
+                StringView::from_static_str("Yes!"),
+                StringView::from_static_str("No"),
+            ]
+        );
     }
 }

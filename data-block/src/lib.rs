@@ -16,7 +16,7 @@
 //! # Run
 //!
 //! `DataBlock` requires the x86-64 CPUs must new than [`x86-64-v2`] microarchitecture.
-//! Because we will use `sse4.1` by default
+//! Because we will use `sse4.2` by default
 //!
 //! [`Arrow`]: https://github.com/apache/arrow-rs
 //! [`Type Exercise in Rust`]: https://github.com/skyzh/type-exercise-in-rust

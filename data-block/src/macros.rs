@@ -147,6 +147,12 @@ macro_rules! dynamic_func {
                 $func_impl_macro!($($parameter),*)
             }
 
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            #[target_feature(enable = "sse4.2")]
+            unsafe fn [<$func_impl_macro _v2>]$(<$($lt,)* $($g_ty),+>)?($($parameter:$parameter_ty,)*) $(where $($trait_bound)+)?{
+                $func_impl_macro!($($parameter),*)
+            }
+
             #[cfg(target_arch = "aarch64")]
             #[target_feature(enable = "neon")]
             unsafe fn [<$func_impl_macro _neon>]$(<$($lt,)* $($g_ty),+>)?($($parameter:$parameter_ty,)*) $(where $($trait_bound)+)?{
@@ -174,6 +180,8 @@ macro_rules! dynamic_func {
                     if std::arch::is_x86_feature_detected!("avx2") {
                         return unsafe { [<$func_impl_macro _avx2>]($($parameter,)*) };
                     }
+
+                    return unsafe { [<$func_impl_macro _v2>]($($parameter,)*) };
                 }
 
                 #[cfg(target_arch = "aarch64")]
@@ -185,7 +193,10 @@ macro_rules! dynamic_func {
                     }
                 }
 
-                [<$func_impl_macro _default>]$(::<$($g_ty),*>)*($($parameter,)*)
+                #[cfg_attr(any(target_arch = "x86", target_arch = "x86_64"), allow(unreachable_code))]
+                {
+                    [<$func_impl_macro _default>]$(::<$($g_ty),*>)*($($parameter,)*)
+                }
             }
         }
     };

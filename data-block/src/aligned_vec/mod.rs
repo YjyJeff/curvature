@@ -197,6 +197,15 @@ impl<T: AllocType> AlignedVec<T> {
         }
     }
 
+    /// Returns a T at the given index
+    pub fn get(&self, index: usize) -> Option<&T> {
+        if index >= self.len {
+            None
+        } else {
+            unsafe { Some(self.get_unchecked(index)) }
+        }
+    }
+
     /// Returns a T at the given index without bound check
     ///
     /// # Safety

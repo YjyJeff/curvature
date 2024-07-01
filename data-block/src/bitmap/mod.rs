@@ -360,20 +360,60 @@ impl MutateBitmapGuard<'_> {
             self.clear();
         } else {
             debug_assert!(start + len <= source.len());
-            if start % BIT_STORE_BITS == 0 {
-                let new_len = elts(len);
-                let dst = self.0.buffer.clear_and_resize(new_len);
+            let shift = start % BIT_STORE_BITS;
+            let new_len = elts(len);
+            let dst = self.0.buffer.clear_and_resize(new_len);
+            if shift == 0 {
+                // Fast path, copy the bit store directly
                 unsafe {
                     std::ptr::copy_nonoverlapping(
-                        source.buffer.as_ptr(),
+                        source.buffer.as_ptr().add(start / BIT_STORE_BITS),
                         dst.as_mut_ptr(),
                         new_len,
                     );
                 }
-                self.0.num_bits = len;
+            } else if shift % 8 == 0 {
+                // Fast path, view the buffer as byte, copy the byte
+                // The source address may do not have enough space: `new_len * 8`
+                let byte_copy_len = (len / 8) + (len % 8 != 0) as usize;
+                unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        (source.buffer.as_ptr() as *const u8).add(start / 8),
+                        dst.as_mut_ptr() as *mut u8,
+                        byte_copy_len,
+                    )
+                }
             } else {
-                todo!()
+                macro_rules! shift_bit_store_slice {
+                    ($src:ident, $dst:ident, $bits:ident) => {
+                        unsafe {
+                            let len = $src.len();
+                            (0..len - 1).for_each(|i| {
+                                let next = *$src.get_unchecked(i + 1);
+                                let v = *$src.get_unchecked(i);
+                                *$dst.get_unchecked_mut(i) = (v >> $bits) | (next << (64 - $bits));
+                            });
+                            *$dst.get_unchecked_mut(len - 1) =
+                                (*$src.get_unchecked(len - 1)) >> $bits;
+                        }
+                    };
+                }
+                crate::dynamic_func!(
+                    shift_bit_store_slice,
+                    ,
+                    (src: &[u64], dst: &mut [u64], bits:usize),
+                );
+
+                let src = unsafe {
+                    source
+                        .buffer
+                        .get_slice_unchecked(start / BIT_STORE_BITS, new_len)
+                };
+
+                shift_bit_store_slice_dynamic(src, dst, shift);
             }
+
+            self.0.num_bits = len;
         }
     }
 }
@@ -617,5 +657,27 @@ mod tests {
 
         assert_eq!(bitmap.count_ones, 0);
         assert_eq!(bitmap.count_zeros, 150);
+    }
+
+    #[test]
+    fn test_copy() {
+        let mut bitmap = Bitmap::from_slice_and_len(&[128], 10);
+        let source = Bitmap::default();
+        bitmap.mutate().copy(&source, 0, 8);
+        assert!(bitmap.is_empty());
+
+        // Fast path, u64 boundary
+        let source = Bitmap::from_slice_and_len(&[256, 65544], 127);
+        bitmap.mutate().copy(&source, 64, 60);
+        assert_eq!(bitmap.buffer.get(0).unwrap(), &65544);
+
+        // Fast path, u8 boundary
+        bitmap.mutate().copy(&source, 8, 100);
+        // byte: [1, 0, 0, 0, 0, 0, 0, 8]
+        assert_eq!(bitmap.buffer.get(0).unwrap(), &(1 + (1 << 59)));
+
+        bitmap.mutate().copy(&source, 7, 110);
+        assert_eq!(bitmap.buffer.get(0).unwrap(), &(2 + (1 << 60)));
+        assert_eq!(bitmap.buffer.get(1).unwrap(), &(1 << 9));
     }
 }
