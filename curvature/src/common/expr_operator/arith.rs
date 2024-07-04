@@ -2,7 +2,7 @@
 
 use std::fmt::Display;
 
-use data_block::array::{ArrayImpl, PrimitiveArray};
+use data_block::array::{Array, ArrayImpl, PrimitiveArray};
 use data_block::bitmap::Bitmap;
 use data_block::compute::arith::intrinsic::{
     add, add_scalar, div, div_scalar, mul, mul_scalar, rem, rem_scalar, sub, sub_scalar,
@@ -10,7 +10,7 @@ use data_block::compute::arith::intrinsic::{
 use data_block::compute::arith::{
     scalar_add_scalar, scalar_div_scalar, scalar_mul_scalar, scalar_rem_scalar, scalar_sub_scalar,
 };
-use data_block::types::{Array, LogicalType};
+use data_block::types::{LogicalType, TimeUnit};
 
 /// Arithmetic operator
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -63,11 +63,11 @@ pub struct ArithFunctionSet {
     /// Output type of the arithmetic result
     pub output_type: LogicalType,
     /// Function that perform arithmetic between two scalars
-    pub arith_scalars: fn(&ArrayImpl, &ArrayImpl, &mut ArrayImpl),
+    pub scalar_arith_scalar: fn(&ArrayImpl, &ArrayImpl, &mut ArrayImpl),
     /// Function that perform arithmetic between array and scalar
     pub array_arith_scalar: fn(&Bitmap, &ArrayImpl, &ArrayImpl, &mut ArrayImpl),
     /// Function that perform arithmetic between two arrays that have same length
-    pub arith_arrays: fn(&Bitmap, &ArrayImpl, &ArrayImpl, &mut ArrayImpl),
+    pub array_arith_array: fn(&Bitmap, &ArrayImpl, &ArrayImpl, &mut ArrayImpl),
 }
 
 macro_rules! arithmetic_scalars_func {
@@ -251,8 +251,12 @@ macro_rules! for_all_arith {
             {UnsignedBigInt, UnsignedTinyInt, Rem, UnsignedTinyInt, PrimitiveArray<u64>, PrimitiveArray<u8>, PrimitiveArray<u8>, scalar_rem_scalar, rem_scalar, rem},
             {UnsignedInteger, UnsignedSmallInt, Rem, UnsignedSmallInt, PrimitiveArray<u32>, PrimitiveArray<u16>, PrimitiveArray<u16>, scalar_rem_scalar, rem_scalar, rem},
             {UnsignedBigInt, UnsignedSmallInt, Rem, UnsignedSmallInt, PrimitiveArray<u64>, PrimitiveArray<u16>, PrimitiveArray<u16>, scalar_rem_scalar, rem_scalar, rem},
-            {UnsignedBigInt, UnsignedInteger, Rem, UnsignedInteger, PrimitiveArray<u64>, PrimitiveArray<u32>, PrimitiveArray<u32>, scalar_rem_scalar, rem_scalar, rem}
+            {UnsignedBigInt, UnsignedInteger, Rem, UnsignedInteger, PrimitiveArray<u64>, PrimitiveArray<u32>, PrimitiveArray<u32>, scalar_rem_scalar, rem_scalar, rem},
             // Timestamp
+            {Timestamp(TimeUnit::Second), Timestamp(TimeUnit::Second), Sub, Duration(TimeUnit::Second), PrimitiveArray<i64>, PrimitiveArray<i64>, PrimitiveArray<i64>, scalar_sub_scalar, sub_scalar, sub},
+            {Timestamp(TimeUnit::Microsecond), Timestamp(TimeUnit::Millisecond), Sub, Duration(TimeUnit::Millisecond), PrimitiveArray<i64>, PrimitiveArray<i64>, PrimitiveArray<i64>, scalar_sub_scalar, sub_scalar, sub},
+            {Timestamp(TimeUnit::Microsecond), Timestamp(TimeUnit::Microsecond), Sub, Duration(TimeUnit::Microsecond), PrimitiveArray<i64>, PrimitiveArray<i64>, PrimitiveArray<i64>, scalar_sub_scalar, sub_scalar, sub},
+            {Timestamp(TimeUnit::Nanosecond), Timestamp(TimeUnit::Nanosecond), Sub, Duration(TimeUnit::Nanosecond), PrimitiveArray<i64>, PrimitiveArray<i64>, PrimitiveArray<i64>, scalar_sub_scalar, sub_scalar, sub}
         }
     };
 }
@@ -275,9 +279,9 @@ pub fn infer_arithmetic_func_set(
                 $(
                     ($left, $right, $op) => Some(ArithFunctionSet {
                         output_type: $output_type,
-                        arith_scalars: arithmetic_scalars_func!($left, $left_ty, $right, $right_ty, $output_type, $dst_ty, $scalars_func),
+                        scalar_arith_scalar: arithmetic_scalars_func!($left, $left_ty, $right, $right_ty, $output_type, $dst_ty, $scalars_func),
                         array_arith_scalar: arithmetic_array_scalar_func!($left, $left_ty, $right, $right_ty, $output_type, $dst_ty, $array_scalar_func),
-                        arith_arrays: arithmetic_arrays_func!($left, $left_ty, $right, $right_ty, $output_type, $dst_ty, $arrays_func),
+                        array_arith_array: arithmetic_arrays_func!($left, $left_ty, $right, $right_ty, $output_type, $dst_ty, $arrays_func),
                     }),
                 )+
 

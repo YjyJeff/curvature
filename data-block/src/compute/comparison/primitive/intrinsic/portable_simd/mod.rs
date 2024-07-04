@@ -106,7 +106,6 @@ macro_rules! impl_simd_ord_scalar {
         paste::paste! {
             #[cfg(target_arch = "aarch64")]
             #[target_feature(enable = "neon")]
-            #[inline]
             unsafe fn [<$cmp_func _scalar_neon>]<T> (
                 selection: &mut Bitmap,
                 array: &PrimitiveArray<T>,
@@ -132,7 +131,6 @@ macro_rules! impl_simd_ord_scalar {
             #[cfg(feature = "avx512")]
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             #[target_feature(enable = "avx512f")]
-            #[inline]
             unsafe fn [<$cmp_func _scalar_avx512>]<T> (
                 selection: &mut Bitmap,
                 array: &PrimitiveArray<T>,
@@ -157,7 +155,6 @@ macro_rules! impl_simd_ord_scalar {
 
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             #[target_feature(enable = "avx2")]
-            #[inline]
             unsafe fn [<$cmp_func _scalar_avx2>]<T> (
                 selection: &mut Bitmap,
                 array: &PrimitiveArray<T>,
@@ -182,7 +179,6 @@ macro_rules! impl_simd_ord_scalar {
 
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             #[target_feature(enable = "sse4.1")]
-            #[inline]
             unsafe fn [<$cmp_func _scalar_v2>]<T> (
                 selection: &mut Bitmap,
                 array: &PrimitiveArray<T>,

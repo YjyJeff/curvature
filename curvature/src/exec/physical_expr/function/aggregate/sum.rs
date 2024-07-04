@@ -152,8 +152,10 @@ where
         &self.args
     }
 
+    /// FIXME: It may return other logical type. For example, sum of the duration
+    /// is still duration
     fn return_type(&self) -> LogicalType {
-        <PayloadArray::Element as PayloadCast>::SumType::LOGICAL_TYPE
+        <PayloadArray::Element as PayloadCast>::SumType::DEFAULT_LOGICAL_TYPE
     }
 }
 

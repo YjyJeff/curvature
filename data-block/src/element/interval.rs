@@ -34,12 +34,6 @@ impl Interval {
             micros,
         }
     }
-
-    /// Checked add
-    #[inline]
-    pub fn checked_add(self, other: Self) -> Option<Self> {
-        todo!()
-    }
 }
 
 impl Display for Interval {

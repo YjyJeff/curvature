@@ -37,7 +37,7 @@ impl FloatExt for f64 {}
 /// Trait for types that can be placed on the [`PrimitiveArray`]
 pub trait PrimitiveType: AllocType + for<'a> Element<ElementRef<'a> = Self> + Copy {
     /// Default logical type of this primitive type
-    const LOGICAL_TYPE: LogicalType;
+    const DEFAULT_LOGICAL_TYPE: LogicalType;
     /// Function to normalize self. For integers, it is the identity function.
     /// For floats, it will make `NaN`/`-Nan` and `-0.0`/`0.0` consistent
     const NORMALIZE_FUNC: fn(Self) -> Self;
@@ -47,7 +47,7 @@ macro_rules! impl_primitive_type {
     ($({$_:ident, $primitive_element_ty:ty, $alias:ident, $lt:ident, $normalize:path}),*) => {
         $(
             impl PrimitiveType for $primitive_element_ty {
-                const LOGICAL_TYPE: LogicalType = LogicalType::$lt;
+                const DEFAULT_LOGICAL_TYPE: LogicalType = LogicalType::$lt;
                 const NORMALIZE_FUNC: fn(Self) -> Self = $normalize;
             }
         )*
@@ -130,7 +130,7 @@ impl<T: PrimitiveType> PrimitiveArray<T> {
         }
 
         Self {
-            logical_type: T::LOGICAL_TYPE,
+            logical_type: T::DEFAULT_LOGICAL_TYPE,
             data: SwarPtr::new(data),
             validity: SwarPtr::default(),
         }
@@ -332,7 +332,7 @@ impl<T: PrimitiveType> FromIterator<Option<T>> for PrimitiveArray<T> {
         }
 
         Self {
-            logical_type: T::LOGICAL_TYPE,
+            logical_type: T::DEFAULT_LOGICAL_TYPE,
             data: SwarPtr::new(data),
             validity: SwarPtr::new(validity),
         }
@@ -343,7 +343,7 @@ impl<T: PrimitiveType> Default for PrimitiveArray<T> {
     #[inline]
     fn default() -> Self {
         Self {
-            logical_type: T::LOGICAL_TYPE,
+            logical_type: T::DEFAULT_LOGICAL_TYPE,
             data: SwarPtr::default(),
             validity: SwarPtr::default(),
         }

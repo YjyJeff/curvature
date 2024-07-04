@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use super::executor::ExprExecCtx;
 use super::{ExprResult, PhysicalExpr, Stringify};
+use crate::common::profiler::ScopedTimerGuard;
 
 /// Represents a reference of the field in the `DataBlock` that passed through the executor
 ///
@@ -130,9 +131,11 @@ impl PhysicalExpr for FieldRef {
         &self,
         leaf_input: &DataBlock,
         _selection: &mut Bitmap,
-        _exec_ctx: &mut ExprExecCtx,
+        exec_ctx: &mut ExprExecCtx,
         output: &mut ArrayImpl,
     ) -> ExprResult<()> {
+        let _profile_guard = ScopedTimerGuard::new(&mut exec_ctx.metric.exec_time);
+        exec_ctx.metric.rows_count += leaf_input.len() as u64;
         let input = leaf_input.get_array(self.field_index).unwrap_or_else(|| {
             panic!(
                 "`FieldRef` with index {}, however the leaf_input only have `{}` arrays",

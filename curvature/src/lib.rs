@@ -8,6 +8,7 @@
 pub mod common;
 pub mod error;
 pub mod exec;
+pub mod storage;
 pub mod tree_node;
 
 /// The default vector size used by the curvature

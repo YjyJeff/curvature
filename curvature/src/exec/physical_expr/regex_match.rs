@@ -11,6 +11,9 @@ use data_block::block::DataBlock;
 use data_block::compute::regex_match::regex_match_scalar;
 use data_block::types::{LogicalType, PhysicalType};
 
+use crate::common::profiler::ScopedTimerGuard;
+use crate::exec::physical_expr::constant::Constant;
+
 use super::executor::ExprExecCtx;
 use super::utils::CompactExprDisplayWrapper;
 use super::{execute_unary_child, ExprResult, PhysicalExpr, Stringify};
@@ -33,6 +36,12 @@ pub enum RegexMatchError {
         pattern: String,
         /// Source
         source: RegexError,
+    },
+    /// Input is a constant expression, invalid
+    #[snafu(display("Input of the regex_match is a constant expression: `{expr}`, it makes no sense. Handle it in the planner/optimizer"))]
+    ConstantExpr {
+        /// Invalid constant expression
+        expr: String,
     },
 }
 
@@ -65,6 +74,13 @@ impl<const NEGATED: bool, const CASE_INSENSITIVE: bool> RegexMatch<NEGATED, CASE
                 logical_type: input.output_type().to_owned()
             }
         );
+
+        if let Some(expr) = input.as_any().downcast_ref::<Constant>() {
+            return ConstantExprSnafu {
+                expr: format!("{:?}", expr),
+            }
+            .fail();
+        }
 
         // TODO: fast path? like start with, end with, will regex check the fast path?
         match RegexBuilder::new(&pattern)
@@ -107,7 +123,7 @@ impl<const NEGATED: bool, const CASE_INSENSITIVE: bool> Stringify
     }
 
     fn display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} {}", self.name(), self.pattern)
+        write!(f, "{} '{}' -> Boolean", self.name(), self.pattern)
     }
 
     fn compact_display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -146,6 +162,9 @@ impl<const NEGATED: bool, const CASE_INSENSITIVE: bool> PhysicalExpr
         // Execute input
         execute_unary_child(self, leaf_input, selection, exec_ctx)?;
 
+        let _profile_guard = ScopedTimerGuard::new(&mut exec_ctx.metric.exec_time);
+        let rows_count = selection.count_ones().unwrap_or(leaf_input.len()) as u64;
+        exec_ctx.metric.rows_count += rows_count;
         // Execute self
         let array = unsafe { exec_ctx.intermediate_block.get_array_unchecked(0) };
         let array: &StringArray = array.try_into().unwrap_or_else(|_| {
@@ -167,6 +186,7 @@ impl<const NEGATED: bool, const CASE_INSENSITIVE: bool> PhysicalExpr
             if !matched {
                 // All of the elements in the array is not matched
                 selection.mutate().set_all_invalid(leaf_input.len());
+                exec_ctx.metric.filter_out_count += rows_count;
             }
         } else {
             // Execute regex match on the FlatArray
@@ -177,8 +197,11 @@ impl<const NEGATED: bool, const CASE_INSENSITIVE: bool> PhysicalExpr
                 regex_match_scalar::<NEGATED>(selection, array, &self.regex);
             }
 
+            // Selection must have same length with leaf_input
+            exec_ctx.metric.filter_out_count += rows_count - selection.count_ones().unwrap() as u64;
+
             // Boolean expression, check the selection
-            debug_assert!(selection.is_empty() || selection.len() == leaf_input.len());
+            debug_assert!(selection.len() == leaf_input.len());
         }
 
         Ok(())

@@ -11,6 +11,7 @@ use std::sync::Arc;
 use crate::common::expr_operator::arith::{
     infer_arithmetic_func_set, ArithFunctionSet, ArithOperator,
 };
+use crate::common::profiler::ScopedTimerGuard;
 use crate::exec::physical_expr::constant::Constant;
 
 use super::executor::ExprExecCtx;
@@ -130,7 +131,12 @@ impl Stringify for Arith {
     }
 
     fn display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.op.ident())
+        write!(
+            f,
+            "{} -> {:?}",
+            self.op.ident(),
+            self.function_set.output_type
+        )
     }
 
     fn compact_display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -168,23 +174,16 @@ impl PhysicalExpr for Arith {
         execute_binary_children(self, leaf_input, selection, exec_ctx)?;
 
         // Execute arith
+        let _profile_guard = ScopedTimerGuard::new(&mut exec_ctx.metric.exec_time);
+        let rows_count = selection.count_ones().unwrap_or(leaf_input.len()) as u64;
+        exec_ctx.metric.rows_count += rows_count;
         let left_array = unsafe { exec_ctx.intermediate_block.get_array_unchecked(0) };
         let right_array = unsafe { exec_ctx.intermediate_block.get_array_unchecked(1) };
 
         match (left_array.len(), right_array.len()) {
-            (1, 1) => (self.function_set.arith_scalars)(left_array, right_array, output),
+            (1, 1) => (self.function_set.scalar_arith_scalar)(left_array, right_array, output),
             (1, _) => {
-                if matches!(self.op, ArithOperator::Add | ArithOperator::Mul) {
-                    // commutative
-                    (self.function_set.array_arith_scalar)(
-                        selection,
-                        right_array,
-                        left_array,
-                        output,
-                    );
-                } else {
-                    todo!()
-                }
+                todo!()
             }
             (_, 1) => {
                 (self.function_set.array_arith_scalar)(selection, left_array, right_array, output);
@@ -192,7 +191,7 @@ impl PhysicalExpr for Arith {
             (_, _) => {
                 // Both of them are array, they must have same length.
                 // Actually, we do do need this check, `execute_binary_children` already checked it
-                (self.function_set.arith_arrays)(selection, left_array, right_array, output);
+                (self.function_set.array_arith_array)(selection, left_array, right_array, output);
             }
         }
 

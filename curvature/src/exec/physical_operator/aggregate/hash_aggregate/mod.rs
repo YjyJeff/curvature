@@ -901,7 +901,6 @@ impl<S: Serde> SourceOperatorExt for HashAggregate<S> {
         }
     }
 
-    #[inline]
     fn read_local_data(
         &self,
         output: &mut DataBlock,

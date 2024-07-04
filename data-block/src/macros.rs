@@ -159,7 +159,6 @@ macro_rules! dynamic_func {
                 $func_impl_macro!($($parameter),*)
             }
 
-            #[inline]
             fn [<$func_impl_macro _default>]$(<$($lt,)* $($g_ty),+>)?($($parameter:$parameter_ty,)*) $(where $($trait_bound)+)?{
                 $func_impl_macro!($($parameter),*)
             }

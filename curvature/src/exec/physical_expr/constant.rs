@@ -10,6 +10,7 @@ use snafu::{ensure, ResultExt, Snafu};
 
 use super::executor::ExprExecCtx;
 use super::{ExecuteSnafu, ExprResult, PhysicalExpr, Stringify};
+use crate::common::profiler::ScopedTimerGuard;
 
 /// Error returned by creating the [`Constant`] expression
 #[derive(Debug, Snafu)]
@@ -81,13 +82,18 @@ impl Stringify for Constant {
     }
 
     fn display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Constant({:?})", unsafe {
-            self.constant.get_value_unchecked(0)
-        })
+        write!(
+            f,
+            "Constant({:?}) -> {:?}",
+            unsafe { self.constant.get_value_unchecked(0) },
+            self.logical_type
+        )
     }
 
     fn compact_display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.display(f)
+        write!(f, "Constant({:?})", unsafe {
+            self.constant.get_value_unchecked(0)
+        },)
     }
 
     fn alias(&self) -> &str {
@@ -110,11 +116,13 @@ impl PhysicalExpr for Constant {
 
     fn execute(
         &self,
-        _leaf_input: &DataBlock,
+        leaf_input: &DataBlock,
         _selection: &mut Bitmap,
-        _exec_ctx: &mut ExprExecCtx,
+        exec_ctx: &mut ExprExecCtx,
         output: &mut ArrayImpl,
     ) -> ExprResult<()> {
+        let _profile_guard = ScopedTimerGuard::new(&mut exec_ctx.metric.exec_time);
+        exec_ctx.metric.rows_count += leaf_input.len() as u64;
         output
             .reference(&self.constant)
             .boxed()

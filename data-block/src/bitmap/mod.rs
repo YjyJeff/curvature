@@ -354,7 +354,6 @@ impl MutateBitmapGuard<'_> {
     }
 
     /// Copy into self
-    #[inline]
     pub fn copy(&mut self, source: &Bitmap, start: usize, len: usize) {
         if source.is_empty() {
             self.clear();

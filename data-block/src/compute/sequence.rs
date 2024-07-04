@@ -9,7 +9,6 @@ use crate::dynamic_func;
 ///
 /// No other arrays that reference the `array`'s data and validity are accessed! In the
 /// computation graph, it will never happens
-#[inline]
 pub unsafe fn sequence(array: &mut UInt64Array, start: u64, end: u64) {
     array.validity.as_mut().mutate().clear();
 

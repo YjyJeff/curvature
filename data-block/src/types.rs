@@ -234,6 +234,8 @@ pub enum LogicalType {
         /// offset of the timezone in seconds in range (-86400, 86400)
         tz_offset: i32,
     },
+    /// Measure of elapsed time in either seconds, milliseconds, microseconds or nanoseconds.
+    Duration(TimeUnit),
     /// [Interval](https://duckdb.org/docs/sql/data_types/interval)
     Interval,
     /// Date is represented as the number of days since epoch start using i32.
@@ -299,6 +301,7 @@ impl LogicalType {
             Self::VarBinary => PhysicalType::Binary,
             Self::Timestamp(_) | Self::Timestamptz { .. } => PhysicalType::Int64,
             Self::Time | Self::Timetz { .. } => PhysicalType::Int64,
+            Self::Duration(_) => PhysicalType::Int64,
             Self::Interval => PhysicalType::Interval,
             Self::Date => PhysicalType::Int32,
             Self::Uuid => PhysicalType::Int128,

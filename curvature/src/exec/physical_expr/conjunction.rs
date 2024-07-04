@@ -9,6 +9,7 @@ use data_block::compute::logical::{and_inplace, or_inplace};
 use data_block::types::{LogicalType, PhysicalType};
 use snafu::{ensure, ResultExt, Snafu};
 
+use crate::common::profiler::ScopedTimerGuard;
 use crate::exec::physical_expr::field_ref::FieldRef;
 
 use super::constant::Constant as ConstantExpr;
@@ -144,7 +145,7 @@ impl<const IS_AND: bool> Stringify for Conjunction<IS_AND> {
     }
 
     fn display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.name())
+        write!(f, "{} -> Boolean", self.name())
     }
 
     fn compact_display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -186,6 +187,9 @@ impl<const IS_AND: bool> PhysicalExpr for Conjunction<IS_AND> {
         // Boolean expression, check the selection
         debug_assert!(selection.is_empty() || selection.len() == leaf_input.len());
 
+        let rows_count = selection.count_ones().unwrap_or(leaf_input.len()) as u64;
+        exec_ctx.metric.rows_count += rows_count;
+
         // SAFETY: The input block of the conjunction expression do not need to hold the
         // length variance. The reason is that: children expressions will write the result
         // to selection array. It is only used to store the temporal result!
@@ -218,6 +222,7 @@ impl<const IS_AND: bool> PhysicalExpr for Conjunction<IS_AND> {
 
                 // Now, selection array contains the result of the children expressions till now
                 if selection.count_zeros() == leaf_input.len() {
+                    exec_ctx.metric.filter_out_count += rows_count;
                     // All of them is false. Early return, do not execute other children
                     return Ok(());
                 }
@@ -255,6 +260,7 @@ impl<const IS_AND: bool> PhysicalExpr for Conjunction<IS_AND> {
                             })?;
                     }
 
+                    let _profile_guard = ScopedTimerGuard::new(&mut exec_ctx.metric.exec_time);
                     // Now, child_selection array contains the result of the child expression
                     if child_selection.all_valid() {
                         // All of them are true. Early return, do not execute other children
@@ -283,8 +289,11 @@ impl<const IS_AND: bool> PhysicalExpr for Conjunction<IS_AND> {
             }
         }
 
+        // Selection must have same length with leaf_input
+        exec_ctx.metric.filter_out_count += rows_count - selection.count_ones().unwrap() as u64;
+
         // Boolean expression, check the selection
-        debug_assert!(selection.is_empty() || selection.len() == leaf_input.len());
+        debug_assert!(selection.len() == leaf_input.len());
 
         Ok(())
     }

@@ -14,6 +14,7 @@ use super::{execute_binary_children, ExprResult, PhysicalExpr, Stringify};
 use crate::common::expr_operator::comparison::{
     infer_comparison_func_set, CmpOperator, ComparisonFunctionSet,
 };
+use crate::common::profiler::ScopedTimerGuard;
 use crate::exec::physical_expr::constant::Constant;
 
 #[allow(missing_docs)]
@@ -124,7 +125,7 @@ impl Stringify for Comparison {
     }
 
     fn display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.op.ident())
+        write!(f, "{} -> Boolean", self.op.ident())
     }
 
     fn compact_display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -162,6 +163,10 @@ impl PhysicalExpr for Comparison {
         execute_binary_children(self, leaf_input, selection, exec_ctx)?;
 
         // Execute comparison
+        let _profile_guard = ScopedTimerGuard::new(&mut exec_ctx.metric.exec_time);
+        let rows_count = selection.count_ones().unwrap_or(leaf_input.len()) as u64;
+        exec_ctx.metric.rows_count += rows_count;
+
         let left_array = unsafe { exec_ctx.intermediate_block.get_array_unchecked(0) };
         let right_array = unsafe { exec_ctx.intermediate_block.get_array_unchecked(1) };
 
@@ -184,8 +189,11 @@ impl PhysicalExpr for Comparison {
             }
         }
 
+        // Selection must have same length with leaf_input
+        exec_ctx.metric.filter_out_count += rows_count - selection.count_ones().unwrap() as u64;
+
         // Boolean expression, check the selection
-        debug_assert!(selection.is_empty() || selection.len() == leaf_input.len());
+        debug_assert!(selection.len() == leaf_input.len());
 
         Ok(())
     }

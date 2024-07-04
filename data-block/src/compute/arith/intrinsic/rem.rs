@@ -248,7 +248,6 @@ pub unsafe fn rem_scalar<T, U>(
 #[cfg(feature = "avx512")]
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[target_feature(enable = "avx512f")]
-#[inline]
 unsafe fn rem_scalar_avx512<T, U>(
     selection: &Bitmap,
     array: &PrimitiveArray<T>,
@@ -274,7 +273,6 @@ unsafe fn rem_scalar_avx512<T, U>(
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[target_feature(enable = "avx2")]
-#[inline]
 unsafe fn rem_scalar_avx2<T, U>(
     selection: &Bitmap,
     array: &PrimitiveArray<T>,
@@ -300,7 +298,6 @@ unsafe fn rem_scalar_avx2<T, U>(
 
 #[cfg(target_arch = "aarch64")]
 #[target_feature(enable = "neon")]
-#[inline]
 unsafe fn rem_scalar_neon<T, U>(
     selection: &Bitmap,
     array: &PrimitiveArray<T>,
@@ -396,7 +393,6 @@ pub unsafe fn rem<T, U>(
 #[cfg(feature = "avx512")]
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[target_feature(enable = "avx512f")]
-#[inline]
 unsafe fn rem_avx512<T, U>(
     selection: &Bitmap,
     lhs: &PrimitiveArray<T>,
@@ -420,7 +416,6 @@ unsafe fn rem_avx512<T, U>(
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[target_feature(enable = "avx2")]
-#[inline]
 unsafe fn rem_avx2<T, U>(
     selection: &Bitmap,
     lhs: &PrimitiveArray<T>,
@@ -444,7 +439,6 @@ unsafe fn rem_avx2<T, U>(
 
 #[cfg(target_arch = "aarch64")]
 #[target_feature(enable = "neon")]
-#[inline]
 unsafe fn rem_neon<T, U>(
     selection: &Bitmap,
     lhs: &PrimitiveArray<T>,

@@ -11,10 +11,12 @@ use snafu::{ensure, Snafu};
 
 use crate::common::client_context::ClientContext;
 use crate::common::profiler::ScopedTimerGuard;
+use crate::exec::physical_expr::constant::Constant;
 use crate::exec::physical_expr::executor::Executor as ExprExecutor;
 use crate::exec::physical_expr::utils::CompactExprDisplayWrapper;
 use crate::exec::physical_expr::{ExprError, PhysicalExpr};
 use crate::exec::physical_operator::utils::downcast_mut_local_state;
+use crate::tree_node::display::IndentDisplayWrapper;
 
 use super::ext_traits::RegularOperatorExt;
 use super::metric::{Count, MetricsSet, Time};
@@ -40,6 +42,8 @@ pub enum FilterError {
         predicate: String,
         logical_type: LogicalType,
     },
+    #[snafu(display("Filter's predicate can not be constant, it should be optimized by the planner/optimizer, found `{predicate}`"))]
+    ConstantPredicate { predicate: String },
     #[snafu(display("Failed to execute the `{}` operator", filter))]
     EvaluatePredicate { filter: String, source: ExprError },
 }
@@ -75,6 +79,7 @@ impl Filter {
         input: Arc<dyn PhysicalOperator>,
         predicate: Arc<dyn PhysicalExpr>,
     ) -> Result<Self, FilterError> {
+        // Predicate should return bool
         ensure!(
             predicate.output_type() == &LogicalType::Boolean,
             InvalidPredicateSnafu {
@@ -82,6 +87,14 @@ impl Filter {
                 logical_type: predicate.output_type().to_owned(),
             }
         );
+
+        // Predicate can not be constant
+        if let Some(predicate) = predicate.as_any().downcast_ref::<Constant>() {
+            return ConstantPredicateSnafu {
+                predicate: format!("{:?}", predicate),
+            }
+            .fail();
+        }
 
         let output_types = input.output_types().to_owned();
         Ok(Self {
@@ -234,15 +247,21 @@ impl PhysicalOperator for Filter {
 
     fn merge_local_operator_metrics(&self, local_state: &dyn LocalOperatorState) {
         let local_state = self.downcast_ref_local_operator_state(local_state);
+        let execute_predicate_time = local_state.executor.exec_time();
         tracing::debug!(
-            "Filter processes `{}` rows, it filters out `{}` rows and remains `{}` rows in `{:?}`. Execute predicate `{}` takes: `{:?}`, filter takes: `{:?}`",
+            "Filter processes `{}` rows, it filters out `{}` rows and remains `{}` rows in `{:?}`. Filter rows takes: `{:?}`. Execute predicate: `{}` takes: `{:?}`. Expr with metric:\n{}",
             local_state.metrics.rows_count,
             local_state.metrics.filter_out_count,
             local_state.metrics.rows_count - local_state.metrics.filter_out_count,
-            local_state.executor.metric + local_state.metrics.filter_time,
+            execute_predicate_time + local_state.metrics.filter_time,
+            local_state.metrics.filter_time,
             CompactExprDisplayWrapper::new(&*self.predicate),
-            local_state.executor.metric,
-            local_state.metrics.filter_time
+            execute_predicate_time,
+            IndentDisplayWrapper::new(
+                &local_state
+                    .executor
+                    .displayable_expr_with_metric::<true>(&*self.predicate)
+            ),
         );
 
         self.metrics.rows_count.add(local_state.metrics.rows_count);

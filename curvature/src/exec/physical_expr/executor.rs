@@ -1,5 +1,6 @@
 //! Executor that execute the physical expression
 
+use std::fmt::Display;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -9,11 +10,12 @@ use data_block::types::{Array, LogicalType};
 use data_block::{array::ArrayImpl, types::PhysicalType};
 
 use super::{ExprResult, PhysicalExpr};
-use crate::common::profiler::ScopedTimerGuard;
 use crate::exec::physical_expr::conjunction::OrConjunction;
+use crate::exec::physical_expr::constant::Constant;
 use crate::exec::physical_expr::field_ref::FieldRef;
 use crate::exec::physical_expr::utils::CompactExprDisplayWrapper;
 use crate::exec::physical_expr::ExprError;
+use crate::tree_node::{handle_visit_recursion, TreeNode, TreeNodeRecursion, Visitor};
 
 /// Executor that executes set of expressions
 ///
@@ -26,15 +28,13 @@ pub struct ExprsExecutor {
     executors: Vec<Executor>,
 }
 
-/// Executor
+/// Executor that execute a single expression
 #[derive(Debug)]
 pub struct Executor {
     /// Execution context
     ctx: ExprExecCtx,
-    /// Selection map
+    /// Selection map for the expression
     selection: Bitmap,
-    /// Metrics to profile the execution time
-    pub(crate) metric: Duration,
 }
 
 impl Executor {
@@ -43,11 +43,14 @@ impl Executor {
         Executor {
             ctx: ExprExecCtx::new(expr),
             selection: Bitmap::new(),
-            metric: Duration::default(),
         }
     }
 
-    /// Execute a boolean expression. Called by the filter
+    /// Execute a boolean expression. Called by the [Filter] operator. It guarantees
+    /// the expr is **not** a [Constant] expression
+    ///
+    /// [Filter]: crate::exec::physical_operator::filter::Filter
+    /// [Constant]: crate::exec::physical_expr::constant::Constant
     pub fn execute_predicate(
         &mut self,
         input: &DataBlock,
@@ -55,7 +58,6 @@ impl Executor {
         output: &mut ArrayImpl,
     ) -> ExprResult<&Bitmap> {
         debug_assert_eq!(expr.output_type(), &LogicalType::Boolean);
-        let _guard = ScopedTimerGuard::new(&mut self.metric);
         // Clear the selection. Such that all of the elements are selected
         self.selection.mutate().clear();
 
@@ -69,6 +71,22 @@ impl Executor {
         }
 
         Ok(&self.selection)
+    }
+
+    /// Get the execution time of the expression
+    #[inline]
+    pub fn exec_time(&self) -> Duration {
+        self.ctx.cumulative_exec_time()
+    }
+
+    pub(crate) fn displayable_expr_with_metric<'a, const IN_FILTER: bool>(
+        &'a self,
+        expr: &'a dyn PhysicalExpr,
+    ) -> DisplayExprWithMetric<'a, IN_FILTER> {
+        DisplayExprWithMetric {
+            expr,
+            ctx: &self.ctx,
+        }
     }
 }
 
@@ -84,7 +102,6 @@ impl ExprsExecutor {
     ///
     /// Note that executing the expression does not change the length. Therefore, the
     /// `output` has same length with `input`
-    #[inline]
     pub fn execute(
         &mut self,
         exprs: &[Arc<dyn PhysicalExpr>],
@@ -101,13 +118,12 @@ impl ExprsExecutor {
                 .zip(self.executors.iter_mut())
                 .zip(output)
                 .try_for_each(|((expr, executor), output)| {
-                    let _guard = ScopedTimerGuard::new(&mut executor.metric);
                     // Clear the selection. Such that all of the elements are selected
                     executor.selection.mutate().clear();
                     expr.execute(input, &mut executor.selection, &mut executor.ctx, output)?;
-                    // Boolean expressions, except the FieldRef, will store the result in the selection.
+                    // Boolean expressions, except the FieldRef and Constant, will store the result in the selection.
                     // Copy it to the output
-                    if expr.output_type().physical_type() == PhysicalType::Boolean && expr.as_any().downcast_ref::<FieldRef>().is_none(){
+                    if expr.output_type().physical_type() == PhysicalType::Boolean && expr.as_any().downcast_ref::<FieldRef>().is_none() && expr.as_any().downcast_ref::<Constant>().is_none(){
                         let ArrayImpl::Boolean(output) = output else {
                             panic!("`{}` is a boolean expression. However the output array is `{}`Array", CompactExprDisplayWrapper::new(&**expr), output.ident())
                         };
@@ -150,7 +166,9 @@ impl ExprsExecutor {
 
     /// Get the execution times for each expression
     pub fn execution_times(&self) -> impl Iterator<Item = Duration> + '_ {
-        self.executors.iter().map(|executor| executor.metric)
+        self.executors
+            .iter()
+            .map(|executor| executor.ctx.cumulative_exec_time())
     }
 }
 
@@ -174,6 +192,23 @@ pub struct ExprExecCtx {
     pub selections: Vec<Bitmap>,
     /// Children contexts
     pub children: Vec<ExprExecCtx>,
+    /// Metric
+    pub metric: ExprMetric,
+}
+
+/// Metric of the expression
+#[derive(Debug, Default)]
+pub struct ExprMetric {
+    /// Duration used to execute the expression. Expression should
+    /// profile it by itself.
+    ///
+    /// Note: It should only contains the execution time of the current expression,
+    /// does not include the execution time of its children
+    pub exec_time: Duration,
+    /// Number of rows the expression has processed
+    pub rows_count: u64,
+    /// Number or rows the expression has filtered out. Used by the boolean expression
+    pub filter_out_count: u64,
 }
 
 impl ExprExecCtx {
@@ -205,7 +240,65 @@ impl ExprExecCtx {
             intermediate_block: unsafe { DataBlock::new_unchecked(arrays, 0) },
             selections,
             children,
+            metric: ExprMetric::default(),
         }
+    }
+
+    /// Get the cumulative execution time of the expression, including its children execution
+    /// time
+    pub fn cumulative_exec_time(&self) -> Duration {
+        let mut cumulative = self.metric.exec_time;
+        for child in &self.children {
+            cumulative += child.cumulative_exec_time();
+        }
+        cumulative
+    }
+}
+
+/// Displayable expression with its metric
+pub(crate) struct DisplayExprWithMetric<'a, const IN_FILTER: bool> {
+    expr: &'a dyn PhysicalExpr,
+    ctx: &'a ExprExecCtx,
+}
+
+impl<const IN_FILTER: bool> Display for DisplayExprWithMetric<'_, IN_FILTER> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.expr.display(f)?;
+        write!(
+            f,
+            ": cumulative_exec_time: `{:?}`. exec_time: `{:?}`. process rows: `{}`.",
+            self.ctx.cumulative_exec_time(),
+            self.ctx.metric.exec_time,
+            self.ctx.metric.rows_count,
+        )?;
+
+        if IN_FILTER {
+            write!(
+                f,
+                " filter_out_rows: `{}`",
+                self.ctx.metric.filter_out_count
+            )
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl<const IN_FILTER: bool> TreeNode for DisplayExprWithMetric<'_, IN_FILTER> {
+    fn visit_children<V, F>(&self, f: &mut F) -> Result<TreeNodeRecursion, V::Error>
+    where
+        V: Visitor<Self>,
+        F: FnMut(&Self) -> Result<TreeNodeRecursion, V::Error>,
+    {
+        for (child_expr, child_ctx) in self.expr.children().iter().zip(self.ctx.children.iter()) {
+            let child = Self {
+                expr: &**child_expr,
+                ctx: child_ctx,
+            };
+            handle_visit_recursion!(f(&child)?)
+        }
+
+        Ok(TreeNodeRecursion::Continue)
     }
 }
 

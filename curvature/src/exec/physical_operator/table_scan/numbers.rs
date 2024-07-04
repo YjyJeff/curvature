@@ -260,7 +260,6 @@ impl SourceOperatorExt for Numbers {
         has_next
     }
 
-    #[inline]
     fn read_local_data(
         &self,
         output: &mut DataBlock,

@@ -8,6 +8,8 @@ use data_block::types::{LogicalType, PhysicalType};
 use snafu::{ensure, Snafu};
 use std::sync::Arc;
 
+use crate::common::profiler::ScopedTimerGuard;
+use crate::exec::physical_expr::constant::Constant;
 use crate::exec::physical_expr::execute_unary_child;
 
 use super::executor::ExprExecCtx;
@@ -15,12 +17,13 @@ use super::field_ref::FieldRef;
 use super::utils::CompactExprDisplayWrapper;
 use super::{ExprResult, PhysicalExpr, Stringify};
 
-/// Error returned by creating the [`IsNull`]
+#[allow(missing_docs)]
 #[derive(Debug, Snafu)]
-#[snafu(display("Input of the `IsNull` is a boolean expression: `{input}`, it makes no sense because it always returns True/False. Handle it in the planner/optimizer instead"))]
-pub struct BooleanExprInputError {
-    /// Input expression
-    input: String,
+pub enum IsNullError {
+    #[snafu(display("Input of the is_null is a boolean expression: `{expr}`, it makes no sense. Handle it in the planner/optimizer"))]
+    BooleanExpr { expr: String },
+    #[snafu(display("Input of the is_null is a constant expression: `{expr}`, it makes no sense. Handle it in the planner/optimizer"))]
+    ConstantExpr { expr: String },
 }
 
 /// The expression used to check the input is (not) null
@@ -33,7 +36,7 @@ pub struct IsNull<const NOT: bool> {
 
 impl<const NOT: bool> IsNull<NOT> {
     /// Create a new [`IsNull`]
-    pub fn try_new(input: Arc<dyn PhysicalExpr>) -> Result<Self, BooleanExprInputError> {
+    pub fn try_new(input: Arc<dyn PhysicalExpr>) -> Result<Self, IsNullError> {
         Self::try_new_with_alias(input, String::new())
     }
 
@@ -41,14 +44,21 @@ impl<const NOT: bool> IsNull<NOT> {
     pub fn try_new_with_alias(
         input: Arc<dyn PhysicalExpr>,
         alias: String,
-    ) -> Result<Self, BooleanExprInputError> {
+    ) -> Result<Self, IsNullError> {
         ensure!(
             input.output_type().physical_type() != PhysicalType::Boolean
                 || input.as_any().downcast_ref::<FieldRef>().is_some(),
-            BooleanExprInputSnafu {
-                input: CompactExprDisplayWrapper::new(&*input).to_string()
+            BooleanExprSnafu {
+                expr: CompactExprDisplayWrapper::new(&*input).to_string()
             }
         );
+
+        if let Some(expr) = input.as_any().downcast_ref::<Constant>() {
+            return ConstantExprSnafu {
+                expr: format!("{:?}", expr),
+            }
+            .fail();
+        }
 
         Ok(Self {
             output_type: LogicalType::Boolean,
@@ -72,7 +82,7 @@ impl<const NOT: bool> Stringify for IsNull<NOT> {
     }
 
     fn display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.name())
+        write!(f, "{} -> Boolean", self.name())
     }
 
     fn compact_display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -108,6 +118,9 @@ impl<const NOT: bool> PhysicalExpr for IsNull<NOT> {
     ) -> ExprResult<()> {
         execute_unary_child(self, leaf_input, selection, exec_ctx)?;
 
+        let _profile_guard = ScopedTimerGuard::new(&mut exec_ctx.metric.exec_time);
+        let rows_count = selection.count_ones().unwrap_or(leaf_input.len()) as u64;
+        exec_ctx.metric.rows_count += rows_count;
         // Execute is null
         let array = unsafe { exec_ctx.intermediate_block.get_array_unchecked(0) };
 
@@ -116,9 +129,13 @@ impl<const NOT: bool> PhysicalExpr for IsNull<NOT> {
             if NOT {
                 if !valid {
                     selection.mutate().set_all_invalid(leaf_input.len());
+                    // Selection must have same length with leaf_input
+                    exec_ctx.metric.filter_out_count += rows_count;
                 }
             } else if valid {
                 selection.mutate().set_all_invalid(leaf_input.len());
+                // Selection must have same length with leaf_input
+                exec_ctx.metric.filter_out_count += rows_count;
             }
         } else {
             // SAFETY: Expression executor guarantees the selection is either empty or has same
@@ -126,8 +143,11 @@ impl<const NOT: bool> PhysicalExpr for IsNull<NOT> {
             // with input)
             unsafe { is_null::<NOT>(selection, array) };
 
+            // Selection must have same length with leaf_input
+            exec_ctx.metric.filter_out_count += rows_count - selection.count_ones().unwrap() as u64;
+
             // Boolean expression, check the selection
-            debug_assert!(selection.is_empty() || selection.len() == leaf_input.len());
+            debug_assert!(selection.len() == leaf_input.len());
         }
 
         Ok(())
