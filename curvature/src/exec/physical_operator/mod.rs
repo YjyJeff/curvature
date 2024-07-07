@@ -22,7 +22,7 @@ use self::utils::{
 use crate::common::client_context::ClientContext;
 use crate::common::types::ParallelismDegree;
 use crate::error::SendableError;
-use crate::tree_node::{handle_visit_recursion, TreeNode, TreeNodeRecursion, Visitor};
+use crate::tree_node::{TreeNode, TreeNodeRecursion};
 use data_block::block::DataBlock;
 use data_block::types::LogicalType;
 use snafu::Snafu;
@@ -511,16 +511,19 @@ impl Display for dyn PhysicalOperator {
 }
 
 impl TreeNode for dyn PhysicalOperator {
-    fn visit_children<V, F>(&self, f: &mut F) -> std::result::Result<TreeNodeRecursion, V::Error>
-    where
-        V: Visitor<Self>,
-        F: FnMut(&Self) -> std::result::Result<TreeNodeRecursion, V::Error>,
-    {
-        for child in self.children() {
-            handle_visit_recursion!(f(&**child)?);
+    fn apply_children<E, F: FnMut(&Self) -> std::result::Result<TreeNodeRecursion, E>>(
+        &self,
+        mut f: F,
+    ) -> std::result::Result<TreeNodeRecursion, E> {
+        let mut tnr = TreeNodeRecursion::Continue;
+        for i in self.children() {
+            tnr = f(&**i)?;
+            match tnr {
+                TreeNodeRecursion::Continue | TreeNodeRecursion::Jump => {}
+                TreeNodeRecursion::Stop => return Ok(TreeNodeRecursion::Stop),
+            }
         }
-
-        Ok(TreeNodeRecursion::Continue)
+        Ok(tnr)
     }
 }
 

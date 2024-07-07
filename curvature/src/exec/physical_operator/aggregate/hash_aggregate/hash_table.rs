@@ -16,6 +16,13 @@ use std::time::Duration;
 /// self-contained and require the [`AggregationFunctionList`] to interpret the
 /// [`AggregationStatesPtr`]
 ///
+/// # TBD
+///
+/// Should we partition the hash table if it is too large? The biggest problem
+/// is resize. Partitioned hash table can decrease the cost of the resize. However,
+/// partition is also not free. In my view, we need it. Almost all of the database
+/// implement it. I think it works better in the high cardinality scenario.
+///
 /// # Generics
 ///
 /// - `S`: Type for serde the `group_by_keys`

@@ -4,18 +4,16 @@ use std::fmt::Display;
 use std::sync::Arc;
 use std::time::Duration;
 
+use data_block::array::ArrayImpl;
 use data_block::bitmap::{BitStore, Bitmap};
 use data_block::block::{DataBlock, MutateArrayError};
 use data_block::types::{Array, LogicalType};
-use data_block::{array::ArrayImpl, types::PhysicalType};
 
-use super::{ExprResult, PhysicalExpr};
+use super::{is_boolean_expr, ExprError, ExprResult, PhysicalExpr};
 use crate::exec::physical_expr::conjunction::OrConjunction;
-use crate::exec::physical_expr::constant::Constant;
 use crate::exec::physical_expr::field_ref::FieldRef;
 use crate::exec::physical_expr::utils::CompactExprDisplayWrapper;
-use crate::exec::physical_expr::ExprError;
-use crate::tree_node::{handle_visit_recursion, TreeNode, TreeNodeRecursion, Visitor};
+use crate::tree_node::{TreeNode, TreeNodeRecursion};
 
 /// Executor that executes set of expressions
 ///
@@ -123,7 +121,7 @@ impl ExprsExecutor {
                     expr.execute(input, &mut executor.selection, &mut executor.ctx, output)?;
                     // Boolean expressions, except the FieldRef and Constant, will store the result in the selection.
                     // Copy it to the output
-                    if expr.output_type().physical_type() == PhysicalType::Boolean && expr.as_any().downcast_ref::<FieldRef>().is_none() && expr.as_any().downcast_ref::<Constant>().is_none(){
+                    if is_boolean_expr(&**expr) {
                         let ArrayImpl::Boolean(output) = output else {
                             panic!("`{}` is a boolean expression. However the output array is `{}`Array", CompactExprDisplayWrapper::new(&**expr), output.ident())
                         };
@@ -266,16 +264,16 @@ impl<const IN_FILTER: bool> Display for DisplayExprWithMetric<'_, IN_FILTER> {
         self.expr.display(f)?;
         write!(
             f,
-            ": cumulative_exec_time: `{:?}`. exec_time: `{:?}`. process rows: `{}`.",
+            ": cumulative_exec_time: `{:?}`. exec_time: `{:?}`. process rows: `{}`",
             self.ctx.cumulative_exec_time(),
             self.ctx.metric.exec_time,
             self.ctx.metric.rows_count,
         )?;
 
-        if IN_FILTER {
+        if IN_FILTER && is_boolean_expr(self.expr) {
             write!(
                 f,
-                " filter_out_rows: `{}`",
+                ". filter_out_rows: `{}`",
                 self.ctx.metric.filter_out_count
             )
         } else {
@@ -285,20 +283,22 @@ impl<const IN_FILTER: bool> Display for DisplayExprWithMetric<'_, IN_FILTER> {
 }
 
 impl<const IN_FILTER: bool> TreeNode for DisplayExprWithMetric<'_, IN_FILTER> {
-    fn visit_children<V, F>(&self, f: &mut F) -> Result<TreeNodeRecursion, V::Error>
-    where
-        V: Visitor<Self>,
-        F: FnMut(&Self) -> Result<TreeNodeRecursion, V::Error>,
-    {
-        for (child_expr, child_ctx) in self.expr.children().iter().zip(self.ctx.children.iter()) {
-            let child = Self {
-                expr: &**child_expr,
+    fn apply_children<E, F: FnMut(&Self) -> std::result::Result<TreeNodeRecursion, E>>(
+        &self,
+        mut f: F,
+    ) -> std::result::Result<TreeNodeRecursion, E> {
+        let mut tnr = TreeNodeRecursion::Continue;
+        for (child, child_ctx) in self.expr.children().iter().zip(self.ctx.children.iter()) {
+            tnr = f(&Self {
+                expr: &**child,
                 ctx: child_ctx,
-            };
-            handle_visit_recursion!(f(&child)?)
+            })?;
+            match tnr {
+                TreeNodeRecursion::Continue | TreeNodeRecursion::Jump => {}
+                TreeNodeRecursion::Stop => return Ok(TreeNodeRecursion::Stop),
+            }
         }
-
-        Ok(TreeNodeRecursion::Continue)
+        Ok(tnr)
     }
 }
 

@@ -43,7 +43,7 @@ crossbeam-utils = "0.8"
 lto = "fat"
 opt-level = 3
 debug = true
-codegen-units = 1
+# codegen-units = 1
 
 [profile.bench]
 debug = true

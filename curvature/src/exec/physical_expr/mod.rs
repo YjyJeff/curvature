@@ -12,7 +12,7 @@ pub mod regex_match;
 pub mod utils;
 
 use crate::error::SendableError;
-use crate::tree_node::{handle_visit_recursion, TreeNode, TreeNodeRecursion, Visitor};
+use crate::tree_node::{TreeNode, TreeNodeRecursion};
 use data_block::array::ArrayImpl;
 use data_block::bitmap::Bitmap;
 use data_block::block::{DataBlock, MutateArrayError};
@@ -141,16 +141,19 @@ impl Display for dyn PhysicalExpr {
 }
 
 impl TreeNode for dyn PhysicalExpr {
-    fn visit_children<V, F>(&self, f: &mut F) -> std::result::Result<TreeNodeRecursion, V::Error>
-    where
-        V: Visitor<Self>,
-        F: FnMut(&Self) -> std::result::Result<TreeNodeRecursion, V::Error>,
-    {
-        for child in self.children() {
-            handle_visit_recursion!(f(&**child)?)
+    fn apply_children<E, F: FnMut(&Self) -> std::result::Result<TreeNodeRecursion, E>>(
+        &self,
+        mut f: F,
+    ) -> std::result::Result<TreeNodeRecursion, E> {
+        let mut tnr = TreeNodeRecursion::Continue;
+        for i in self.children() {
+            tnr = f(&**i)?;
+            match tnr {
+                TreeNodeRecursion::Continue | TreeNodeRecursion::Jump => {}
+                TreeNodeRecursion::Stop => return Ok(TreeNodeRecursion::Stop),
+            }
         }
-
-        Ok(TreeNodeRecursion::Continue)
+        Ok(tnr)
     }
 }
 
@@ -223,4 +226,17 @@ fn handle_mutate_array_error<T: PhysicalExpr>(
             }
         }
     }
+}
+
+// Returns true if the expression is a boolean expression
+fn is_boolean_expr(expr: &dyn PhysicalExpr) -> bool {
+    matches!(expr.output_type(), LogicalType::Boolean)
+        && expr
+            .as_any()
+            .downcast_ref::<self::field_ref::FieldRef>()
+            .is_none()
+        && expr
+            .as_any()
+            .downcast_ref::<self::constant::Constant>()
+            .is_none()
 }

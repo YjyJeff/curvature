@@ -1,6 +1,6 @@
 //! Display
 
-use super::{TreeNode, TreeNodeRecursion, Visitor};
+use super::{TreeNode, TreeNodeRecursion, TreeNodeVisitor};
 use std::fmt::{Debug, Display, Error, Formatter};
 
 /// Indent visitor for displaying
@@ -10,21 +10,21 @@ struct IndentDisplayVisitor<'a, 'b> {
     indent: usize,
 }
 
-impl<V> Visitor<V> for IndentDisplayVisitor<'_, '_>
+impl<Node> TreeNodeVisitor<Node> for IndentDisplayVisitor<'_, '_>
 where
-    V: TreeNode + Display + ?Sized,
+    Node: TreeNode + Display + ?Sized,
 {
     type Error = Error;
 
-    fn pre_visit(&mut self, v: &V) -> Result<TreeNodeRecursion, Error> {
+    fn f_down(&mut self, node: &Node) -> Result<TreeNodeRecursion, Error> {
         write!(self.f, "{:indent$}", "", indent = self.indent * 2)?;
-        write!(self.f, "{}", v)?;
+        write!(self.f, "{}", node)?;
         writeln!(self.f)?;
         self.indent += 1;
         Ok(TreeNodeRecursion::Continue)
     }
 
-    fn post_visit(&mut self, _v: &V) -> Result<TreeNodeRecursion, Error> {
+    fn f_up(&mut self, _node: &Node) -> Result<TreeNodeRecursion, Error> {
         self.indent -= 1;
         Ok(TreeNodeRecursion::Continue)
     }
@@ -72,11 +72,10 @@ mod tests {
     }
 
     impl TreeNode for MockNode {
-        fn visit_children<V, F>(&self, f: &mut F) -> Result<TreeNodeRecursion, V::Error>
-        where
-            V: Visitor<Self>,
-            F: FnMut(&Self) -> Result<TreeNodeRecursion, V::Error>,
-        {
+        fn apply_children<E, F: FnMut(&Self) -> Result<TreeNodeRecursion, E>>(
+            &self,
+            mut f: F,
+        ) -> Result<TreeNodeRecursion, E> {
             for child in &self.children {
                 match f(child)? {
                     TreeNodeRecursion::Continue | TreeNodeRecursion::Jump => (),
