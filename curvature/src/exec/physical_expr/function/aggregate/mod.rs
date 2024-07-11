@@ -610,7 +610,6 @@ pub trait SpecialOptionalUnaryAggregationState<PayloadArray: Array>:
     ///
     /// allow the single_use_lifetimes here because anonymous lifetimes in `impl Trait` are unstable
     #[allow(single_use_lifetimes)]
-    #[inline]
     fn batch_update<'p>(
         state: &mut Option<Self::InnerAggStates>,
         mut values_iter: impl Iterator<Item = <PayloadArray::Element as Element>::ElementRef<'p>>,
@@ -618,29 +617,124 @@ pub trait SpecialOptionalUnaryAggregationState<PayloadArray: Array>:
         match state.take() {
             Some(inner_state) => {
                 // In some cases, auto-vectorization will be performed here
-                // FIXME: check the cpu dynamically and use the corresponding SIMD
-                let inner_state = values_iter
-                    .try_fold(inner_state, Self::fold_func)
-                    .boxed()
-                    .context(BatchUpdateStatesSnafu)?;
+                let inner_state = Self::batch_update_dynamic(inner_state, values_iter)?;
                 *state = Some(inner_state);
             }
             None => {
                 let Some(init) = values_iter.next() else {
                     return Ok(());
                 };
-                let mut inner_state = init.to_owned().into();
+                let inner_state = init.to_owned().into();
                 // In some cases, auto-vectorization will be performed here
-                // FIXME: check the cpu dynamically and use the corresponding SIMD
-                inner_state = values_iter
-                    .try_fold(inner_state, Self::fold_func)
-                    .boxed()
-                    .context(BatchUpdateStatesSnafu)?;
+                let inner_state = Self::batch_update_dynamic(inner_state, values_iter)?;
                 *state = Some(inner_state);
             }
         }
 
         Ok(())
+    }
+
+    #[allow(single_use_lifetimes)]
+    #[doc(hidden)]
+    #[cfg(feature = "avx512")]
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    #[target_feature(enable = "avx512")]
+    unsafe fn batch_update_avx512<'p>(
+        inner_state: Self::InnerAggStates,
+        mut values_iter: impl Iterator<Item = <PayloadArray::Element as Element>::ElementRef<'p>>,
+    ) -> Result<Self::InnerAggStates> {
+        values_iter
+            .try_fold(inner_state, Self::fold_func)
+            .boxed()
+            .context(BatchUpdateStatesSnafu)
+    }
+
+    #[allow(single_use_lifetimes)]
+    #[doc(hidden)]
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    #[target_feature(enable = "avx2")]
+    unsafe fn batch_update_avx2<'p>(
+        inner_state: Self::InnerAggStates,
+        mut values_iter: impl Iterator<Item = <PayloadArray::Element as Element>::ElementRef<'p>>,
+    ) -> Result<Self::InnerAggStates> {
+        values_iter
+            .try_fold(inner_state, Self::fold_func)
+            .boxed()
+            .context(BatchUpdateStatesSnafu)
+    }
+
+    #[allow(single_use_lifetimes)]
+    #[doc(hidden)]
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    #[target_feature(enable = "sse4.2")]
+    unsafe fn batch_update_v2<'p>(
+        inner_state: Self::InnerAggStates,
+        mut values_iter: impl Iterator<Item = <PayloadArray::Element as Element>::ElementRef<'p>>,
+    ) -> Result<Self::InnerAggStates> {
+        values_iter
+            .try_fold(inner_state, Self::fold_func)
+            .boxed()
+            .context(BatchUpdateStatesSnafu)
+    }
+
+    #[allow(single_use_lifetimes)]
+    #[doc(hidden)]
+    #[cfg(target_arch = "aarch64")]
+    #[target_feature(enable = "neon")]
+    unsafe fn batch_update_neon<'p>(
+        inner_state: Self::InnerAggStates,
+        mut values_iter: impl Iterator<Item = <PayloadArray::Element as Element>::ElementRef<'p>>,
+    ) -> Result<Self::InnerAggStates> {
+        values_iter
+            .try_fold(inner_state, Self::fold_func)
+            .boxed()
+            .context(BatchUpdateStatesSnafu)
+    }
+
+    #[inline]
+    #[allow(single_use_lifetimes)]
+    #[doc(hidden)]
+    fn batch_update_dynamic<'p>(
+        inner_state: Self::InnerAggStates,
+        values_iter: impl Iterator<Item = <PayloadArray::Element as Element>::ElementRef<'p>>,
+    ) -> Result<Self::InnerAggStates> {
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        {
+            // Note that this `unsafe` block is safe because we're testing
+            // that the `avx512` feature is indeed available on our CPU.
+            #[cfg(feature = "avx512")]
+            if std::arch::is_x86_feature_detected!("avx512f") {
+                return unsafe { Self::batch_update_avx512(inner_state, values_iter) };
+            }
+
+            // Note that this `unsafe` block is safe because we're testing
+            // that the `avx2` feature is indeed available on our CPU.
+            if std::arch::is_x86_feature_detected!("avx2") {
+                return unsafe { Self::batch_update_avx2(inner_state, values_iter) };
+            }
+
+            return unsafe { Self::batch_update_v2(inner_state, values_iter) };
+        }
+
+        #[cfg(target_arch = "aarch64")]
+        {
+            // Note that this `unsafe` block is safe because we're testing
+            // that the `neon` feature is indeed available on our CPU.
+            if std::arch::is_aarch64_feature_detected!("neon") {
+                return unsafe { Self::batch_update_neon(state, values_iter) };
+            }
+        }
+
+        #[cfg_attr(
+            any(target_arch = "x86", target_arch = "x86_64"),
+            allow(unreachable_code)
+        )]
+        {
+            values_iter
+                .try_fold(inner_state, Self::fold_func)
+                .boxed()
+                .context(BatchUpdateStatesSnafu)
+        }
     }
 
     /// Update the inner aggregation state based on a single payload element

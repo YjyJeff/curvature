@@ -45,6 +45,7 @@ nightly = ["hashbrown/nightly", "likely"]
 portable_simd = ["data-block/portable_simd"]
 # Check overflow in arithmetic
 overflow_checks = []
+avx512 = ["data-block/avx512"]
 
 [lints]
 workspace = true

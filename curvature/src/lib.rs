@@ -1,5 +1,6 @@
 #![cfg_attr(feature = "likely", feature(core_intrinsics))]
 #![cfg_attr(feature = "likely", allow(internal_features))]
+#![cfg_attr(feature = "avx512", feature(avx512_target_feature))]
 
 //! # Curvature
 //!

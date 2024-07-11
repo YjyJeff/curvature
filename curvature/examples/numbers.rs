@@ -38,7 +38,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 
 const HASH_COUNT: NonZeroU64 = unsafe { NonZeroU64::new_unchecked(10000000000) };
 const SIMPLE_COUNT: NonZeroU64 = unsafe { NonZeroU64::new_unchecked(100000000000) };
-const PARALLELISM: ParallelismDegree = unsafe { ParallelismDegree::new_unchecked(10) };
+const PARALLELISM: ParallelismDegree = unsafe { ParallelismDegree::new_unchecked(16) };
 
 #[cfg(not(target_env = "msvc"))]
 #[global_allocator]
@@ -63,86 +63,86 @@ fn main() {
         "number".to_string(),
     )];
 
-    // let physical_plan: Arc<dyn PhysicalOperator> = Arc::new(
-    //     SimpleAggregate::try_new(
-    //         physical_plan,
-    //         vec![
-    //             AggregationFunctionExpr::try_new(
-    //                 &payloads_ref,
-    //                 Arc::new(Sum::<UInt64Array>::try_new(LogicalType::UnsignedBigInt).unwrap()),
-    //             )
-    //             .unwrap(),
-    //             AggregationFunctionExpr::try_new(
-    //                 &payloads_ref,
-    //                 Arc::new(Max::<UInt64Array>::try_new(LogicalType::UnsignedBigInt).unwrap()),
-    //             )
-    //             .unwrap(),
-    //             AggregationFunctionExpr::try_new(
-    //                 &payloads_ref,
-    //                 Arc::new(Avg::<UInt64Array>::try_new(LogicalType::UnsignedBigInt).unwrap()),
-    //             )
-    //             .unwrap(),
-    //         ],
-    //     )
-    //     .unwrap(),
-    // );
-
-    let field_ref: Arc<dyn PhysicalExpr> = Arc::new(FieldRef::new(
-        0,
-        LogicalType::UnsignedBigInt,
-        "number".to_string(),
-    ));
-
-    let physical_plan: Arc<dyn PhysicalOperator> = Arc::new(
-        Filter::try_new(
-            physical_plan,
-            Arc::new(
-                Comparison::try_new(
-                    Arc::new(
-                        unsafe {
-                            Constant::try_new(ArrayImpl::UInt8(UInt8Array::from_values_iter([0])))
-                        }
-                        .unwrap(),
-                    ),
-                    CmpOperator::NotEqual,
-                    Arc::new(
-                        Arith::try_new(
-                            Arc::clone(&field_ref),
-                            ArithOperator::Rem,
-                            Arc::new(unsafe {
-                                Constant::try_new(ArrayImpl::UInt8(UInt8Array::from_values_iter([
-                                    4,
-                                ])))
-                                .unwrap()
-                            }),
-                        )
-                        .unwrap(),
-                    ),
-                )
-                .unwrap(),
-            ),
-        )
-        .unwrap(),
-    );
-
     let physical_plan: Arc<dyn PhysicalOperator> = Arc::new(
         SimpleAggregate::try_new(
             physical_plan,
             vec![
                 AggregationFunctionExpr::try_new(
                     &payloads_ref,
-                    Arc::new(Count::<false>::new(LogicalType::UnsignedBigInt)),
+                    Arc::new(Sum::<UInt64Array>::try_new(LogicalType::UnsignedBigInt).unwrap()),
                 )
                 .unwrap(),
-                // AggregationFunctionExpr::try_new(
-                //     &payloads_ref,
-                //     Arc::new(Max::<UInt64Array>::try_new(LogicalType::UnsignedBigInt).unwrap()),
-                // )
-                // .unwrap(),
+                AggregationFunctionExpr::try_new(
+                    &payloads_ref,
+                    Arc::new(Max::<UInt64Array>::try_new(LogicalType::UnsignedBigInt).unwrap()),
+                )
+                .unwrap(),
+                AggregationFunctionExpr::try_new(
+                    &payloads_ref,
+                    Arc::new(Avg::<UInt64Array>::try_new(LogicalType::UnsignedBigInt).unwrap()),
+                )
+                .unwrap(),
             ],
         )
         .unwrap(),
     );
+
+    // let field_ref: Arc<dyn PhysicalExpr> = Arc::new(FieldRef::new(
+    //     0,
+    //     LogicalType::UnsignedBigInt,
+    //     "number".to_string(),
+    // ));
+
+    // let physical_plan: Arc<dyn PhysicalOperator> = Arc::new(
+    //     Filter::try_new(
+    //         physical_plan,
+    //         Arc::new(
+    //             Comparison::try_new(
+    //                 Arc::new(
+    //                     unsafe {
+    //                         Constant::try_new(ArrayImpl::UInt8(UInt8Array::from_values_iter([0])))
+    //                     }
+    //                     .unwrap(),
+    //                 ),
+    //                 CmpOperator::NotEqual,
+    //                 Arc::new(
+    //                     Arith::try_new(
+    //                         Arc::clone(&field_ref),
+    //                         ArithOperator::Rem,
+    //                         Arc::new(unsafe {
+    //                             Constant::try_new(ArrayImpl::UInt8(UInt8Array::from_values_iter([
+    //                                 4,
+    //                             ])))
+    //                             .unwrap()
+    //                         }),
+    //                     )
+    //                     .unwrap(),
+    //                 ),
+    //             )
+    //             .unwrap(),
+    //         ),
+    //     )
+    //     .unwrap(),
+    // );
+
+    // let physical_plan: Arc<dyn PhysicalOperator> = Arc::new(
+    //     SimpleAggregate::try_new(
+    //         physical_plan,
+    //         vec![
+    //             AggregationFunctionExpr::try_new(
+    //                 &payloads_ref,
+    //                 Arc::new(Count::<false>::new(LogicalType::UnsignedBigInt)),
+    //             )
+    //             .unwrap(),
+    //             // AggregationFunctionExpr::try_new(
+    //             //     &payloads_ref,
+    //             //     Arc::new(Max::<UInt64Array>::try_new(LogicalType::UnsignedBigInt).unwrap()),
+    //             // )
+    //             // .unwrap(),
+    //         ],
+    //     )
+    //     .unwrap(),
+    // );
 
     // group by number % 3, number %4, number % 5
 
