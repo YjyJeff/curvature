@@ -5,3 +5,4 @@
 - `Max(arg)`: Return the maximum value present in the `arg`
 - `Sum(arg)`: Calculate the sum of the values in the `arg`
 - `Avg(arg)`: Calculate the average value in the `arg`
+- [ ] `Count(DISTINCT arg)`: Count the distinct number of non-null element produced by the `arg`

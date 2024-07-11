@@ -10,7 +10,7 @@
 - `Projection`: Select the expressions from input
 - `Filter`: Filter out rows that do not satisfy the condition
 - `Union`: Union two inputs that have same schema. It is a fake physical operator and never appears in the pipeline execution
-- [ ] `StreamingLimit`: Limit
+- `StreamingLimit`: Limit
 
 ## Sink
 - Aggregation
@@ -19,6 +19,9 @@
     - [ ] Group by i8/u8, using `[u8; 256]` as hash table
     - [ ] Group by single key, could we save the serialization time?
     - [ ] [String hash table](https://www.mdpi.com/2076-3417/10/6/1915)
+- Sort
+    - [ ] TopK: Returns the top k elements. It should support offset as well
+    - [ ] Sort: Sort all of the rows and returns it in order
 
 ## Reference
 ### Aggregation

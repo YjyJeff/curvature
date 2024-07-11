@@ -38,7 +38,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 
 const HASH_COUNT: NonZeroU64 = unsafe { NonZeroU64::new_unchecked(10000000000) };
 const SIMPLE_COUNT: NonZeroU64 = unsafe { NonZeroU64::new_unchecked(100000000000) };
-const PARALLELISM: ParallelismDegree = unsafe { ParallelismDegree::new_unchecked(16) };
+const PARALLELISM: ParallelismDegree = unsafe { ParallelismDegree::new_unchecked(10) };
 
 #[cfg(not(target_env = "msvc"))]
 #[global_allocator]

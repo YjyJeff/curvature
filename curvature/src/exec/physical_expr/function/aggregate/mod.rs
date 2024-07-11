@@ -696,7 +696,7 @@ pub trait SpecialOptionalUnaryAggregationState<PayloadArray: Array>:
     #[doc(hidden)]
     fn batch_update_dynamic<'p>(
         inner_state: Self::InnerAggStates,
-        values_iter: impl Iterator<Item = <PayloadArray::Element as Element>::ElementRef<'p>>,
+        mut values_iter: impl Iterator<Item = <PayloadArray::Element as Element>::ElementRef<'p>>,
     ) -> Result<Self::InnerAggStates> {
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         {
@@ -721,7 +721,7 @@ pub trait SpecialOptionalUnaryAggregationState<PayloadArray: Array>:
             // Note that this `unsafe` block is safe because we're testing
             // that the `neon` feature is indeed available on our CPU.
             if std::arch::is_aarch64_feature_detected!("neon") {
-                return unsafe { Self::batch_update_neon(state, values_iter) };
+                return unsafe { Self::batch_update_neon(inner_state, values_iter) };
             }
         }
 
