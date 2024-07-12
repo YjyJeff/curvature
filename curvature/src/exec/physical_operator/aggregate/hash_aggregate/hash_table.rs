@@ -203,7 +203,7 @@ impl<S: Serde> Default for HashTable<S> {
 
 /// Probing the swiss table, set the state_ptr to the ptr in the swiss table
 ///
-/// METAPHYSICS: For rust 1.76/77, inline(always) will guarantee it is inlined. Otherwise
+/// METAPHYSICS: Until rust 1.79, inline(always) will guarantee it is inlined. Otherwise
 /// when `codegen-units=1`, this function will not inlined!
 #[inline(always)]
 pub(super) fn probing_swiss_table<K: SerdeKey>(

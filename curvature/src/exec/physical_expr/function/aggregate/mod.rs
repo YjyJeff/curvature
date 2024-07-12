@@ -528,7 +528,7 @@ pub trait AggregationFunction: Function + Stringify {
     /// - `output` should match function's signature
     ///
     /// - Implementation should free the memory occupied by the state that does not in the
-    /// arena. And after take, the `states` should be a valid states for [`Self::drop_states()`]
+    /// arena
     unsafe fn take_states(
         &self,
         state_ptrs: &[AggregationStatesPtr],
@@ -693,6 +693,7 @@ pub trait SpecialOptionalUnaryAggregationState<PayloadArray: Array>:
 
     #[inline]
     #[allow(single_use_lifetimes)]
+    #[cfg_attr(any(target_arch = "x86", target_arch = "x86_64"), allow(unused_mut))]
     #[doc(hidden)]
     fn batch_update_dynamic<'p>(
         inner_state: Self::InnerAggStates,
