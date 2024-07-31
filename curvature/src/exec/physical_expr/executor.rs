@@ -178,8 +178,6 @@ impl ExprsExecutor {
 /// self-referential structure. Therefore, this context is not
 /// self-contained.  It is the users responsibility to only
 /// use the instance with the the expression that create it!
-///
-/// FIXME: Check we should profile or not dynamically
 #[derive(Debug)]
 pub struct ExprExecCtx {
     /// The data block that **children** of this expression will

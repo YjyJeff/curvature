@@ -1,28 +1,28 @@
 //! Check the input is null
 
+use std::sync::Arc;
+
 use data_block::array::ArrayImpl;
 use data_block::bitmap::Bitmap;
 use data_block::block::DataBlock;
 use data_block::compute::null::is_null;
-use data_block::types::{LogicalType, PhysicalType};
+use data_block::types::LogicalType;
 use snafu::{ensure, Snafu};
-use std::sync::Arc;
 
 use crate::common::profiler::ScopedTimerGuard;
 use crate::exec::physical_expr::constant::Constant;
-use crate::exec::physical_expr::execute_unary_child;
 
 use super::executor::ExprExecCtx;
 use super::field_ref::FieldRef;
 use super::utils::CompactExprDisplayWrapper;
-use super::{ExprResult, PhysicalExpr, Stringify};
+use super::{execute_unary_child, ExprResult, PhysicalExpr, Stringify};
 
 #[allow(missing_docs)]
 #[derive(Debug, Snafu)]
 pub enum IsNullError {
-    #[snafu(display("Input of the is_null is a boolean expression: `{expr}`, it makes no sense. Handle it in the planner/optimizer"))]
+    #[snafu(display("Input of the `is_null` expression is a boolean expression: `{expr}`, it makes no sense. Handle it in the planner/optimizer"))]
     BooleanExpr { expr: String },
-    #[snafu(display("Input of the is_null is a constant expression: `{expr}`, it makes no sense. Handle it in the planner/optimizer"))]
+    #[snafu(display("Input of the `is_null` expression is a constant expression: `{expr}`, it makes no sense. Handle it in the planner/optimizer"))]
     ConstantExpr { expr: String },
 }
 
@@ -35,18 +35,18 @@ pub struct IsNull<const NOT: bool> {
 }
 
 impl<const NOT: bool> IsNull<NOT> {
-    /// Create a new [`IsNull`]
+    /// Try to create a new [`IsNull`] expression
     pub fn try_new(input: Arc<dyn PhysicalExpr>) -> Result<Self, IsNullError> {
         Self::try_new_with_alias(input, String::new())
     }
 
-    /// Create a new [`IsNull`] with alias
+    /// Try to create a new [`IsNull`] expression with alias
     pub fn try_new_with_alias(
         input: Arc<dyn PhysicalExpr>,
         alias: String,
     ) -> Result<Self, IsNullError> {
         ensure!(
-            input.output_type().physical_type() != PhysicalType::Boolean
+            input.output_type() != &LogicalType::Boolean
                 || input.as_any().downcast_ref::<FieldRef>().is_some(),
             BooleanExprSnafu {
                 expr: CompactExprDisplayWrapper::new(&*input).to_string()
