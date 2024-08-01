@@ -15,16 +15,23 @@ use crate::exec::physical_expr::{constant::Constant, utils::CompactExprDisplayWr
 use super::executor::ExprExecCtx;
 use super::{execute_unary_child, ExprResult, PhysicalExpr, Stringify};
 
-#[allow(missing_docs)]
+/// Error returned by creating the not expression
 #[derive(Debug, Snafu)]
 pub enum NotError {
+    /// The input is not a boolean expression
     #[snafu(display("`Not` expression requires the input should be a boolean expression. However the input `{}` returns `{:?}`", expr, expr_return_type))]
     NotBooleanExpr {
+        /// Input expression
         expr: String,
+        /// Return type of the input expression
         expr_return_type: LogicalType,
     },
-    #[snafu(display("Input of the `not` expression is a constant expression: `{expr}`, it makes no sense. Handle it in the planner/optimizer"))]
-    ConstantExpr { expr: String },
+    /// Input is a constant expression
+    #[snafu(display("Input of the `not` expression is a constant expression: `{constant}`, it makes no sense. Handle it in the planner/optimizer"))]
+    ConstantExpr {
+        /// The constant expression
+        constant: String,
+    },
 }
 
 /// Not expression
@@ -54,9 +61,9 @@ impl Not {
             }
         );
 
-        if let Some(expr) = input.as_any().downcast_ref::<Constant>() {
+        if let Some(constant) = input.as_any().downcast_ref::<Constant>() {
             return ConstantExprSnafu {
-                expr: format!("{:?}", expr),
+                constant: format!("{:?}", constant),
             }
             .fail();
         }
@@ -123,7 +130,7 @@ impl PhysicalExpr for Not {
             panic!("Input array of the `NOT` expression must be `BooleanArray`")
         };
 
-        // FIXME: Maybe we only need to flip the selected bits?
+        // FIXME: Depend on the selectivity, maybe we only need to flip the selected bits
         unsafe {
             and_not_inplace(selection, array.data(), leaf_input.len());
             if selection.count_zeros() != leaf_input.len() {
@@ -132,5 +139,47 @@ impl PhysicalExpr for Not {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::exec::physical_expr::field_ref::FieldRef;
+    use data_block::array::BooleanArray;
+
+    #[test]
+    fn test_not() {
+        let input = Arc::new(FieldRef::new(0, LogicalType::Boolean, "col0".to_string()));
+
+        let not = Not::try_new(input).unwrap();
+
+        let mut exec_ctx = ExprExecCtx::new(&not);
+        let mut output = ArrayImpl::Boolean(BooleanArray::try_new(LogicalType::Boolean).unwrap());
+        let mut selection = Bitmap::new();
+
+        let leaf_input = DataBlock::try_new(
+            vec![ArrayImpl::Boolean(BooleanArray::from_iter([
+                Some(true),
+                None,
+                Some(false),
+                None,
+                None,
+                Some(true),
+                Some(true),
+                Some(false),
+                Some(false),
+            ]))],
+            9,
+        )
+        .unwrap();
+
+        not.execute(&leaf_input, &mut selection, &mut exec_ctx, &mut output)
+            .unwrap();
+
+        assert_eq!(
+            selection.iter().collect::<Vec<_>>(),
+            [false, false, true, false, false, false, false, true, true]
+        );
     }
 }

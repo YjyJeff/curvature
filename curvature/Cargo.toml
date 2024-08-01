@@ -36,7 +36,7 @@ tracing-subscriber = { workspace = true, features = ["env-filter"] }
 ctrlc = "3.4.4"
 
 [target.'cfg(not(target_env = "msvc"))'.dev-dependencies]
-tikv-jemallocator = "0.5"
+tikv-jemallocator = "0.6"
 
 [features]
 default = []
