@@ -17,7 +17,7 @@ criterion = "0.5"
 pprof = { version = "0.13.0", features = ["criterion", "flamegraph"] }
 # UNMAINTAINED
 arrow2 = { version = "0.18", features = ["benchmarks", "compute"] }
-arrow = { version = "51.0", features = ["test_utils"] }
+arrow = { version = "52.2", features = ["test_utils"] }
 libc = { workspace = true }
 num-traits = { workspace = true }
 

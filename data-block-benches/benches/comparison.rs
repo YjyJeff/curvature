@@ -79,6 +79,12 @@ where
         selection.mutate().clear();
         group.bench_function(BenchmarkId::new("DataBlock: scalar", size), |b| {
             b.iter(|| unsafe {
+                // If we add following line to disable the memory reuse, you may find that data block
+                // is slower than Arrow2. This is because we have an additional operation: perform the
+                // And operation between the selection and the dst. If we remove the And operation,
+                // data block will be faster!
+
+                // let mut dst = BooleanArray::default();
                 comparison::primitive::intrinsic::ge_scalar(&mut selection, &lhs, rhs, &mut dst);
                 selection.mutate().clear();
             });
@@ -94,13 +100,13 @@ where
         //     },
         // );
 
-        // group.bench_function(BenchmarkId::new("Arrow2: scalar", size), |b| {
-        //     b.iter(|| arrow2::compute::comparison::primitive::gt_eq_scalar(&arr_arrow2, rhs))
-        // });
+        group.bench_function(BenchmarkId::new("Arrow2: scalar", size), |b| {
+            b.iter(|| arrow2::compute::comparison::primitive::gt_eq_scalar(&arr_arrow2, rhs))
+        });
 
-        // group.bench_function(BenchmarkId::new("Arrow: scalar", size), |b| {
-        //     b.iter(|| arrow::compute::kernels::cmp::gt_eq(&arr_arrow, &arrow_rhs).unwrap())
-        // });
+        group.bench_function(BenchmarkId::new("Arrow: scalar", size), |b| {
+            b.iter(|| arrow::compute::kernels::cmp::gt_eq(&arr_arrow, &arrow_rhs).unwrap())
+        });
 
         // let mut dst = vec![false; size];
 

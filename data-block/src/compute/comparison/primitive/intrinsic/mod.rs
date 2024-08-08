@@ -644,3 +644,30 @@ fn check_timestamp_array_and_multiplier<const MULTIPLIER: i64>(array: &Primitive
         ty  => panic!("timestamp_cmp_scalar function should only be called on Int64Array that has logical type `Timestamp` or `Timestamptz`, called on array that has logical type: {:?}", ty),
     }
 }
+
+// TODO: We can hint the compiler to generate the SIMD code with following implementation.
+// It looks like the generated assembly is slower than perform SIMD manually ....
+// #[inline]
+// fn auto_vectorization<
+//     T: Copy,
+//     F: Fn(T, T) -> bool,
+//     const LANES: usize,
+//     O: num_traits::One + num_traits::Zero + std::ops::Shl<usize, Output = O> + std::ops::BitOrAssign,
+// >(
+//     lhs: [T; LANES],
+//     rhs: [T; LANES],
+//     op: F,
+// ) -> O {
+//     let mut byte = O::zero();
+//     lhs.iter()
+//         .zip(rhs.iter())
+//         .enumerate()
+//         .for_each(|(i, (lhs, rhs))| {
+//             byte |= if op(*lhs, *rhs) {
+//                 O::one() << i
+//             } else {
+//                 O::zero()
+//             };
+//         });
+//     byte
+// }
