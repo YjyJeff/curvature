@@ -43,7 +43,7 @@ crossbeam-utils = "0.8"
 lto = "fat"
 opt-level = 3
 debug = true
-# codegen-units = 1
+codegen-units = 1
 
 [profile.bench]
 debug = true
@@ -54,7 +54,6 @@ bare_urls = "deny"
 private_intra_doc_links = "deny"
 
 [workspace.lints.rust]
-rust_2018_idioms = "deny"
 missing_docs = "deny"
 missing_debug_implementations = "deny"
 single_use_lifetimes = "warn"
