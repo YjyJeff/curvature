@@ -34,6 +34,7 @@ fn hash(c: &mut Criterion) {
         })
     });
 
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     if std::arch::is_x86_feature_detected!("avx2") {
         c.bench_function("avx2-hash", |b| {
             b.iter(|| unsafe { simd_hash_avx2(&values, &mut hashes) })
