@@ -38,7 +38,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 
 const HASH_COUNT: NonZeroU64 = unsafe { NonZeroU64::new_unchecked(10000000000) };
 const SIMPLE_COUNT: NonZeroU64 = unsafe { NonZeroU64::new_unchecked(100000000000) };
-const PARALLELISM: ParallelismDegree = unsafe { ParallelismDegree::new_unchecked(10) };
+const PARALLELISM: ParallelismDegree = unsafe { ParallelismDegree::new_unchecked(16) };
 
 #[cfg(not(target_env = "msvc"))]
 #[global_allocator]
@@ -205,7 +205,7 @@ fn main() {
         "number".to_string(),
     )];
     let physical_plan: Arc<dyn PhysicalOperator> = Arc::new(
-        HashAggregate::<NonNullableFixedSizedSerdeKeySerializer<u64>>::try_new(
+        HashAggregate::<NonNullableFixedSizedSerdeKeySerializer<u32>>::try_new(
             physical_plan,
             &[
                 FieldRef::new(1, LogicalType::UnsignedTinyInt, "number % 3".to_string()),

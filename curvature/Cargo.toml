@@ -53,3 +53,7 @@ workspace = true
 [[bench]]
 name = "numbers"
 harness = false
+
+[[bench]]
+name = "hash"
+harness = false

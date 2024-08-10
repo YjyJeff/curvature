@@ -15,21 +15,6 @@ use data_block::types::{PhysicalSize, PrimitiveType};
 pub trait SerdeKey: Eq + Hash + Default + Debug + Clone + Send + Sync + 'static {
     /// Physical size of the serde key
     const PHYSICAL_SIZE: PhysicalSize;
-    /// Which SIMD instruction can be used to hash the SerdeKey
-    const HASH_SIMD: SerdeKeyHashSimd;
-}
-
-/// Which SIMD instruction can be used to hash the SerdeKey. We are using ahash to
-/// hash the key, neon does not support it
-#[derive(Debug, PartialEq, Eq)]
-#[repr(u8)]
-pub enum SerdeKeyHashSimd {
-    /// AVX2
-    AVX2,
-    /// AVX512
-    AVX512,
-    /// Can not use SIMD instruction to hash the serde key
-    NONE,
 }
 
 /// Trait for serialize the `GroupByKeys` into `SerdeKey` and compute hash
@@ -76,33 +61,30 @@ pub trait Serde: Debug + 'static {
 #[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
 pub struct FixedSizedSerdeKey<K: Eq + Hash + Default + Clone + Debug + 'static> {
     key: K,
-    /// TODO: For `u128` and `[u8; 32]`, the validity should be u128 to satisfy the SIMD
     validity: BitStore,
 }
 
 macro_rules! for_all_fixed_sized_serde_key {
     ($macro:ident) => {
         $macro! {
-            <u16, SerdeKeyHashSimd::AVX2, SerdeKeyHashSimd::AVX2, {Int8, i8}, {UInt8, u8}>,
-            <u32, SerdeKeyHashSimd::AVX2, SerdeKeyHashSimd::AVX2, {Int8, i8}, {UInt8, u8}, {Int16, i16}, {UInt16, u16}>,
-            <u64, SerdeKeyHashSimd::AVX2, SerdeKeyHashSimd::AVX512, {Int8, i8}, {UInt8, u8}, {Int16, i16}, {UInt16, u16}, {Int32, i32}, {UInt32, u32}, {Float32, f32}>,
-            <u128, SerdeKeyHashSimd::AVX512, SerdeKeyHashSimd::AVX512, {Int8, i8}, {UInt8, u8}, {Int16, i16}, {UInt16, u16}, {Int32, i32}, {UInt32, u32}, {Int64, i64}, {UInt64, u64}, {Float32, f32}, {Float64, f64}>,
-            <[u8; 32], SerdeKeyHashSimd::AVX512, SerdeKeyHashSimd::AVX512, {Int8, i8}, {UInt8, u8}, {Int16, i16}, {UInt16, u16}, {Int32, i32}, {UInt32, u32}, {Int64, i64}, {UInt64, u64}, {Int128, i128}, {Float32, f32}, {Float64, f64}>
+            <u16, {Int8, i8}, {UInt8, u8}>,
+            <u32, {Int8, i8}, {UInt8, u8}, {Int16, i16}, {UInt16, u16}>,
+            <u64, {Int8, i8}, {UInt8, u8}, {Int16, i16}, {UInt16, u16}, {Int32, i32}, {UInt32, u32}, {Float32, f32}>,
+            <u128, {Int8, i8}, {UInt8, u8}, {Int16, i16}, {UInt16, u16}, {Int32, i32}, {UInt32, u32}, {Int64, i64}, {UInt64, u64}, {Float32, f32}, {Float64, f64}>,
+            <[u8; 32], {Int8, i8}, {UInt8, u8}, {Int16, i16}, {UInt16, u16}, {Int32, i32}, {UInt32, u32}, {Int64, i64}, {UInt64, u64}, {Int128, i128}, {Float32, f32}, {Float64, f64}>
         }
     };
 }
 
 macro_rules! impl_fixed_sized_serde_key {
-    ($(<$ty:ty, $hash_simd_nullable:expr, $hash_simd:expr, $({$_:ident, $__:ty}),+>),+) => {
+    ($(<$ty:ty, $({$_:ident, $__:ty}),+>),+) => {
         $(
             impl SerdeKey for FixedSizedSerdeKey<$ty> {
                 const PHYSICAL_SIZE: PhysicalSize = PhysicalSize::Fixed(mem::size_of::<$ty>());
-                const HASH_SIMD: SerdeKeyHashSimd = $hash_simd_nullable;
             }
 
             impl SerdeKey for $ty {
                 const PHYSICAL_SIZE: PhysicalSize = PhysicalSize::Fixed(mem::size_of::<$ty>());
-                const HASH_SIMD: SerdeKeyHashSimd = $hash_simd;
             }
         )+
     };
@@ -112,8 +94,6 @@ for_all_fixed_sized_serde_key!(impl_fixed_sized_serde_key);
 
 macro_rules! impl_fixed_sized_serde_key_serializer {
     ($(<$serde_key_ty:ty,
-        $_: expr,
-        $__: expr,
         $({$variant:ident, $primitive_ty:ty}),+
     >),+) => {
         $(
@@ -362,7 +342,6 @@ unsafe fn deserialize_non_nullable_fsa_from_fsk<A, T, K>(
 
 impl SerdeKey for Vec<u8> {
     const PHYSICAL_SIZE: PhysicalSize = PhysicalSize::Variable;
-    const HASH_SIMD: SerdeKeyHashSimd = SerdeKeyHashSimd::NONE;
 }
 
 /// Serializer that can serialize all of the arrays that contains null. It will serialize
