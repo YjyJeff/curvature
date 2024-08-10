@@ -7,7 +7,7 @@ Note that Curvature only has the execution layer, for the following queries, we 
 | SELECT count(*) FROM numbers_mt(100000000000) where number % 4 != 0 |  dev cloud 16-threads | 8.7s  | 4.1s |
 | SELECT count(number),max(number),min(number) FROM numbers_mt(100000000000) where number % 4 != 0 |  dev cloud 16-threads | 9.9s  | 11.2s |
 | SELECT avg(number), max(number), sum(number) FROM numbers_mt(100000000000) |  dev cloud 16-threads | 2.4s | 3.9s |
-| SELECT max(number), sum(number), avg(number) FROM numbers_mt(10000000000) GROUP BY number % 3, number % 4, number % 5|  dev cloud  16-threads |  6.3s | 5.5s |
+| SELECT max(number), sum(number), avg(number) FROM numbers_mt(10000000000) GROUP BY number % 3, number % 4, number % 5|  dev cloud  16-threads |  6.0s | 5.5s |
 | SELECT count(number) FROM numbers_mt(100000000000) where number % 4 != 0 | mac m1  10-threads | 11.2s  | 20.1s |
 | SELECT count(*) FROM numbers_mt(100000000000) where number % 4 != 0 | mac m1  10-threads | 11.2s  | 10.3s |
 | SELECT count(number),max(number),min(number) FROM numbers_mt(100000000000) where number % 4 != 0 |  mac m1 10-threads | 13.8s  | 22.4s |
