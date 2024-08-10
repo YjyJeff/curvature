@@ -10,7 +10,7 @@ use crate::bitmap::Bitmap;
 /// - `array` and `selection` should have same length. Otherwise, undefined behavior happens
 ///
 /// - No other arrays that reference the `dst`'s data and validity are accessed! In the
-/// computation graph, it will never happens
+///   computation graph, it will never happens
 pub unsafe fn filter<A: Array>(selection: &Bitmap, array: &A, dst: &mut A) {
     debug_assert_eq!(selection.len(), array.len());
 

@@ -127,10 +127,10 @@ crate::dynamic_func!(
 /// # Safety
 ///
 /// - `lhs`/`rhs`'s data and validity should not reference `dst`'s data and validity. In the computation
-/// graph, `lhs`/`rhs` must be the descendant of `dst`
+///   graph, `lhs`/`rhs` must be the descendant of `dst`
 ///
 /// - No other arrays that reference the `dst`'s data and validity are accessed! In the
-/// computation graph, it will never happens
+///   computation graph, it will never happens
 pub unsafe fn and(lhs: &BooleanArray, rhs: &BooleanArray, dst: &mut BooleanArray) {
     debug_assert_eq!(lhs.len(), rhs.len());
     if lhs.validity.count_zeros() == 0 && rhs.validity.count_zeros() == 0 {
@@ -169,10 +169,10 @@ pub unsafe fn and(lhs: &BooleanArray, rhs: &BooleanArray, dst: &mut BooleanArray
 /// # Safety
 ///
 /// - `lhs`/`rhs`'s data and validity should not reference `dst`'s data and validity. In the computation
-/// graph, `lhs`/`rhs` must be the descendant of `dst`
+///   graph, `lhs`/`rhs` must be the descendant of `dst`
 ///
 /// - No other arrays that reference the `dst`'s data and validity are accessed! In the
-/// computation graph, it will never happens
+///   computation graph, it will never happens
 pub unsafe fn or(lhs: &BooleanArray, rhs: &BooleanArray, dst: &mut BooleanArray) {
     debug_assert_eq!(lhs.len(), rhs.len());
 
@@ -216,10 +216,10 @@ pub unsafe fn or(lhs: &BooleanArray, rhs: &BooleanArray, dst: &mut BooleanArray)
 /// # Safety
 ///
 /// - `lhs`/`rhs`'s data and validity should not reference `dst`'s data and validity. In the computation
-/// graph, `lhs`/`rhs` must be the descendant of `dst`
+///   graph, `lhs`/`rhs` must be the descendant of `dst`
 ///
 /// - No other arrays that reference the `dst`'s data and validity are accessed! In the
-/// computation graph, it will never happens
+///   computation graph, it will never happens
 pub unsafe fn xor(lhs: &BooleanArray, rhs: &BooleanArray, dst: &mut BooleanArray) {
     debug_assert_eq!(lhs.len(), rhs.len());
 
@@ -236,10 +236,10 @@ pub unsafe fn xor(lhs: &BooleanArray, rhs: &BooleanArray, dst: &mut BooleanArray
 /// # Safety
 ///
 /// - `lhs` data and validity should not reference `dst`'s data and validity. In the computation
-/// graph, `lhs` must be the descendant of `dst`
+///   graph, `lhs` must be the descendant of `dst`
 ///
 /// - No other arrays that reference the `dst`'s data and validity are accessed! In the
-/// computation graph, it will never happens
+///   computation graph, it will never happens
 pub unsafe fn and_scalar(lhs: &BooleanArray, rhs: bool, dst: &mut BooleanArray) {
     if rhs {
         dst.reference(lhs)
@@ -260,10 +260,10 @@ pub unsafe fn and_scalar(lhs: &BooleanArray, rhs: bool, dst: &mut BooleanArray) 
 /// # Safety
 ///
 /// - `lhs` data and validity should not reference `dst`'s data and validity. In the computation
-/// graph, `lhs` must be the descendant of `dst`
+///   graph, `lhs` must be the descendant of `dst`
 ///
 /// - No other arrays that reference the `dst`'s data and validity are accessed! In the
-/// computation graph, it will never happens
+///   computation graph, it will never happens
 pub unsafe fn or_scalar(lhs: &BooleanArray, rhs: bool, dst: &mut BooleanArray) {
     if rhs {
         dst.validity.reference(&lhs.validity);
@@ -300,10 +300,10 @@ crate::dynamic_func!(
 /// # Safety
 ///
 /// - `lhs` data and validity should not reference `dst`'s data and validity. In the computation
-/// graph, `lhs` must be the descendant of `dst`
+///   graph, `lhs` must be the descendant of `dst`
 ///
 /// - No other arrays that reference the `dst`'s data and validity are accessed! In the
-/// computation graph, it will never happens
+///   computation graph, it will never happens
 pub unsafe fn not(array: &BooleanArray, dst: &mut BooleanArray) {
     dst.validity.reference(&array.validity);
     not_bitmap_dynamic(

@@ -34,7 +34,7 @@ pub struct Constant {
 /// SAFETY:
 ///
 /// - The constant array is not referenced by any array and it does
-/// no reference other array. It is the unique owner of the memory
+///   no reference other array. It is the unique owner of the memory
 ///
 /// - It is read only
 unsafe impl Send for Constant {}

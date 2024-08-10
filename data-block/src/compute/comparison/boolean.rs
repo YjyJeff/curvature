@@ -12,7 +12,7 @@ use crate::compute::logical::{
 /// # Safety
 ///
 /// - If the `selection` is not empty, `array` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn eq_scalar(selection: &mut Bitmap, array: &BooleanArray, scalar: bool) {
@@ -31,7 +31,7 @@ pub unsafe fn eq_scalar(selection: &mut Bitmap, array: &BooleanArray, scalar: bo
 /// # Safety
 ///
 /// - If the `selection` is not empty, `array` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn ne_scalar(selection: &mut Bitmap, array: &BooleanArray, scalar: bool) {
@@ -51,7 +51,7 @@ pub unsafe fn ne_scalar(selection: &mut Bitmap, array: &BooleanArray, scalar: bo
 /// # Safety
 ///
 /// - If the `selection` is not empty, `array` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn gt_scalar(selection: &mut Bitmap, array: &BooleanArray, scalar: bool) {
@@ -76,7 +76,7 @@ pub unsafe fn gt_scalar(selection: &mut Bitmap, array: &BooleanArray, scalar: bo
 /// # Safety
 ///
 /// - If the `selection` is not empty, `array` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn ge_scalar(selection: &mut Bitmap, array: &BooleanArray, scalar: bool) {
@@ -93,7 +93,7 @@ pub unsafe fn ge_scalar(selection: &mut Bitmap, array: &BooleanArray, scalar: bo
 /// # Safety
 ///
 /// - If the `selection` is not empty, `array` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn lt_scalar(selection: &mut Bitmap, array: &BooleanArray, scalar: bool) {
@@ -118,7 +118,7 @@ pub unsafe fn lt_scalar(selection: &mut Bitmap, array: &BooleanArray, scalar: bo
 /// # Safety
 ///
 /// - If the `selection` is not empty, `array` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn le_scalar(selection: &mut Bitmap, array: &BooleanArray, scalar: bool) {
@@ -159,7 +159,7 @@ unsafe fn cmp(
 /// # Safety
 ///
 /// - If the `selection` is not empty, `array` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn eq(
@@ -176,7 +176,7 @@ pub unsafe fn eq(
 /// # Safety
 ///
 /// - If the `selection` is not empty, `array` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn ne(
@@ -193,7 +193,7 @@ pub unsafe fn ne(
 /// # Safety
 ///
 /// - If the `selection` is not empty, `array` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn gt(
@@ -210,7 +210,7 @@ pub unsafe fn gt(
 /// # Safety
 ///
 /// - If the `selection` is not empty, `array` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn ge(
@@ -227,7 +227,7 @@ pub unsafe fn ge(
 /// # Safety
 ///
 /// - If the `selection` is not empty, `array` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn lt(
@@ -244,7 +244,7 @@ pub unsafe fn lt(
 /// # Safety
 ///
 /// - If the `selection` is not empty, `array` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn le(

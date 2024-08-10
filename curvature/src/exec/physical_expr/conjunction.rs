@@ -67,7 +67,7 @@ impl<const IS_AND: bool> Conjunction<IS_AND> {
     /// - We can efficiently reorder the expressions dynamically if the inputs is flattened
     ///
     /// - It is the planner/optimizers responsibility to flatten the inputs. The [`Conjunction`]
-    /// only execute it efficiently
+    ///   only execute it efficiently
     pub fn try_new(inputs: Vec<Arc<dyn PhysicalExpr>>) -> Result<Self, ConjunctionError> {
         Self::try_new_with_alias(inputs, String::new())
     }
@@ -82,7 +82,7 @@ impl<const IS_AND: bool> Conjunction<IS_AND> {
     /// - We can efficiently reorder the expressions dynamically if the inputs is flattened
     ///
     /// - It is the planner/optimizers responsibility to flatten the inputs. The [`Conjunction`]
-    /// only execute it efficiently
+    ///   only execute it efficiently
     pub fn try_new_with_alias(
         inputs: Vec<Arc<dyn PhysicalExpr>>,
         alias: String,

@@ -121,7 +121,7 @@ pub trait PhysicalOperator: Send + Sync + Stringify + 'static {
     /// - output should match the operator's [`Self::output_types()`]
     ///
     /// - The global and local state should be created with [`Self::global_operator_state()`]/
-    /// [`Self::local_operator_state()`] methods.
+    ///   [`Self::local_operator_state()`] methods.
     ///
     /// [PipelineExecutor]: crate::exec::pipeline::PipelineExecutor
     fn execute(
@@ -172,7 +172,7 @@ pub trait PhysicalOperator: Send + Sync + Stringify + 'static {
     /// - output should match the operator's [`Self::output_types()`]
     ///
     /// - The global and local state should be created with [`Self::global_source_state()`]/
-    /// [`Self::local_source_state()`] methods.
+    ///   [`Self::local_source_state()`] methods.
     ///
     /// [PipelineExecutor]: crate::exec::pipeline::PipelineExecutor
     ///
@@ -213,8 +213,8 @@ pub trait PhysicalOperator: Send + Sync + Stringify + 'static {
     /// - If the source does not support progress, return negative number
     ///
     /// - The returned value represents the progress the morsel have been assigned
-    /// to execute, which is almost equivalent to the progress the source has been
-    /// processed because we assume executing the morsel is fast
+    ///   to execute, which is almost equivalent to the progress the source has been
+    ///   processed because we assume executing the morsel is fast
     fn progress(&self, global_state: &dyn GlobalSourceState) -> f64;
 
     // Sink operator methods
@@ -230,7 +230,7 @@ pub trait PhysicalOperator: Send + Sync + Stringify + 'static {
     /// [PipelineExecutor] should guarantee following invariants, otherwise implementation will panic:
     ///
     /// - The global and local state should be created with [`Self::global_sink_state()`]/
-    /// [`Self::local_sink_state()`] methods.
+    ///   [`Self::local_sink_state()`] methods.
     ///
     /// [PipelineExecutor]: crate::exec::pipeline::PipelineExecutor
     ///

@@ -2,7 +2,7 @@
 //!
 //! Relationships:
 //!
-//! - [`AllocType`] is the superset of the [`PrimitiveType`], actually they are the same.
+//! [`AllocType`] is the superset of the [`PrimitiveType`], actually they are the same.
 //! [`IntrinsicType`] is the subset of the [`PrimitiveType`], types implement the
 //! [`IntrinsicType`] can use SIDM to perform acceleration.
 

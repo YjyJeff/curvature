@@ -44,7 +44,7 @@ unsafe fn cmp_scalar<A: Array, F>(
 /// # Safety
 ///
 /// - If the `selection` is not empty, `array` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn eq_scalar<A: Array>(
@@ -63,7 +63,7 @@ pub unsafe fn eq_scalar<A: Array>(
 /// # Safety
 ///
 /// - If the `selection` is not empty, `array` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn ne_scalar<A: Array>(
@@ -82,7 +82,7 @@ pub unsafe fn ne_scalar<A: Array>(
 /// # Safety
 ///
 /// - If the `selection` is not empty, `array` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn gt_scalar<A: Array>(
@@ -101,7 +101,7 @@ pub unsafe fn gt_scalar<A: Array>(
 /// # Safety
 ///
 /// - If the `selection` is not empty, `array` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn ge_scalar<A: Array>(
@@ -120,7 +120,7 @@ pub unsafe fn ge_scalar<A: Array>(
 /// # Safety
 ///
 /// - If the `selection` is not empty, `array` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn lt_scalar<A: Array>(
@@ -139,7 +139,7 @@ pub unsafe fn lt_scalar<A: Array>(
 /// # Safety
 ///
 /// - If the `selection` is not empty, `array` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn le_scalar<A: Array>(
@@ -276,7 +276,7 @@ where
 /// # Safety
 ///
 /// - If the `selection` is not empty, `array` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn eq<A: Array>(selection: &mut Bitmap, lhs: &A, rhs: &A)
@@ -292,7 +292,7 @@ where
 /// # Safety
 ///
 /// - If the `selection` is not empty, `array` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn ne<A: Array>(selection: &mut Bitmap, lhs: &A, rhs: &A)
@@ -308,7 +308,7 @@ where
 /// # Safety
 ///
 /// - If the `selection` is not empty, `array` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn gt<A: Array>(selection: &mut Bitmap, lhs: &A, rhs: &A)
@@ -324,7 +324,7 @@ where
 /// # Safety
 ///
 /// - If the `selection` is not empty, `array` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn ge<A: Array>(selection: &mut Bitmap, lhs: &A, rhs: &A)
@@ -340,7 +340,7 @@ where
 /// # Safety
 ///
 /// - If the `selection` is not empty, `array` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn lt<A: Array>(selection: &mut Bitmap, lhs: &A, rhs: &A)
@@ -356,7 +356,7 @@ where
 /// # Safety
 ///
 /// - If the `selection` is not empty, `array` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn le<A: Array>(selection: &mut Bitmap, lhs: &A, rhs: &A)

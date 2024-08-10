@@ -143,15 +143,15 @@ impl NonIntrinsicPrimitiveType for i128 {
 /// # Safety
 ///
 /// - If the `selection` is not empty, `array` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 ///
 /// - `array`'s data and validity should not reference `dst`'s data and validity. In the computation
-/// graph, `lhs` must be the descendant of `dst`
+///   graph, `lhs` must be the descendant of `dst`
 ///
 /// - No other arrays that reference the `dst`'s data and validity are accessed! In the
-/// computation graph, it will never happens
+///   computation graph, it will never happens
 pub unsafe fn eq_scalar<T>(
     selection: &mut Bitmap,
     array: &PrimitiveArray<T>,
@@ -176,15 +176,15 @@ pub unsafe fn eq_scalar<T>(
 /// # Safety
 ///
 /// - If the `selection` is not empty, `array` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 ///
 /// - `array`'s data and validity should not reference `dst`'s data and validity. In the computation
-/// graph, `lhs` must be the descendant of `dst`
+///   graph, `lhs` must be the descendant of `dst`
 ///
 /// - No other arrays that reference the `dst`'s data and validity are accessed! In the
-/// computation graph, it will never happens
+///   computation graph, it will never happens
 pub unsafe fn ne_scalar<T>(
     selection: &mut Bitmap,
     array: &PrimitiveArray<T>,
@@ -209,15 +209,15 @@ pub unsafe fn ne_scalar<T>(
 /// # Safety
 ///
 /// - If the `selection` is not empty, `array` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 ///
 /// - `array`'s data and validity should not reference `dst`'s data and validity. In the computation
-/// graph, `lhs` must be the descendant of `dst`
+///   graph, `lhs` must be the descendant of `dst`
 ///
 /// - No other arrays that reference the `dst`'s data and validity are accessed! In the
-/// computation graph, it will never happens
+///   computation graph, it will never happens
 pub unsafe fn gt_scalar<T>(
     selection: &mut Bitmap,
     array: &PrimitiveArray<T>,
@@ -242,15 +242,15 @@ pub unsafe fn gt_scalar<T>(
 /// # Safety
 ///
 /// - If the `selection` is not empty, `array` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 ///
 /// - `array`'s data and validity should not reference `dst`'s data and validity. In the computation
-/// graph, `lhs` must be the descendant of `dst`
+///   graph, `lhs` must be the descendant of `dst`
 ///
 /// - No other arrays that reference the `dst`'s data and validity are accessed! In the
-/// computation graph, it will never happens
+///   computation graph, it will never happens
 pub unsafe fn ge_scalar<T>(
     selection: &mut Bitmap,
     array: &PrimitiveArray<T>,
@@ -275,15 +275,15 @@ pub unsafe fn ge_scalar<T>(
 /// # Safety
 ///
 /// - If the `selection` is not empty, `array` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 ///
 /// - `array`'s data and validity should not reference `dst`'s data and validity. In the computation
-/// graph, `lhs` must be the descendant of `dst`
+///   graph, `lhs` must be the descendant of `dst`
 ///
 /// - No other arrays that reference the `dst`'s data and validity are accessed! In the
-/// computation graph, it will never happens
+///   computation graph, it will never happens
 pub unsafe fn lt_scalar<T>(
     selection: &mut Bitmap,
     array: &PrimitiveArray<T>,
@@ -308,15 +308,15 @@ pub unsafe fn lt_scalar<T>(
 /// # Safety
 ///
 /// - If the `selection` is not empty, `array` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 ///
 /// - `array`'s data and validity should not reference `dst`'s data and validity. In the computation
-/// graph, `lhs` must be the descendant of `dst`
+///   graph, `lhs` must be the descendant of `dst`
 ///
 /// - No other arrays that reference the `dst`'s data and validity are accessed! In the
-/// computation graph, it will never happens
+///   computation graph, it will never happens
 pub unsafe fn le_scalar<T>(
     selection: &mut Bitmap,
     array: &PrimitiveArray<T>,
@@ -341,15 +341,15 @@ pub unsafe fn le_scalar<T>(
 /// # Safety
 ///
 /// - If the `selection` is not empty, `lhs`/`rhs` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 ///
 /// - `lhs`/`rhs`'s data and validity should not reference `temp`'s data and validity. In the computation
-/// graph, `lhs`/`rhs` must be the descendant of `temp`
+///   graph, `lhs`/`rhs` must be the descendant of `temp`
 ///
 /// - No other arrays that reference the `temp`'s data and validity are accessed! In the
-/// computation graph, it will never happens
+///   computation graph, it will never happens
 pub unsafe fn eq<T>(
     selection: &mut Bitmap,
     lhs: &PrimitiveArray<T>,
@@ -374,15 +374,15 @@ pub unsafe fn eq<T>(
 /// # Safety
 ///
 /// - If the `selection` is not empty, `lhs`/`rhs` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 ///
 /// - `lhs`/`rhs`'s data and validity should not reference `temp`'s data and validity. In the computation
-/// graph, `lhs`/`rhs` must be the descendant of `temp`
+///   graph, `lhs`/`rhs` must be the descendant of `temp`
 ///
 /// - No other arrays that reference the `temp`'s data and validity are accessed! In the
-/// computation graph, it will never happens
+///   computation graph, it will never happens
 pub unsafe fn ne<T>(
     selection: &mut Bitmap,
     lhs: &PrimitiveArray<T>,
@@ -407,15 +407,15 @@ pub unsafe fn ne<T>(
 /// # Safety
 ///
 /// - If the `selection` is not empty, `lhs`/`rhs` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 ///
 /// - `lhs`/`rhs`'s data and validity should not reference `temp`'s data and validity. In the computation
-/// graph, `lhs`/`rhs` must be the descendant of `temp`
+///   graph, `lhs`/`rhs` must be the descendant of `temp`
 ///
 /// - No other arrays that reference the `temp`'s data and validity are accessed! In the
-/// computation graph, it will never happens
+///   computation graph, it will never happens
 pub unsafe fn gt<T>(
     selection: &mut Bitmap,
     lhs: &PrimitiveArray<T>,
@@ -440,15 +440,15 @@ pub unsafe fn gt<T>(
 /// # Safety
 ///
 /// - If the `selection` is not empty, `lhs`/`rhs` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 ///
 /// - `lhs`/`rhs`'s data and validity should not reference `temp`'s data and validity. In the computation
-/// graph, `lhs`/`rhs` must be the descendant of `temp`
+///   graph, `lhs`/`rhs` must be the descendant of `temp`
 ///
 /// - No other arrays that reference the `temp`'s data and validity are accessed! In the
-/// computation graph, it will never happens
+///   computation graph, it will never happens
 pub unsafe fn ge<T>(
     selection: &mut Bitmap,
     lhs: &PrimitiveArray<T>,
@@ -473,15 +473,15 @@ pub unsafe fn ge<T>(
 /// # Safety
 ///
 /// - If the `selection` is not empty, `lhs`/`rhs` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 ///
 /// - `lhs`/`rhs`'s data and validity should not reference `temp`'s data and validity. In the computation
-/// graph, `lhs`/`rhs` must be the descendant of `temp`
+///   graph, `lhs`/`rhs` must be the descendant of `temp`
 ///
 /// - No other arrays that reference the `temp`'s data and validity are accessed! In the
-/// computation graph, it will never happens
+///   computation graph, it will never happens
 pub unsafe fn lt<T>(
     selection: &mut Bitmap,
     lhs: &PrimitiveArray<T>,
@@ -506,15 +506,15 @@ pub unsafe fn lt<T>(
 /// # Safety
 ///
 /// - If the `selection` is not empty, `lhs`/`rhs` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 ///
 /// - `lhs`/`rhs`'s data and validity should not reference `temp`'s data and validity. In the computation
-/// graph, `lhs`/`rhs` must be the descendant of `temp`
+///   graph, `lhs`/`rhs` must be the descendant of `temp`
 ///
 /// - No other arrays that reference the `temp`'s data and validity are accessed! In the
-/// computation graph, it will never happens
+///   computation graph, it will never happens
 pub unsafe fn le<T>(
     selection: &mut Bitmap,
     lhs: &PrimitiveArray<T>,

@@ -256,7 +256,7 @@ pub trait Array: Sealed + Debug + 'static + Sized {
     /// # Safety
     ///
     /// - If the `selection` is not empty, `source` and `selection` should have same length.
-    /// Otherwise, undefined behavior happens
+    ///   Otherwise, undefined behavior happens
     ///
     /// - `selection` should not be referenced by any array
     unsafe fn filter(&mut self, selection: &Bitmap, source: &Self) {
@@ -452,7 +452,7 @@ macro_rules! array_impl {
             /// # Safety
             ///
             /// - If the `selection` is not empty, `source` and `selection` should have same length.
-            /// Otherwise, undefined behavior happens
+            ///   Otherwise, undefined behavior happens
             ///
             /// - `selection` should not be referenced by any array
             pub unsafe fn filter(&mut self, selection: &Bitmap, source: &Self) -> Result<()> {

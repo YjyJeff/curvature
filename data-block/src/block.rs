@@ -46,8 +46,8 @@ pub struct DataBlock {
     /// - `FlatArray`: array with length > 1
     ///
     /// - `ConstantArray`: array with length = 1. It is physically represented as a
-    /// `FlatArray` with length = 1. It represents all of the elements in the
-    /// array has same value. It can represent array with any length
+    ///   `FlatArray` with length = 1. It represents all of the elements in the
+    ///   array has same value. It can represent array with any length
     ///
     /// All of the `FlatArray`s must have length equal to `self.length`
     arrays: Vec<ArrayImpl>,
@@ -157,8 +157,8 @@ impl DataBlock {
     /// - The data block should only has single array
     ///
     /// - Before mutation, the length of the array after mutation is know. Caller should
-    /// guarantee if the array after mutation is a `FlatArray`, it should have same length
-    /// with the specified `length` argument
+    ///   guarantee if the array after mutation is a `FlatArray`, it should have same length
+    ///   with the specified `length` argument
     #[inline]
     pub fn mutate_single_array(&mut self, length: usize) -> MutateArrayGuard<'_> {
         debug_assert_eq!(self.num_arrays(), 1);
@@ -215,7 +215,7 @@ impl DataBlock {
     /// # Safety
     ///
     /// - If the `selection` is not empty, `source` and `selection` should have same length.
-    /// Otherwise, undefined behavior happens
+    ///   Otherwise, undefined behavior happens
     ///
     /// - If the `selection` is not empty, its count_ones must equal to length
     ///

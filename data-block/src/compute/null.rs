@@ -12,7 +12,7 @@ use crate::bitmap::{BitStore, Bitmap};
 /// # Safety
 ///
 /// - If the `selection` is not empty, `array` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn is_null<const NOT: bool>(selection: &mut Bitmap, array: &ArrayImpl) {

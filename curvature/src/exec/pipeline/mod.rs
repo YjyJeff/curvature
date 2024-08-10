@@ -109,19 +109,19 @@ impl SinkTrait for Sink {
 /// two kinds of pipelines:
 ///
 /// - with sink: It is a child pipeline(pipeline with parent). We use the `sink operator`
-/// to represent it
+///   to represent it
 ///
 /// - without sink: It is the root pipeline(pipeline without parent). We use the `()` type
-/// to represent it
+///   to represent it
 ///
 /// As you can see, we can wrap the `Sink` type with [`Option`] to represent these two
 /// kinds of pipelines, why do we use generic here? The advantages of generic:
 ///
 /// - Separate these two pipelines with different types, avoid mixing them in the compiler
-/// stage(in static)
+///   stage(in static)
 ///
 /// - Different kinds of pipelines have different executors, we can avoid calling the
-/// sink methods for the pipeline without sink in the compiler stage(in static)
+///   sink methods for the pipeline without sink in the compiler stage(in static)
 #[derive(Debug)]
 pub struct Pipeline<S> {
     /// Source of the pipeline

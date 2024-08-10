@@ -68,7 +68,7 @@ where
 /// # Safety
 ///
 /// - If the `selection` is not empty, `array` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn eq_scalar(selection: &mut Bitmap, array: &StringArray, scalar: StringView<'_>) {
@@ -82,7 +82,7 @@ pub unsafe fn eq_scalar(selection: &mut Bitmap, array: &StringArray, scalar: Str
 /// # Safety
 ///
 /// - If the `selection` is not empty, `array` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn ne_scalar(selection: &mut Bitmap, array: &StringArray, scalar: StringView<'_>) {
@@ -96,7 +96,7 @@ pub unsafe fn ne_scalar(selection: &mut Bitmap, array: &StringArray, scalar: Str
 /// # Safety
 ///
 /// - If the `selection` is not empty, `array` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn gt_scalar(selection: &mut Bitmap, array: &StringArray, scalar: StringView<'_>) {
@@ -108,7 +108,7 @@ pub unsafe fn gt_scalar(selection: &mut Bitmap, array: &StringArray, scalar: Str
 /// # Safety
 ///
 /// - If the `selection` is not empty, `array` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn ge_scalar(selection: &mut Bitmap, array: &StringArray, scalar: StringView<'_>) {
@@ -122,7 +122,7 @@ pub unsafe fn ge_scalar(selection: &mut Bitmap, array: &StringArray, scalar: Str
 /// # Safety
 ///
 /// - If the `selection` is not empty, `array` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn lt_scalar(selection: &mut Bitmap, array: &StringArray, scalar: StringView<'_>) {
@@ -134,7 +134,7 @@ pub unsafe fn lt_scalar(selection: &mut Bitmap, array: &StringArray, scalar: Str
 /// # Safety
 ///
 /// - If the `selection` is not empty, `array` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn le_scalar(selection: &mut Bitmap, array: &StringArray, scalar: StringView<'_>) {
@@ -148,7 +148,7 @@ pub unsafe fn le_scalar(selection: &mut Bitmap, array: &StringArray, scalar: Str
 /// # Safety
 ///
 /// - If the `selection` is not empty, `array` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn eq(selection: &mut Bitmap, lhs: &StringArray, rhs: &StringArray) {
@@ -160,7 +160,7 @@ pub unsafe fn eq(selection: &mut Bitmap, lhs: &StringArray, rhs: &StringArray) {
 /// # Safety
 ///
 /// - If the `selection` is not empty, `array` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn ne(selection: &mut Bitmap, lhs: &StringArray, rhs: &StringArray) {
@@ -172,7 +172,7 @@ pub unsafe fn ne(selection: &mut Bitmap, lhs: &StringArray, rhs: &StringArray) {
 /// # Safety
 ///
 /// - If the `selection` is not empty, `array` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn gt(selection: &mut Bitmap, lhs: &StringArray, rhs: &StringArray) {
@@ -184,7 +184,7 @@ pub unsafe fn gt(selection: &mut Bitmap, lhs: &StringArray, rhs: &StringArray) {
 /// # Safety
 ///
 /// - If the `selection` is not empty, `array` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn ge(selection: &mut Bitmap, lhs: &StringArray, rhs: &StringArray) {
@@ -196,7 +196,7 @@ pub unsafe fn ge(selection: &mut Bitmap, lhs: &StringArray, rhs: &StringArray) {
 /// # Safety
 ///
 /// - If the `selection` is not empty, `array` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn lt(selection: &mut Bitmap, lhs: &StringArray, rhs: &StringArray) {
@@ -208,7 +208,7 @@ pub unsafe fn lt(selection: &mut Bitmap, lhs: &StringArray, rhs: &StringArray) {
 /// # Safety
 ///
 /// - If the `selection` is not empty, `array` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn le(selection: &mut Bitmap, lhs: &StringArray, rhs: &StringArray) {

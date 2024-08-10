@@ -42,7 +42,7 @@ pub trait Serde: Debug + 'static {
     /// # Safety
     ///
     /// - Arrays should fit into Self::SerdeKey, otherwise, panic in debug mode and
-    /// undefined behavior happens in release mode
+    ///   undefined behavior happens in release mode
     ///
     /// - keys should have same length with the array in the arrays
     unsafe fn serialize(arrays: &[&ArrayImpl], keys: &mut [Self::SerdeKey]);
@@ -52,7 +52,7 @@ pub trait Serde: Debug + 'static {
     /// # Safety
     ///
     /// - Arrays should fit into Self::SerdeKey, otherwise, panic in debug mode and
-    /// undefined behavior happens in release mode
+    ///   undefined behavior happens in release mode
     ///
     /// - The output arrays should have same logical types with the serialized `GroupByKeys`
     unsafe fn deserialize(arrays: &mut [ArrayImpl], keys: &[Self::SerdeKey]);
@@ -65,8 +65,8 @@ pub trait Serde: Debug + 'static {
 /// # Notes
 ///
 /// - The keys stored in the serde key is **not aligned**! Deserializer should take care of
-/// it! We design it this way because: We hope the key is as small as possible such that
-/// we can serialize more cases into the it!
+///   it! We design it this way because: We hope the key is as small as possible such that
+///   we can serialize more cases into the it!
 ///
 /// - It can hold up to 32 keys, therefore, we use [`BitStore`] as its validity.
 ///

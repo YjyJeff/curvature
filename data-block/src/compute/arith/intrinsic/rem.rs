@@ -190,13 +190,13 @@ fn rem_scalar_func<T: RemExt, U: RemCast<T>>(lhs: T, rhs: T::Remainder) -> U {
 /// # Safety
 ///
 /// - If the `selection` is not empty, `array` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `lhs` data and validity should not reference `dst`'s data and validity. In the computation
-/// graph, `lhs` must be the descendant of `dst`
+///   graph, `lhs` must be the descendant of `dst`
 ///
 /// - No other arrays that reference the `dst`'s data and validity are accessed! In the
-/// computation graph, it will never happens
+///   computation graph, it will never happens
 pub unsafe fn rem_scalar<T, U>(
     selection: &Bitmap,
     array: &PrimitiveArray<T>,
@@ -335,15 +335,15 @@ fn rem_func<T: RemExt, U: RemCast<T>>(lhs: T, rhs: U) -> U {
 /// # Safety
 ///
 /// - If the `selection` is not empty, `array` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `lhs` and `rhs` must have same length
 ///
 /// - `lhs`/`rhs` data and validity should not reference `dst`'s data and validity. In the computation
-/// graph, `lhs`/`rhs` must be the descendant of `dst`
+///   graph, `lhs`/`rhs` must be the descendant of `dst`
 ///
 /// - No other arrays that reference the `dst`'s data and validity are accessed! In the
-/// computation graph, it will never happens
+///   computation graph, it will never happens
 pub unsafe fn rem<T, U>(
     selection: &Bitmap,
     lhs: &PrimitiveArray<T>,

@@ -24,7 +24,7 @@ macro_rules! return_with_negated {
 /// # Safety
 ///
 /// - If the `selection` is not empty, `array` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn regex_match_scalar<const NEGATED: bool>(

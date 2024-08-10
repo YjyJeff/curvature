@@ -99,17 +99,17 @@ pub trait PhysicalExpr: Stringify + Send + Sync {
     /// - `exec_ctx`: Execution context for **self**. it should be created by [ExprExecCtx::new(self)](ExprExecCtx::new)
     ///
     /// - `output`: The output array that stores the computation result of self. it should
-    /// be created by [ArrayImpl::new](ArrayImpl::new) with [self.output_type()](Self::output_type)
-    /// as its argument.
+    ///   be created by [ArrayImpl::new](ArrayImpl::new) with [self.output_type()](Self::output_type)
+    ///   as its argument.
     ///
     /// # Notes
     ///
     /// - Implementation should execute the children internally. We design it because
-    /// some exprs, like `AndConjunction`, do not need to execute all of its children
-    /// before execute themselves
+    ///   some exprs, like `AndConjunction`, do not need to execute all of its children
+    ///   before execute themselves
     ///
     /// - If the expression is a boolean expression, it will not write the result to the output.
-    /// It should update the `selection` argument instead !!!!!
+    ///   It should update the `selection` argument instead !!!!!
     ///
     /// - Implementation should handle the `ConstantArray` and `FlatArray` differently
     ///

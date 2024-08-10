@@ -34,15 +34,15 @@ use self::x86::*;
 /// # Safety
 ///
 /// - If the `selection` is not empty, `array` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 ///
 /// - `array`'s data and validity should not reference `temp`'s data and validity. In the computation
-/// graph, `lhs` must be the descendant of `temp`
+///   graph, `lhs` must be the descendant of `temp`
 ///
 /// - No other arrays that reference the `temp`'s data and validity are accessed! In the
-/// computation graph, it will never happens
+///   computation graph, it will never happens
 #[inline]
 unsafe fn cmp_scalar<T: PartialOrdExt>(
     selection: &mut Bitmap,
@@ -80,15 +80,15 @@ unsafe fn cmp_scalar<T: PartialOrdExt>(
 /// # Safety
 ///
 /// - If the `selection` is not empty, `lhs`/`rhs` and `selection` should have same length.
-/// Otherwise, undefined behavior happens
+///   Otherwise, undefined behavior happens
 ///
 /// - `selection` should not be referenced by any array
 ///
 /// - `lhs`/`rhs`'s data and validity should not reference `temp`'s data and validity. In the computation
-/// graph, `lhs`/`rhs` must be the descendant of `temp`
+///   graph, `lhs`/`rhs` must be the descendant of `temp`
 ///
 /// - No other arrays that reference the `temp`'s data and validity are accessed! In the
-/// computation graph, it will never happens
+///   computation graph, it will never happens
 #[inline]
 unsafe fn cmp<T: PartialOrdExt>(
     selection: &mut Bitmap,

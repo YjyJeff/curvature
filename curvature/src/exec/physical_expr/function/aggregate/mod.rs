@@ -328,7 +328,7 @@ impl AggregationFunctionList {
     /// # Safety
     ///
     /// - `payloads` match the function's signature and all of them have same length that
-    /// equal to the `len` arg
+    ///   equal to the `len` arg
     /// - `ptr` is a valid pointer
     pub(crate) unsafe fn batch_update_states(
         &self,
@@ -444,9 +444,9 @@ pub trait AggregationFunction: Function + Stringify {
     /// - `ptr.add(state_offset)` is valid and points to the state of the function
     ///
     /// - the state is allocated but uninitiated, therefore init it should be careful!
-    /// Especially for state that contains memory allocation, you should use
-    /// `std::ptr::write` to override the memory and do not drop the old value! Otherwise,
-    /// dropping the uninitiated value may cause core dumped!
+    ///   Especially for state that contains memory allocation, you should use
+    ///   `std::ptr::write` to override the memory and do not drop the old value! Otherwise,
+    ///   dropping the uninitiated value may cause core dumped!
     unsafe fn init_state(&self, ptr: AggregationStatesPtr, state_offset: usize);
 
     /// Update the states of this aggregation function based on payloads of the function
@@ -454,7 +454,7 @@ pub trait AggregationFunction: Function + Stringify {
     /// # Arguments
     ///
     /// - `payloads`: payloads this function accept, caller should guarantee it matches
-    /// the function's signature
+    ///   the function's signature
     /// - `state_ptrs`: state pointers that each element in the payload should update
     /// - `state_offset`: offset, in bytes, of this aggregation's state in the `AggregationStates`
     ///
@@ -474,14 +474,14 @@ pub trait AggregationFunction: Function + Stringify {
     /// # Arguments
     ///
     /// - `payloads`: payloads this function accept, caller should guarantee it matches
-    /// the function's signature
+    ///   the function's signature
     /// - `states_ptr`: States pointer that need to be updated
     /// - `state_offset`: offset, in bytes, of this aggregation's state in the `AggregationStates`
     ///
     /// # Safety
     ///
     /// - `payloads` match the function's signature and all of them have same length that
-    /// equal to the `len` arg
+    ///   equal to the `len` arg
     /// - `ptr.add(state_offset)` is valid and points to the state of the function
     unsafe fn batch_update_states(
         &self,
@@ -506,7 +506,7 @@ pub trait AggregationFunction: Function + Stringify {
     /// - `partial_state_ptrs` and `combined_state_ptrs` have same length
     ///
     /// - Implementation should free the memory occupied by the `partial-state` that does not
-    /// in the arena. And after combine, the `partial-states` should be a valid states for reuse
+    ///   in the arena. And after combine, the `partial-states` should be a valid states for reuse
     unsafe fn combine_states(
         &self,
         partial_state_ptrs: &[AggregationStatesPtr],
@@ -527,8 +527,7 @@ pub trait AggregationFunction: Function + Stringify {
     ///
     /// - `output` should match function's signature
     ///
-    /// - Implementation should free the memory occupied by the state that does not in the
-    /// arena
+    /// - Implementation should free the memory occupied by the state that does not in the arena
     unsafe fn take_states(
         &self,
         state_ptrs: &[AggregationStatesPtr],
@@ -543,7 +542,7 @@ pub trait AggregationFunction: Function + Stringify {
     /// - `ptrs` should be valid
     ///
     /// - Implementation should free the memory occupied by the `partial-state` that does not
-    /// in the arena.
+    ///   in the arena
     ///
     /// - For each allocated state, it can only be called once
     unsafe fn drop_states(&self, state_ptrs: &[AggregationStatesPtr], state_offset: usize);
