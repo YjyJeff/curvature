@@ -12,17 +12,8 @@
 //!
 //! - optimize the speed in the use case of the query engine
 //!
-//!
-//! # Run
-//!
-//! `DataBlock` requires the x86-64 CPUs must new than [`x86-64-v2`] microarchitecture.
-//! Because we will use `sse4.2` by default. And the CPU should support [`AES`], we
-//! will also use it by default
-//!
 //! [`Arrow`]: https://github.com/apache/arrow-rs
 //! [`Type Exercise in Rust`]: https://github.com/skyzh/type-exercise-in-rust
-//! [`x86-64-v2`]: https://en.wikipedia.org/wiki/X86-64#Microarchitecture_levels
-//! [`AES`]: https://en.wikipedia.org/wiki/AES_instruction_set
 
 pub mod aligned_vec;
 pub mod array;

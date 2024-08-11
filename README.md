@@ -31,3 +31,8 @@ This crate is guaranteed to compile on the latest stable Rust
 - Zero `cargo clippy` warning
 - Zero `FAILED` in `cargo test`
 - Zero `FAILED` in `cargo +nightly miri test` especially when you have unsafe functions!
+
+# Hardware requirement
+`Curvature` requires the x86-64 CPUs must new than [`x86-64-v2`](https://en.wikipedia.org/wiki/X86-64#Microarchitecture_levels) microarchitecture.
+Because we will use `sse4.2` by default. And x86_64 CPU should support [`AES`](https://en.wikipedia.org/wiki/AES_instruction_set), we
+will also use it by default
