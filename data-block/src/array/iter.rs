@@ -146,13 +146,21 @@ pub struct ArrayNonNullValuesIter<'a, A> {
     ones_iter: BitmapOnesIter<'a>,
 }
 
-impl<'a, A> ArrayNonNullValuesIter<'a, A> {
+impl<'a, A: Array> ArrayNonNullValuesIter<'a, A> {
     /// Create a new iterator
     ///
-    /// # Note
+    /// # Safety
     ///
-    /// Before calling this constructor, caller should guarantee the `bitmap.all_valid = false`
-    pub fn new(array: &'a A, bitmap: &'a Bitmap) -> Self {
+    /// Before calling this constructor, caller should guarantee
+    /// - `bitmap.all_valid() is false`
+    /// - bitmap must have same length with array
+    pub unsafe fn new(array: &'a A, bitmap: &'a Bitmap) -> Self {
+        #[cfg(feature = "verify")]
+        {
+            assert!(!bitmap.all_valid());
+            assert_eq!(array.len(), bitmap.len());
+        }
+
         Self {
             array,
             ones_iter: bitmap.iter_ones(),

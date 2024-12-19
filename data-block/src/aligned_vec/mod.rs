@@ -20,6 +20,12 @@ use crate::utils::roundup_to_multiple_of_pow_of_two_base;
 /// should also changed
 pub const CACHE_LINE_SIZE: usize = 64;
 
+#[cfg(feature = "verify")]
+#[inline]
+fn verify_cap(cap: usize) {
+    assert!(cap < isize::MAX as usize + 1 - CACHE_LINE_SIZE)
+}
+
 /// Trait for types that can be allocated on the [`AlignedVec`]. This trait is
 /// sealed to avoid other types implement it
 pub trait AllocType:
@@ -82,6 +88,10 @@ impl<T: AllocType> AlignedVec<T> {
         // round the cap up to multiple of [`CACHE_LINE_SIZE`]
         capacity_in_bytes =
             roundup_to_multiple_of_pow_of_two_base(capacity_in_bytes, CACHE_LINE_SIZE);
+
+        #[cfg(feature = "verify")]
+        verify_cap(capacity_in_bytes);
+
         // SAFETY: [`ALIGNMENT`] is guaranteed to be power of two
         unsafe {
             if capacity_in_bytes == 0 {
@@ -183,6 +193,10 @@ impl<T: AllocType> AlignedVec<T> {
                 roundup_to_multiple_of_pow_of_two_base(new_cap_in_bytes, CACHE_LINE_SIZE);
             // The new memory region is at least two times larger than the old region
             let new_cap_in_bytes = std::cmp::max(new_cap_in_bytes, self.capacity_in_bytes * 2);
+
+            #[cfg(feature = "verify")]
+            verify_cap(new_cap_in_bytes);
+
             let new_layout = Layout::from_size_align_unchecked(new_cap_in_bytes, ALIGNMENT);
             let ptr = if self.capacity_in_bytes == 0 {
                 // ptr is not allocated, according to [`Safety`](https://doc.rust-lang.org/std/alloc/trait.GlobalAlloc.html#safety-4)
@@ -202,6 +216,7 @@ impl<T: AllocType> AlignedVec<T> {
         if index >= self.len {
             None
         } else {
+            // SAFETY: we have checked the index is valid
             unsafe { Some(self.get_unchecked(index)) }
         }
     }
@@ -214,6 +229,9 @@ impl<T: AllocType> AlignedVec<T> {
     /// [undefined behavior]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html
     #[inline]
     pub unsafe fn get_unchecked(&self, index: usize) -> &T {
+        #[cfg(feature = "verify")]
+        assert!(index < self.len);
+
         &*self.ptr.as_ptr().add(index)
     }
 
@@ -225,17 +243,23 @@ impl<T: AllocType> AlignedVec<T> {
     /// [undefined behavior]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html
     #[inline]
     pub unsafe fn get_unchecked_mut(&mut self, index: usize) -> &mut T {
+        #[cfg(feature = "verify")]
+        assert!(index < self.len);
+
         &mut *self.ptr.as_ptr().add(index)
     }
 
     /// Returns a `&[T]` start from the given index with given length without bound check
     ///
     /// # Safety
-    /// Caller should guarantee `index + len < self.len()`, otherwise, [undefined behavior] happens
+    /// Caller should guarantee `index + len <= self.len()`, otherwise, [undefined behavior] happens
     ///
     /// [undefined behavior]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html
     #[inline]
     pub unsafe fn get_slice_unchecked(&self, index: usize, len: usize) -> &[T] {
+        #[cfg(feature = "verify")]
+        assert!(index + len <= self.len);
+
         std::slice::from_raw_parts(self.ptr.as_ptr().add(index), len)
     }
 }

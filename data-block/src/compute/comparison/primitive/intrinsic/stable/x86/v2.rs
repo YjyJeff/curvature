@@ -148,7 +148,8 @@ unsafe fn cmp_i8_v2<const NOT: bool, const FLIP_SIGN: bool>(
     dst: *mut u16,
     cmp_func: unsafe fn(__m128i, __m128i) -> __m128i,
 ) {
-    debug_assert_eq!(lhs.len(), rhs.len());
+    #[cfg(feature = "verify")]
+    assert_eq!(lhs.len(), rhs.len());
 
     if lhs.is_empty() {
         return;
@@ -241,7 +242,8 @@ unsafe fn cmp_i16_v2<const NOT: bool, const FLIP_SIGN: bool>(
     dst: *mut u16,
     cmp_func: unsafe fn(__m128i, __m128i) -> __m128i,
 ) {
-    debug_assert_eq!(lhs.len(), rhs.len());
+    #[cfg(feature = "verify")]
+    assert_eq!(lhs.len(), rhs.len());
 
     if lhs.len == 0 {
         return;
@@ -349,7 +351,8 @@ unsafe fn cmp_i32_v2<const NOT: bool, const FLIP_SIGN: bool>(
     dst: *mut u16,
     cmp_func: unsafe fn(__m128i, __m128i) -> __m128i,
 ) {
-    debug_assert_eq!(lhs.len(), rhs.len());
+    #[cfg(feature = "verify")]
+    assert_eq!(lhs.len(), rhs.len());
 
     if lhs.len == 0 {
         return;
@@ -515,7 +518,8 @@ unsafe fn cmp_i64_v2<const NOT: bool, const FLIP_SIGN: bool>(
 ) {
     const CTRL_BIT: i32 = 0x88;
 
-    debug_assert_eq!(lhs.len(), rhs.len());
+    #[cfg(feature = "verify")]
+    assert_eq!(lhs.len(), rhs.len());
 
     if lhs.is_empty() {
         return;
@@ -614,7 +618,8 @@ unsafe fn cmp_f32_v2(
     dst: *mut u16,
     cmp_func: unsafe fn(__m128, __m128) -> __m128,
 ) {
-    debug_assert_eq!(lhs.len(), rhs.len());
+    #[cfg(feature = "verify")]
+    assert_eq!(lhs.len(), rhs.len());
 
     if lhs.is_empty() {
         return;
@@ -701,7 +706,8 @@ unsafe fn cmp_f64_v2(
 ) {
     const CTRL_BIT: i32 = 0x88;
 
-    debug_assert_eq!(lhs.len(), rhs.len());
+    #[cfg(feature = "verify")]
+    assert_eq!(lhs.len(), rhs.len());
 
     if lhs.is_empty() {
         return;
@@ -902,7 +908,8 @@ unsafe fn timestamp_cmp_v2<const LM: i64, const RM: i64, const NOT: bool>(
 ) {
     const CTRL_BIT: i32 = 0x88;
 
-    debug_assert_eq!(lhs.len(), rhs.len());
+    #[cfg(feature = "verify")]
+    assert_eq!(lhs.len(), rhs.len());
 
     if lhs.is_empty() {
         return;

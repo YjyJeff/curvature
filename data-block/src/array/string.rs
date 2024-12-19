@@ -85,6 +85,9 @@ impl StringArray {
     /// physical type of the logical type should be `String`
     #[inline]
     pub unsafe fn with_capacity_unchecked(logical_type: LogicalType, capacity: usize) -> Self {
+        #[cfg(feature = "verify")]
+        assert_eq!(logical_type.physical_type(), PhysicalType::String);
+
         Self {
             logical_type,
             _bytes: SwarPtr::default(),
@@ -152,6 +155,7 @@ impl Array for StringArray {
 
     #[inline]
     fn values_slice_iter(&self, offset: usize, length: usize) -> Self::ValuesIter<'_> {
+        #[cfg(feature = "verify")]
         assert!(offset + length <= self.len());
         ArrayValuesIter::new_with_current_and_len(self, offset, length)
     }
@@ -176,6 +180,9 @@ impl Array for StringArray {
         &self,
         index: usize,
     ) -> <Self::Element as crate::element::Element>::ElementRef<'_> {
+        #[cfg(feature = "verify")]
+        assert!(index < self.len());
+
         self.views.get_unchecked(index).shorten()
     }
 
@@ -342,6 +349,9 @@ impl Array for StringArray {
     }
 
     unsafe fn copy(&mut self, source: &Self, start: usize, len: usize) {
+        #[cfg(feature = "verify")]
+        assert!(start + len <= source.len());
+
         self.validity
             .as_mut()
             .mutate()

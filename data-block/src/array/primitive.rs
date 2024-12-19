@@ -103,6 +103,9 @@ impl<T: PrimitiveType> PrimitiveArray<T> {
     /// physical type of the logical type should be `T::PHYSICAL_TYPE`
     #[inline]
     pub unsafe fn with_capacity_unchecked(logical_type: LogicalType, capacity: usize) -> Self {
+        #[cfg(feature = "verify")]
+        assert_eq!(logical_type.physical_type(), T::PHYSICAL_TYPE);
+
         Self {
             logical_type,
             data: SwarPtr::new(AlignedVec::with_capacity(capacity)),
@@ -205,6 +208,9 @@ where
 
     #[inline]
     unsafe fn get_value_unchecked(&self, index: usize) -> T {
+        #[cfg(feature = "verify")]
+        assert!(index < self.len());
+
         *self.data.get_unchecked(index)
     }
 
@@ -296,6 +302,9 @@ where
     }
 
     unsafe fn copy(&mut self, source: &Self, start: usize, len: usize) {
+        #[cfg(feature = "verify")]
+        assert!(start + len <= source.len());
+
         self.validity
             .as_mut()
             .mutate()

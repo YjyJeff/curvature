@@ -29,7 +29,7 @@ where
     T::Simd: arrow2::compute::comparison::Simd8PartialOrd,
 {
     let mut group = c.benchmark_group(format!("Compare{}", std::any::type_name::<T>()));
-    (10..=12).step_by(2).for_each(|log2_size| {
+    (10..=14).step_by(2).for_each(|log2_size| {
         let size = black_box(2usize.pow(log2_size));
         let lhs = create_primitive_array_with_seed::<T>(size, null_density, seed);
         let mut dst =

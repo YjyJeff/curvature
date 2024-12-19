@@ -16,7 +16,8 @@ use crate::compute::logical::{
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn eq_scalar(selection: &mut Bitmap, array: &BooleanArray, scalar: bool) {
-    debug_assert_selection_is_valid!(selection, array);
+    #[cfg(feature = "verify")]
+    assert_selection_is_valid!(selection, array);
 
     and_inplace(selection, array.validity());
     if scalar {
@@ -35,7 +36,8 @@ pub unsafe fn eq_scalar(selection: &mut Bitmap, array: &BooleanArray, scalar: bo
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn ne_scalar(selection: &mut Bitmap, array: &BooleanArray, scalar: bool) {
-    debug_assert_selection_is_valid!(selection, array);
+    #[cfg(feature = "verify")]
+    assert_selection_is_valid!(selection, array);
 
     and_inplace(selection, array.validity());
 
@@ -55,7 +57,8 @@ pub unsafe fn ne_scalar(selection: &mut Bitmap, array: &BooleanArray, scalar: bo
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn gt_scalar(selection: &mut Bitmap, array: &BooleanArray, scalar: bool) {
-    debug_assert_selection_is_valid!(selection, array);
+    #[cfg(feature = "verify")]
+    assert_selection_is_valid!(selection, array);
 
     and_inplace(selection, array.validity());
 
@@ -80,7 +83,8 @@ pub unsafe fn gt_scalar(selection: &mut Bitmap, array: &BooleanArray, scalar: bo
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn ge_scalar(selection: &mut Bitmap, array: &BooleanArray, scalar: bool) {
-    debug_assert_selection_is_valid!(selection, array);
+    #[cfg(feature = "verify")]
+    assert_selection_is_valid!(selection, array);
 
     and_inplace(selection, array.validity());
     if scalar {
@@ -97,7 +101,8 @@ pub unsafe fn ge_scalar(selection: &mut Bitmap, array: &BooleanArray, scalar: bo
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn lt_scalar(selection: &mut Bitmap, array: &BooleanArray, scalar: bool) {
-    debug_assert_selection_is_valid!(selection, array);
+    #[cfg(feature = "verify")]
+    assert_selection_is_valid!(selection, array);
 
     and_inplace(selection, array.validity());
 
@@ -122,7 +127,8 @@ pub unsafe fn lt_scalar(selection: &mut Bitmap, array: &BooleanArray, scalar: bo
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn le_scalar(selection: &mut Bitmap, array: &BooleanArray, scalar: bool) {
-    debug_assert_selection_is_valid!(selection, array);
+    #[cfg(feature = "verify")]
+    assert_selection_is_valid!(selection, array);
 
     and_inplace(selection, array.validity());
 
@@ -139,8 +145,11 @@ unsafe fn cmp(
     temp: &mut BooleanArray,
     func: impl Fn(&[BitStore], &[BitStore], &mut [BitStore]),
 ) {
-    debug_assert_selection_is_valid!(selection, lhs);
-    debug_assert_eq!(lhs.len(), rhs.len());
+    #[cfg(feature = "verify")]
+    {
+        assert_selection_is_valid!(selection, lhs);
+        assert_eq!(lhs.len(), rhs.len());
+    }
 
     and_inplace(selection, lhs.validity());
     and_inplace(selection, rhs.validity());

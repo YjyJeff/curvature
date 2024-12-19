@@ -56,6 +56,9 @@ impl BooleanArray {
     /// physical type of the logical type should be `Boolean`
     #[inline]
     pub unsafe fn with_capacity_unchecked(logical_type: LogicalType, capacity: usize) -> Self {
+        #[cfg(feature = "verify")]
+        assert_eq!(logical_type.physical_type(), PhysicalType::Boolean);
+
         Self {
             logical_type,
             data: SwarPtr::new(Bitmap::with_capacity(capacity)),
@@ -115,6 +118,9 @@ impl Array for BooleanArray {
 
     #[inline]
     unsafe fn get_value_unchecked(&self, index: usize) -> bool {
+        #[cfg(feature = "verify")]
+        assert!(index < self.data.len());
+
         self.data.get_unchecked(index)
     }
 
@@ -193,6 +199,9 @@ impl Array for BooleanArray {
     }
 
     unsafe fn copy(&mut self, source: &Self, start: usize, len: usize) {
+        #[cfg(feature = "verify")]
+        assert!(start + len <= source.len());
+
         self.validity
             .as_mut()
             .mutate()
@@ -261,6 +270,7 @@ mod tests {
     use super::*;
 
     impl BooleanArray {
+        /// Create a new BooleanArray with Bitmap
         pub fn new_with_data(data: Bitmap) -> Self {
             Self {
                 logical_type: LogicalType::Boolean,

@@ -72,7 +72,8 @@ unsafe fn cmp_scalar_default<T>(
     PrimitiveArray<T>: Array<Element = T>,
     T: PrimitiveType,
 {
-    debug_assert_selection_is_valid!(selection, array);
+    #[cfg(feature = "verify")]
+    assert_selection_is_valid!(selection, array);
 
     and_inplace(selection, array.validity());
     if selection.ones_ratio() < partial_cmp_threshold {
@@ -103,8 +104,11 @@ unsafe fn cmp_default<T>(
     PrimitiveArray<T>: Array<Element = T>,
     T: PrimitiveType,
 {
-    debug_assert_selection_is_valid!(selection, lhs);
-    debug_assert_eq!(lhs.len(), rhs.len());
+    #[cfg(feature = "verify")]
+    {
+        assert_selection_is_valid!(selection, lhs);
+        assert_eq!(lhs.len(), rhs.len());
+    }
 
     and_inplace(selection, lhs.validity());
     and_inplace(selection, rhs.validity());

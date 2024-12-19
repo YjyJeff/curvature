@@ -260,7 +260,9 @@ pub trait Array: Sealed + Debug + 'static + Sized {
     ///
     /// - `selection` should not be referenced by any array
     unsafe fn filter(&mut self, selection: &Bitmap, source: &Self) {
-        debug_assert!(selection.is_empty() || selection.len() == source.len());
+        #[cfg(feature = "verify")]
+        assert!(selection.is_empty() || selection.len() == source.len());
+
         if selection.all_valid() || source.len() == 1 {
             // All of the elements are selected or source is a Constant Array
             self.reference(source)
@@ -484,7 +486,6 @@ macro_rules! array_impl {
             ///
             /// - Satisfy the mutate condition
             pub unsafe fn copy(&mut self, source: &Self, start: usize, len: usize) -> Result<()>{
-                debug_assert!(start + len <= source.len());
                 macro_rules! copy {
                     () => {
                         match (self, source) {

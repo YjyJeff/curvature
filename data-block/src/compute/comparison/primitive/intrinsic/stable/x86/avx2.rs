@@ -143,7 +143,8 @@ unsafe fn cmp_i8_avx2<const NOT: bool, const FLIP_SIGN: bool>(
     dst: *mut u32,
     cmp_func: unsafe fn(__m256i, __m256i) -> __m256i,
 ) {
-    debug_assert_eq!(lhs.len(), rhs.len());
+    #[cfg(feature = "verify")]
+    assert_eq!(lhs.len(), rhs.len());
 
     if lhs.is_empty() {
         return;
@@ -247,7 +248,8 @@ unsafe fn cmp_i16_avx2<const NOT: bool, const FLIP_SIGN: bool>(
 ) {
     const CTRL_BIT: i32 = 0xd8;
 
-    debug_assert_eq!(lhs.len(), rhs.len());
+    #[cfg(feature = "verify")]
+    assert_eq!(lhs.len(), rhs.len());
 
     if lhs.is_empty() {
         return;
@@ -397,7 +399,8 @@ unsafe fn cmp_i32_avx2<const NOT: bool, const FLIP_SIGN: bool>(
     dst: *mut u32,
     cmp_func: unsafe fn(__m256i, __m256i) -> __m256i,
 ) {
-    debug_assert_eq!(lhs.len(), rhs.len());
+    #[cfg(feature = "verify")]
+    assert_eq!(lhs.len(), rhs.len());
 
     if lhs.is_empty() {
         return;
@@ -470,7 +473,8 @@ unsafe fn cmp_f32_avx2(
     dst: *mut u32,
     cmp_func: unsafe fn(__m256, __m256) -> __m256,
 ) {
-    debug_assert_eq!(lhs.len(), rhs.len());
+    #[cfg(feature = "verify")]
+    assert_eq!(lhs.len(), rhs.len());
 
     if lhs.is_empty() {
         return;
@@ -639,6 +643,9 @@ unsafe fn cmp_f64_avx2(
 ) {
     const SHIFT_BITS: usize = 3;
     const BASE: usize = 1 << SHIFT_BITS;
+
+    #[cfg(feature = "verify")]
+    assert_eq(lhs.len(), rhs.len());
 
     if lhs.is_empty() {
         return;
@@ -882,6 +889,9 @@ unsafe fn cmp_i64_avx2<const NOT: bool, const FLIP_SIGN: bool>(
 ) {
     const SHIFT_BITS: usize = 3;
     const BASE: usize = 1 << SHIFT_BITS;
+
+    #[cfg(feature = "verify")]
+    assert_eq!(lhs.len(), rhs.len());
 
     if lhs.is_empty() {
         return;
@@ -1229,7 +1239,9 @@ unsafe fn timestamp_cmp_avx2<const LM: i64, const RM: i64, const NOT: bool>(
     const SHIFT_BITS: usize = 3;
     const BASE: usize = 1 << SHIFT_BITS;
 
-    debug_assert_eq!(lhs.len(), rhs.len());
+    #[cfg(feature = "verify")]
+    assert_eq!(lhs.len(), rhs.len());
+
     if lhs.is_empty() {
         return;
     }

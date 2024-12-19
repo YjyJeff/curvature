@@ -13,8 +13,11 @@ fn raw_bitmap_compute<F>(lhs: &[BitStore], rhs: &[BitStore], dst: &mut [BitStore
 where
     F: Fn(BitStore, BitStore) -> BitStore,
 {
-    debug_assert_eq!(lhs.len(), rhs.len());
-    debug_assert_eq!(lhs.len(), dst.len());
+    #[cfg(feature = "verify")]
+    {
+        assert_eq!(lhs.len(), rhs.len());
+        assert_eq!(lhs.len(), dst.len());
+    }
 
     lhs.iter()
         .zip(rhs)
@@ -132,7 +135,9 @@ crate::dynamic_func!(
 /// - No other arrays that reference the `dst`'s data and validity are accessed! In the
 ///   computation graph, it will never happens
 pub unsafe fn and(lhs: &BooleanArray, rhs: &BooleanArray, dst: &mut BooleanArray) {
-    debug_assert_eq!(lhs.len(), rhs.len());
+    #[cfg(feature = "verify")]
+    assert_eq!(lhs.len(), rhs.len());
+
     if lhs.validity.count_zeros() == 0 && rhs.validity.count_zeros() == 0 {
         match (lhs.data.count_zeros(), rhs.data.count_zeros()) {
             (0, 0) => {
@@ -174,7 +179,8 @@ pub unsafe fn and(lhs: &BooleanArray, rhs: &BooleanArray, dst: &mut BooleanArray
 /// - No other arrays that reference the `dst`'s data and validity are accessed! In the
 ///   computation graph, it will never happens
 pub unsafe fn or(lhs: &BooleanArray, rhs: &BooleanArray, dst: &mut BooleanArray) {
-    debug_assert_eq!(lhs.len(), rhs.len());
+    #[cfg(feature = "verify")]
+    assert_eq!(lhs.len(), rhs.len());
 
     if lhs.validity.count_zeros() == 0 && rhs.validity.count_zeros() == 0 {
         match (lhs.data.count_zeros(), rhs.data.count_zeros()) {
@@ -221,7 +227,8 @@ pub unsafe fn or(lhs: &BooleanArray, rhs: &BooleanArray, dst: &mut BooleanArray)
 /// - No other arrays that reference the `dst`'s data and validity are accessed! In the
 ///   computation graph, it will never happens
 pub unsafe fn xor(lhs: &BooleanArray, rhs: &BooleanArray, dst: &mut BooleanArray) {
-    debug_assert_eq!(lhs.len(), rhs.len());
+    #[cfg(feature = "verify")]
+    assert_eq!(lhs.len(), rhs.len());
 
     combine_validities(&lhs.validity, &rhs.validity, &mut dst.validity);
     xor_bitmaps_dynamic(
@@ -318,7 +325,9 @@ fn raw_bitmap_compute_inplace<F>(dst: &mut [BitStore], other: &[BitStore], op: F
 where
     F: Fn(BitStore, BitStore) -> BitStore,
 {
-    debug_assert_eq!(dst.len(), other.len());
+    #[cfg(feature = "verify")]
+    assert_eq!(dst.len(), other.len());
+
     dst.iter_mut().zip(other).for_each(|(dst, &rhs)| {
         *dst = op(*dst, rhs);
     });
@@ -367,7 +376,7 @@ crate::dynamic_func!(
 /// - If `dst` is not empty, `dst` and `other` should have same length
 #[inline]
 pub unsafe fn and_inplace(dst: &mut Bitmap, other: &Bitmap) {
-    #[cfg(debug_assertions)]
+    #[cfg(feature = "verify")]
     {
         if !dst.is_empty() && !other.is_empty() {
             assert_eq!(dst.len(), other.len());
@@ -388,7 +397,6 @@ pub unsafe fn and_inplace(dst: &mut Bitmap, other: &Bitmap) {
             .for_each(|(dst, &src)| *dst = src);
     } else {
         // Perform and operation
-        debug_assert_eq!(dst.len(), other.len());
         let mut guard = dst.mutate();
         and_bitmaps_inplace_dynamic(guard.as_mut_slice(), other.as_raw_slice());
     }
@@ -403,7 +411,7 @@ pub unsafe fn and_inplace(dst: &mut Bitmap, other: &Bitmap) {
 /// - If `dst`/`other` is not empty, they should have same length with len
 #[inline]
 pub unsafe fn and_not_inplace(dst: &mut Bitmap, other: &Bitmap, len: usize) {
-    #[cfg(debug_assertions)]
+    #[cfg(feature = "verify")]
     {
         if !dst.is_empty() {
             assert_eq!(dst.len(), len);
@@ -441,7 +449,7 @@ pub unsafe fn and_not_inplace(dst: &mut Bitmap, other: &Bitmap, len: usize) {
 ///
 /// - If `dst` is not all valid, `dst` and `other` should have same length
 pub unsafe fn or_inplace(dst: &mut Bitmap, other: &Bitmap) {
-    #[cfg(debug_assertions)]
+    #[cfg(feature = "verify")]
     {
         if !dst.is_empty() && !other.is_empty() {
             assert_eq!(dst.len(), other.len());
@@ -458,7 +466,6 @@ pub unsafe fn or_inplace(dst: &mut Bitmap, other: &Bitmap) {
         let uninitialized = guard.clear_and_resize(other.len());
         uninitialized.iter_mut().for_each(|dst| *dst = 0);
     } else {
-        debug_assert_eq!(dst.len(), other.len());
         let mut guard = dst.mutate();
         or_bitmaps_inplace_dynamic(guard.as_mut_slice(), other.as_raw_slice());
     }

@@ -32,7 +32,8 @@ pub unsafe fn regex_match_scalar<const NEGATED: bool>(
     array: &StringArray,
     regex: &Regex,
 ) {
-    debug_assert_selection_is_valid!(selection, array);
+    #[cfg(feature = "verify")]
+    assert_selection_is_valid!(selection, array);
 
     let validity = array.validity();
 

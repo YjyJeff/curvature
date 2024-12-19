@@ -7,7 +7,7 @@ authors = { workspace = true }
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-data-block = { path = "../data-block" }
+data-block = { path = "../data-block", default-features = false }
 rand = { version = "0.8.5", features = ["std_rng"] }
 bitvec = "1.0"
 paste = { workspace = true }
@@ -17,7 +17,7 @@ criterion = "0.5"
 pprof = { version = "0.13.0", features = ["criterion", "flamegraph"] }
 # UNMAINTAINED
 arrow2 = { version = "0.18", features = ["benchmarks", "compute"] }
-arrow = { version = "53.0.0", features = ["test_utils"] }
+arrow = { version = "53.3.0", features = ["test_utils"] }
 libc = { workspace = true }
 num-traits = { workspace = true }
 

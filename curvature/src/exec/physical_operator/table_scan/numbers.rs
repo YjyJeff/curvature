@@ -172,7 +172,7 @@ impl PhysicalOperator for Numbers {
         &self,
         _global_state: &dyn GlobalSourceState,
     ) -> ParallelismDegree {
-        let parallelism = ((self.end - self.start) + Self::MORSEL_SIZE - 1) / Self::MORSEL_SIZE;
+        let parallelism = (self.end - self.start).div_ceil(Self::MORSEL_SIZE);
         if parallelism > MAX_PARALLELISM_DEGREE.get() as u64 {
             MAX_PARALLELISM_DEGREE
         } else {

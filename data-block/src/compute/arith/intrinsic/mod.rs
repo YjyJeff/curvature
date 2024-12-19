@@ -39,7 +39,8 @@ unsafe fn arith_scalar<T, U, V>(
     V: IntrinsicType,
     U: Copy,
 {
-    debug_assert_selection_is_valid!(selection, array);
+    #[cfg(feature = "verify")]
+    assert_selection_is_valid!(selection, array);
     dst.validity.reference(&array.validity);
 
     let dst = dst.data.as_mut();
@@ -85,8 +86,11 @@ unsafe fn arith_arrays<T, U, V>(
     V: IntrinsicType,
     U: IntrinsicType,
 {
-    debug_assert_selection_is_valid!(selection, lhs);
-    debug_assert_eq!(lhs.len(), rhs.len());
+    #[cfg(feature = "verify")]
+    {
+        assert_selection_is_valid!(selection, lhs);
+        assert_eq!(lhs.len(), rhs.len());
+    }
 
     combine_validities(&lhs.validity, &rhs.validity, &mut dst.validity);
 

@@ -8,7 +8,7 @@ keywords = ["query engine"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-data-block = { workspace = true }
+data-block = { workspace = true, default-features = false }
 curvature-procedural-macro = { workspace = true }
 bumpalo = { workspace = true }
 ahash = { workspace = true }
@@ -46,6 +46,7 @@ portable_simd = ["data-block/portable_simd"]
 # Check overflow in arithmetic
 overflow_checks = []
 avx512 = ["data-block/avx512"]
+verify = ["data-block/verify"]
 
 [lints]
 workspace = true

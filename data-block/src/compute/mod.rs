@@ -1,8 +1,9 @@
 //! Computation of arrays
 
-macro_rules! debug_assert_selection_is_valid {
+#[cfg(feature = "verify")]
+macro_rules! assert_selection_is_valid {
     ($selection:ident, $array:ident) => {
-        debug_assert!($selection.is_empty() || $selection.len() == $array.len());
+        assert!($selection.is_empty() || $selection.len() == $array.len());
     };
 }
 
@@ -38,6 +39,7 @@ macro_rules! impl_intrinsic {
 #[cfg(not(feature = "portable_simd"))]
 crate::macros::for_all_intrinsic!(impl_intrinsic);
 
+/// Safety: Mutate condition
 unsafe fn combine_validities(
     lhs: &SwarPtr<Bitmap>,
     rhs: &SwarPtr<Bitmap>,

@@ -82,6 +82,9 @@ impl ListArray {
     /// physical type of the logical type should be `List`
     #[inline]
     pub unsafe fn with_capacity_unchecked(logical_type: LogicalType, capacity: usize) -> Self {
+        #[cfg(feature = "verify")]
+        assert_eq!(logical_type.physical_type(), PhysicalType::List);
+
         let child_type = logical_type
             .child(0)
             .expect("List must have one child type")
@@ -112,6 +115,7 @@ impl Array for ListArray {
 
     #[inline]
     fn values_slice_iter(&self, offset: usize, length: usize) -> Self::ValuesIter<'_> {
+        #[cfg(feature = "verify")]
         assert!(offset + length <= self.len());
         ArrayValuesIter::new_with_current_and_len(self, offset, length)
     }
@@ -136,6 +140,9 @@ impl Array for ListArray {
         &self,
         index: usize,
     ) -> <Self::Element as Element>::ElementRef<'_> {
+        #[cfg(feature = "verify")]
+        assert!(index < self.len());
+
         ListElementRef::new(
             &self.elements,
             *self.offsets.get_unchecked(index),
@@ -204,7 +211,10 @@ impl Array for ListArray {
         todo!()
     }
 
-    unsafe fn copy(&mut self, _source: &Self, _start: usize, _len: usize) {
+    unsafe fn copy(&mut self, source: &Self, start: usize, len: usize) {
+        #[cfg(feature = "verify")]
+        assert!(start + len <= source.len());
+
         todo!()
     }
 }

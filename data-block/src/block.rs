@@ -84,6 +84,9 @@ impl DataBlock {
     /// All of the `FlatArray`s must have the given length
     #[inline]
     pub unsafe fn new_unchecked(arrays: Vec<ArrayImpl>, length: usize) -> Self {
+        #[cfg(feature = "verify")]
+        assert!(arrays.iter().all(|array| array.len() == length));
+
         Self { arrays, length }
     }
 
@@ -135,6 +138,9 @@ impl DataBlock {
     /// index should be valid
     #[inline]
     pub unsafe fn get_array_unchecked(&self, index: usize) -> &ArrayImpl {
+        #[cfg(feature = "verify")]
+        assert!(index < self.arrays.len());
+
         self.arrays.get_unchecked(index)
     }
 
@@ -161,7 +167,8 @@ impl DataBlock {
     ///   with the specified `length` argument
     #[inline]
     pub fn mutate_single_array(&mut self, length: usize) -> MutateArrayGuard<'_> {
-        debug_assert_eq!(self.num_arrays(), 1);
+        #[cfg(feature = "verify")]
+        assert_eq!(self.num_arrays(), 1);
 
         self.length = length;
 
@@ -193,8 +200,9 @@ impl DataBlock {
     ///
     /// # Safety
     ///
-    /// Only use it when you know the length invariance can be broken
-    pub unsafe fn arrays_mut_unchecked(&mut self) -> &mut [ArrayImpl] {
+    /// Only use it when you know the length invariance **can be broken**. For example,
+    /// it can be used to store the temporal result of the boolean expression
+    pub unsafe fn broken_arrays_mut_unchecked(&mut self) -> &mut [ArrayImpl] {
         &mut self.arrays
     }
 
@@ -205,12 +213,19 @@ impl DataBlock {
     /// The arrays in the data block should be empty. Otherwise, the invariance
     /// may break
     pub unsafe fn set_len(&mut self, new_len: usize) {
-        debug_assert_eq!(self.num_arrays(), 0);
+        #[cfg(feature = "verify")]
+        assert_eq!(self.num_arrays(), 0);
         self.length = new_len;
     }
 
     /// Filter out elements that are not selected from source, copy the remained
     /// elements into self
+    ///
+    /// # Arguments
+    ///
+    /// - `selection`: Selection array for the Source, which elements should be selected
+    /// - `source`: Source array that should be selected
+    /// - `length`: Length after selection. It is required because of the length only optimization
     ///
     /// # Safety
     ///
@@ -228,7 +243,12 @@ impl DataBlock {
         source: &Self,
         length: usize,
     ) -> Result<(), ArrayError> {
-        debug_assert!(selection.is_empty() || selection.count_ones() == Some(length));
+        #[cfg(feature = "verify")]
+        assert!(
+            selection.is_empty()
+                || (selection.count_ones() == Some(length) && selection.len() == source.len())
+        );
+
         self.length = length;
         self.arrays
             .iter_mut()
@@ -249,7 +269,8 @@ impl DataBlock {
         start: usize,
         len: usize,
     ) -> Result<(), ArrayError> {
-        debug_assert!(start + len <= source.len());
+        #[cfg(feature = "verify")]
+        assert!(start + len <= source.len());
 
         self.length = len;
         self.arrays
@@ -266,7 +287,9 @@ impl DataBlock {
     ///
     /// - `self` should have same number of arrays with others
     pub unsafe fn reference(&mut self, other: &Self) -> Result<(), ArrayError> {
-        debug_assert_eq!(self.arrays.len(), other.arrays.len());
+        #[cfg(feature = "verify")]
+        assert_eq!(self.num_arrays(), other.num_arrays());
+
         self.length = other.length;
         self.arrays
             .iter_mut()

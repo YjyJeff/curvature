@@ -34,7 +34,7 @@ ahash = "0.8"
 hashbrown = { version = "0.14" }
 tabled = "0.15"
 tracing-subscriber = "0.3.18"
-data-block = { path = "data-block" }
+data-block = { path = "data-block", default-features = false }
 curvature-procedural-macro = { path = "curvature-procedural-macro" }
 crossbeam-utils = "0.8"
 

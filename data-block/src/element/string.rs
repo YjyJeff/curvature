@@ -65,7 +65,9 @@ impl<'a> StringView<'a> {
     /// Caller should guarantee `length <= INLINE_LEN`
     #[inline]
     pub(crate) fn new_inline(val: &'a str) -> StringView<'static> {
-        debug_assert!(val.len() <= INLINE_LEN);
+        #[cfg(feature = "verify")]
+        assert!(val.len() <= INLINE_LEN);
+
         let mut inlined = [0; INLINE_LEN];
         // Compiler will optimize it to memcpy
         val.as_bytes()
@@ -86,7 +88,8 @@ impl<'a> StringView<'a> {
     /// guarantee it should only used during the input ptr is valid
     #[inline]
     pub(crate) unsafe fn new_indirect(ptr: *const u8, length: u32) -> StringView<'static> {
-        debug_assert!(length > INLINE_LEN as u32);
+        #[cfg(feature = "verify")]
+        assert!(length > INLINE_LEN as u32);
 
         // SAFETY:
         // length > INLINE_LEN, get bytes 0..PREFIX_LEN is valid

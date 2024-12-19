@@ -12,11 +12,12 @@ use crate::bitmap::Bitmap;
 /// - No other arrays that reference the `dst`'s data and validity are accessed! In the
 ///   computation graph, it will never happens
 pub unsafe fn filter<A: Array>(selection: &Bitmap, array: &A, dst: &mut A) {
-    debug_assert_eq!(selection.len(), array.len());
+    #[cfg(feature = "verify")]
+    assert_eq!(selection.len(), array.len());
 
     let validity = array.validity();
 
-    // Array and selection as same length, selection is not empty
+    // Array and selection has same length, selection is not empty
     let count_ones = selection.count_ones_unchecked();
 
     if validity.all_valid() {
@@ -54,12 +55,12 @@ mod tests {
         let selection = Bitmap::from_slice_and_len(&[0b01011], 5);
 
         unsafe { filter(&selection, &array, &mut dst) };
-        debug_assert_eq!(dst.iter().collect::<Vec<_>>(), [Some(10), None, Some(-1)]);
+        assert_eq!(dst.iter().collect::<Vec<_>>(), [Some(10), None, Some(-1)]);
 
         let array = Int32Array::from_values_iter([-1, -2, -3, 1, 2, 3]);
         let selection = Bitmap::from_slice_and_len(&[0b101011], 6);
         unsafe { filter(&selection, &array, &mut dst) };
-        debug_assert_eq!(
+        assert_eq!(
             dst.iter().collect::<Vec<_>>(),
             [Some(-1), Some(-2), Some(1), Some(3)]
         );

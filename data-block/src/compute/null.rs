@@ -16,7 +16,8 @@ use crate::bitmap::{BitStore, Bitmap};
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn is_null<const NOT: bool>(selection: &mut Bitmap, array: &ArrayImpl) {
-    debug_assert_selection_is_valid!(selection, array);
+    #[cfg(feature = "verify")]
+    assert_selection_is_valid!(selection, array);
 
     let validity = array.validity();
     let mut guard = selection.mutate();

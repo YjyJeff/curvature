@@ -71,7 +71,8 @@ unsafe fn cmp_scalar<T, F>(
     u64: AsPrimitive<<T::SimdType as IntrinsicSimdOrd>::BitMaskType>,
     F: Fn(T::SimdType, T::SimdType) -> <T::SimdType as IntrinsicSimdOrd>::SimdMaskType,
 {
-    debug_assert_selection_is_valid!(selection, array);
+    #[cfg(feature = "verify")]
+    assert_selection_is_valid!(selection, array);
 
     and_inplace(selection, array.validity());
     if selection.ones_ratio() < partial_cmp_threshold {

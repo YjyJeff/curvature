@@ -233,7 +233,9 @@ unsafe fn byte_cmp<const NOT: bool, T: ByteIntrinsic>(
     dst: *mut BitStore,
     cmp: unsafe fn(T::Simd, T::Simd) -> T::SimdCmp,
 ) {
-    debug_assert_eq!(lhs.len, rhs.len);
+    #[cfg(feature = "verify")]
+    assert_eq!(lhs.len, rhs.len);
+
     if lhs.len == 0 {
         return;
     }
@@ -330,7 +332,8 @@ unsafe fn half_word_cmp<const NOT: bool, T: HalfWordIntrinsic>(
     dst: *mut BitStore,
     cmp: unsafe fn(T::Simd, T::Simd) -> T::SimdCmp,
 ) {
-    debug_assert_eq!(lhs.len, rhs.len);
+    #[cfg(feature = "verify")]
+    assert_eq!(lhs.len, rhs.len);
     if lhs.len == 0 {
         return;
     }
@@ -427,7 +430,8 @@ unsafe fn word_cmp<const NOT: bool, T: WordIntrinsic>(
     dst: *mut BitStore,
     cmp: unsafe fn(T::Simd, T::Simd) -> T::SimdCmp,
 ) {
-    debug_assert_eq!(lhs.len, rhs.len);
+    #[cfg(feature = "verify")]
+    assert_eq!(lhs.len, rhs.len);
     if lhs.len == 0 {
         return;
     }
@@ -532,7 +536,9 @@ unsafe fn double_word_cmp<const NOT: bool, T: DoubleWordIntrinsic>(
     dst: *mut BitStore,
     cmp: unsafe fn(T::Simd, T::Simd) -> T::SimdCmp,
 ) {
-    debug_assert_eq!(lhs.len, rhs.len);
+    #[cfg(feature = "verify")]
+    assert_eq!(lhs.len, rhs.len);
+
     if lhs.len == 0 {
         return;
     }
@@ -768,7 +774,8 @@ unsafe fn timestamp_cmp_neon<const LM: i64, const RM: i64, const NOT: bool>(
     dst: *mut BitStore,
     cmp_func: unsafe fn(int64x2_t, int64x2_t) -> uint64x2_t,
 ) {
-    debug_assert_eq!(lhs.len(), rhs.len());
+    #[cfg(feature = "verify")]
+    assert_eq!(lhs.len(), rhs.len());
     if lhs.is_empty() {
         return;
     }

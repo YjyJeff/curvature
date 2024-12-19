@@ -191,9 +191,9 @@ impl<const IS_AND: bool> PhysicalExpr for Conjunction<IS_AND> {
         exec_ctx.metric.rows_count += rows_count;
 
         // SAFETY: The input block of the conjunction expression do not need to hold the
-        // length variance. The reason is that: children expressions will write the result
-        // to selection array. It is only used to store the temporal result!
-        let arrays = unsafe { exec_ctx.intermediate_block.arrays_mut_unchecked() };
+        // length invariance. The reason is that: children expressions will write the result
+        // to selection array. It is only used to store the temporal result
+        let arrays = unsafe { exec_ctx.intermediate_block.broken_arrays_mut_unchecked() };
 
         if IS_AND {
             // And conjunction. It is pretty simple, all of the children expressions, except `FieldRef`,

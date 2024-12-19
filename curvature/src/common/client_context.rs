@@ -50,7 +50,7 @@ pub struct ExecArgs {
 }
 
 #[cfg(test)]
-pub mod tests {
+pub(crate) mod tests {
     use super::*;
 
     pub(crate) fn mock_client_context() -> ClientContext {

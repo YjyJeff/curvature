@@ -255,7 +255,7 @@ impl PhysicalOperator for MemoryTableScan {
         &self,
         _global_state: &dyn GlobalSourceState,
     ) -> ParallelismDegree {
-        let parallelism = (self.num_blocks + (MORSEL_SIZE - 1)) / MORSEL_SIZE;
+        let parallelism = self.num_blocks.div_ceil(MORSEL_SIZE);
         if parallelism > MAX_PARALLELISM_DEGREE.get() as usize {
             MAX_PARALLELISM_DEGREE
         } else {

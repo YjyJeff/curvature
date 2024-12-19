@@ -608,7 +608,7 @@ pub unsafe fn le<T>(
     <T as PartialOrdExt>::le(selection, lhs, rhs, temp)
 }
 
-#[cfg(debug_assertions)]
+#[cfg(feature = "verify")]
 fn check_timestamp_array_and_multiplier<const MULTIPLIER: i64>(array: &PrimitiveArray<i64>) {
     use crate::types::{LogicalType, TimeUnit};
     match array.logical_type() {

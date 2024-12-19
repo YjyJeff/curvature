@@ -536,6 +536,7 @@ mod tests {
     use super::*;
 
     impl<K: Eq + Hash + Default + Clone + Debug + 'static> FixedSizedSerdeKey<K> {
+        /// Create a new Self
         pub fn new(key: K, validity: BitStore) -> Self {
             Self { key, validity }
         }

@@ -23,12 +23,15 @@ criterion = "0.5"
 expect-test = "1.5"
 
 [features]
-default = []
+default = ["verify"]
 # Use portable simd to perform comparison. LLVM is smart, you can always use the simd
 # type that is 512 bits no matter what target_feature is used. LLVM will choose the 
 # best instruction for you based on the target feature
 portable_simd = []
 avx512 = []
+# Verify some unsafe code, like boundary check, invariance check, use it in release mode
+# only if you want to debug the release code
+verify = []
 
 
 [lints]

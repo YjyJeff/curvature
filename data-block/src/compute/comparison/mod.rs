@@ -22,7 +22,8 @@ unsafe fn cmp_scalar<A: Array, F>(
 ) where
     F: Fn(<A::Element as Element>::ElementRef<'_>, <A::Element as Element>::ElementRef<'_>) -> bool,
 {
-    debug_assert_selection_is_valid!(selection, array);
+    #[cfg(feature = "verify")]
+    assert_selection_is_valid!(selection, array);
 
     let validity = array.validity();
 
@@ -249,8 +250,11 @@ unsafe fn cmp<A: Array, F>(selection: &mut Bitmap, lhs: &A, rhs: &A, cmp_func: F
 where
     F: Fn(<A::Element as Element>::ElementRef<'_>, <A::Element as Element>::ElementRef<'_>) -> bool,
 {
-    debug_assert_selection_is_valid!(selection, lhs);
-    debug_assert_eq!(lhs.len(), rhs.len());
+    #[cfg(feature = "verify")]
+    {
+        assert_selection_is_valid!(selection, lhs);
+        assert_eq!(lhs.len(), rhs.len());
+    }
 
     if selection.all_valid() && lhs.validity().all_valid() && rhs.validity().all_valid() {
         selection.mutate().reset(

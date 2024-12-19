@@ -14,7 +14,8 @@ unsafe fn cmp_scalar<F>(
 ) where
     for<'a, 'b> F: Fn(StringView<'a>, StringView<'b>) -> bool,
 {
-    debug_assert_selection_is_valid!(selection, array);
+    #[cfg(feature = "verify")]
+    assert_selection_is_valid!(selection, array);
 
     let validity = array.validity();
 
@@ -40,8 +41,11 @@ unsafe fn cmp<F>(selection: &mut Bitmap, lhs: &StringArray, rhs: &StringArray, c
 where
     for<'a, 'b> F: Fn(StringView<'a>, StringView<'b>) -> bool,
 {
-    debug_assert_selection_is_valid!(selection, lhs);
-    debug_assert_eq!(lhs.len(), rhs.len());
+    #[cfg(feature = "verify")]
+    {
+        assert_selection_is_valid!(selection, lhs);
+        assert_eq!(lhs.len(), rhs.len());
+    }
 
     // TBD: Fast path?
     if selection.all_valid() && lhs.validity().all_valid() && rhs.validity.all_valid() {

@@ -55,7 +55,8 @@ unsafe fn cmp_scalar<T: PartialOrdExt>(
 ) where
     PrimitiveArray<T>: Array<Element = T>,
 {
-    debug_assert_selection_is_valid!(selection, array);
+    #[cfg(feature = "verify")]
+    assert_selection_is_valid!(selection, array);
     // Benchmark shows the two and_inplace function cost 50% of the time 😭
 
     and_inplace(selection, array.validity());
@@ -101,8 +102,11 @@ unsafe fn cmp<T: PartialOrdExt>(
 ) where
     PrimitiveArray<T>: Array<Element = T>,
 {
-    debug_assert_selection_is_valid!(selection, lhs);
-    debug_assert_eq!(lhs.len(), rhs.len());
+    #[cfg(feature = "verify")]
+    {
+        assert_selection_is_valid!(selection, lhs);
+        assert_eq!(lhs.len(), rhs.len());
+    }
     // Benchmark shows the two and_inplace function cost 50% of the time 😭
 
     and_inplace(selection, lhs.validity());
@@ -257,7 +261,7 @@ macro_rules! timestamp_cmp_scalar {
                 scalar: i64,
                 temp: &mut BooleanArray,
             ) {
-                #[cfg(debug_assertions)]
+                #[cfg(feature = "verify")]
                 super::check_timestamp_array_and_multiplier::<AM>(array);
 
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -334,7 +338,7 @@ macro_rules! timestamp_cmp_scalar {
                 rhs: &PrimitiveArray<i64>,
                 temp: &mut BooleanArray,
             ) {
-                #[cfg(debug_assertions)]
+                #[cfg(feature = "verify")]
                 {
                     super::check_timestamp_array_and_multiplier::<LM>(lhs);
                     super::check_timestamp_array_and_multiplier::<RM>(rhs);

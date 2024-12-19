@@ -48,6 +48,9 @@ impl BinaryArray {
     /// physical type of the logical type should be `Binary`
     #[inline]
     pub unsafe fn new_unchecked(logical_type: LogicalType) -> Self {
+        #[cfg(feature = "verify")]
+        assert_eq!(logical_type.physical_type(), PhysicalType::Binary);
+
         Self::with_capacity_unchecked(logical_type, 0)
     }
 
@@ -74,8 +77,11 @@ impl BinaryArray {
     /// physical type of the logical type should be `Binary`
     #[inline]
     pub unsafe fn with_capacity_unchecked(logical_type: LogicalType, capacity: usize) -> Self {
+        #[cfg(feature = "verify")]
+        assert_eq!(logical_type.physical_type(), PhysicalType::Binary);
+
         let mut offsets = AlignedVec::<Offset>::with_capacity(capacity + 1);
-        *offsets.get_unchecked_mut(0) = 0;
+        *offsets.ptr.as_ptr() = 0;
         offsets.len = 1;
         Self {
             logical_type,
@@ -161,7 +167,9 @@ impl Array for BinaryArray {
 
     #[inline]
     fn values_slice_iter(&self, offset: usize, length: usize) -> Self::ValuesIter<'_> {
+        #[cfg(feature = "verify")]
         assert!(offset + length <= self.len());
+
         ArrayValuesIter::new_with_current_and_len(self, offset, length)
     }
 
@@ -226,7 +234,11 @@ impl Array for BinaryArray {
         let bytes = self.bytes.as_mut();
         bytes.clear();
 
-        let offsets = &mut self.offsets.as_mut().clear_and_resize(len + 1)[1..];
+        let offsets = &mut self
+            .offsets
+            .as_mut()
+            .clear_and_resize(len + 1)
+            .get_unchecked_mut(1..);
         offsets
             .iter_mut()
             .zip(trusted_len_iterator)
@@ -244,7 +256,11 @@ impl Array for BinaryArray {
 
         let bytes = self.bytes.as_mut();
         bytes.clear();
-        let offsets = &mut self.offsets.as_mut().clear_and_resize(len + 1)[1..];
+        let offsets = &mut self
+            .offsets
+            .as_mut()
+            .clear_and_resize(len + 1)
+            .get_unchecked_mut(1..);
 
         uninitiated_validity.reset(
             len,
@@ -276,7 +292,11 @@ impl Array for BinaryArray {
         let bytes = self.bytes.as_mut();
         bytes.clear();
 
-        let offsets = &mut self.offsets.as_mut().clear_and_resize(len + 1)[1..];
+        let offsets = &mut self
+            .offsets
+            .as_mut()
+            .clear_and_resize(len + 1)
+            .get_unchecked_mut(1..);
         offsets
             .iter_mut()
             .zip(trusted_len_iterator)
@@ -297,7 +317,11 @@ impl Array for BinaryArray {
 
         let bytes = self.bytes.as_mut();
         bytes.clear();
-        let offsets = &mut self.offsets.as_mut().clear_and_resize(len + 1)[1..];
+        let offsets = &mut self
+            .offsets
+            .as_mut()
+            .clear_and_resize(len + 1)
+            .get_unchecked_mut(1..);
 
         uninitiated_validity.reset(
             len,
@@ -326,6 +350,9 @@ impl Array for BinaryArray {
     }
 
     unsafe fn copy(&mut self, source: &Self, start: usize, len: usize) {
+        #[cfg(feature = "verify")]
+        assert!(start + len <= source.len());
+
         self.validity
             .as_mut()
             .mutate()
@@ -352,6 +379,7 @@ impl Array for BinaryArray {
 #[inline]
 fn copy_bytes(element_ref: &[u8], bytes: &mut AlignedVec<u8>) {
     bytes.reserve(element_ref.len());
+    // SAFETY: we have reserved the bytes
     unsafe {
         // Copy data to bytes
         std::ptr::copy_nonoverlapping(
@@ -359,8 +387,8 @@ fn copy_bytes(element_ref: &[u8], bytes: &mut AlignedVec<u8>) {
             bytes.ptr.as_ptr().add(bytes.len),
             element_ref.len(),
         );
-        bytes.len += element_ref.len();
     }
+    bytes.len += element_ref.len();
 }
 
 impl<V: AsRef<[u8]>> FromIterator<Option<V>> for BinaryArray {
@@ -395,9 +423,9 @@ impl<V: AsRef<[u8]>> FromIterator<Option<V>> for BinaryArray {
                                 bytes.ptr.as_ptr().add(bytes.len),
                                 val_bytes.len(),
                             );
-                            bytes.len = new_len;
-                            mutate_validity_guard.push(true);
                         }
+                        bytes.len = new_len;
+                        mutate_validity_guard.push(true);
                     }
                     None => {
                         mutate_validity_guard.push(false);
