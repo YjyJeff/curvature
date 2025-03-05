@@ -23,7 +23,7 @@ use curvature_procedural_macro::MetricsSetBuilder;
 use data_block::array::ArrayImpl;
 use data_block::block::{DataBlock, MutateArrayError};
 use data_block::types::{LogicalType, PhysicalSize};
-use hashbrown::raw::{RawIntoIter, RawTable as SwissTable};
+use hashbrown::hash_table::{HashTable as SwissTable, IntoIter};
 use parking_lot::Mutex;
 use rayon::iter::{IntoParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
 use snafu::{ResultExt, Snafu, ensure};
@@ -184,9 +184,7 @@ impl<K: Debug + SerdeKey> Debug for ThreadLocalTables<K> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "ThreadLocalTables {{ [")?;
         for table in self.tables.iter() {
-            f.debug_list()
-                .entries(unsafe { table.iter().map(|bucket| bucket.as_ref()) })
-                .finish()?;
+            f.debug_list().entries(table.iter()).finish()?;
             write!(f, ", ")?;
         }
         write!(f, "] }}")
@@ -397,7 +395,7 @@ impl GlobalSourceState for HashAggregateGlobalSourceState {
 /// FIXME: Can we move partial of the swiss table into the local state?
 #[allow(missing_debug_implementations)]
 pub struct HashAggregateLocalSourceState<S: Serde> {
-    table_into_iter: RawIntoIter<Element<S::SerdeKey>>,
+    table_into_iter: IntoIter<Element<S::SerdeKey>>,
     read_count: *const AtomicUsize,
     /// Arena the table allocated in
     _arena: Arena,
@@ -1115,7 +1113,7 @@ fn combine_not_partitioned_tables<K: SerdeKey>(
 ///
 /// Arena of the partial table should outlive this function
 unsafe fn combine_swiss_table<'a, K: SerdeKey>(
-    partial_table: SwissTable<Element<K>>,
+    mut partial_table: SwissTable<Element<K>>,
     partial_state_ptrs: &mut Vec<AggregationStatesPtr>,
     combined_table: &'a mut SwissTable<Element<K>>,
     combined_arena: &'a Arena,
@@ -1127,8 +1125,7 @@ unsafe fn combine_swiss_table<'a, K: SerdeKey>(
         partial_state_ptrs.resize(partial_table.len(), AggregationStatesPtr::dangling());
 
         partial_table
-            .iter()
-            .map(|bucket| bucket.as_mut())
+            .iter_mut()
             .zip(partial_state_ptrs.iter_mut())
             .zip(combined_state_ptrs.iter_mut())
             .for_each(|((element, partial_ptr), combined_ptr)| {
@@ -1217,7 +1214,7 @@ fn partition<S: Serde, P: Partitioning>(
         // SAFETY: We already allocate the hash table in the tables and the partition index
         // is guaranteed smaller than the partition count
         let hash_table = unsafe { partitioned.get_unchecked_mut(partition_index) };
-        hash_table.insert(hash_value, element, |element| element.hash_value);
+        hash_table.insert_unique(hash_value, element, |element| element.hash_value);
     });
 }
 
@@ -1304,7 +1301,9 @@ mod tests {
                 .for_each(|(index, elements)| {
                     let mut table = SwissTable::with_capacity(16);
                     elements.into_iter().for_each(|element| {
-                        table.insert(element.hash_value, element, |element| element.hash_value);
+                        table.insert_unique(element.hash_value, element, |element| {
+                            element.hash_value
+                        });
                     });
                     mocked[index].push(table)
                 });
@@ -1332,7 +1331,7 @@ mod tests {
         let combined_state_ptrs = unsafe {
             combined.tables[0]
                 .iter()
-                .map(|bucket| bucket.as_ref().agg_states_ptr)
+                .map(|bucket| bucket.agg_states_ptr)
                 .collect::<Vec<_>>()
         };
 

@@ -9,7 +9,7 @@ use crate::exec::physical_expr::function::aggregate::{
 use crate::common::profiler::ScopedTimerGuard;
 use crate::exec::physical_operator::aggregate::Arena;
 use data_block::array::ArrayImpl;
-use hashbrown::raw::RawTable as SwissTable;
+use hashbrown::hash_table::HashTable as SwissTable;
 use std::time::Duration;
 
 /// HashTable for storing the group by keys and aggregation states. It is not
@@ -65,9 +65,7 @@ pub struct HashTableMetrics {
 impl<S: Serde> std::fmt::Debug for HashTable<S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "HashTable {{ len: {}, data: ", self.swiss_table.len())?;
-        f.debug_list()
-            .entries(unsafe { self.swiss_table.iter().map(|bucket| bucket.as_ref()) })
-            .finish()?;
+        f.debug_list().entries(self.swiss_table.iter()).finish()?;
         write!(f, " }}")
     }
 }
@@ -160,6 +158,7 @@ impl<S: Serde> HashTable<S> {
 
             // 3. Probe the hash table, update the ptr in the elements
             {
+                // FIXME: Add prefetching here to avoid memory stall
                 let _guard = ScopedTimerGuard::new(&mut self.metrics.probing_time);
                 self.keys
                     .iter_mut()
@@ -216,13 +215,13 @@ pub(super) fn probing_swiss_table<K: SerdeKey>(
     state_ptr: &mut AggregationStatesPtr,
     agg_func_list: &AggregationFunctionList,
 ) {
-    match swiss_table.get(hash_value, |probe_element| probe_element.serde_key.eq(key)) {
+    match swiss_table.find(hash_value, |probe_element| probe_element.serde_key.eq(key)) {
         None => {
             // The group by keys do not in the hash table, we need to create a new
             // aggregation states to store its result
             let agg_states_ptr = agg_func_list.alloc_states_in_arena(arena);
             // Insert it into the raw table
-            swiss_table.insert(
+            swiss_table.insert_unique(
                 hash_value,
                 Element {
                     serde_key: std::mem::take(key),
@@ -294,14 +293,9 @@ mod tests {
 
             // Check states
             table.state_ptrs.clear();
-            unsafe {
-                table.state_ptrs.extend(
-                    table
-                        .swiss_table
-                        .iter()
-                        .map(|bucket| bucket.as_ref().agg_states_ptr),
-                );
-            }
+            table
+                .state_ptrs
+                .extend(table.swiss_table.iter().map(|bucket| bucket.agg_states_ptr));
 
             let mut output = DataBlock::with_logical_types(vec![
                 LogicalType::UnsignedBigInt,
