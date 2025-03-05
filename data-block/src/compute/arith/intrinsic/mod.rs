@@ -10,11 +10,11 @@ use crate::array::{Array, PrimitiveArray};
 use crate::bitmap::Bitmap;
 use crate::compute::combine_validities;
 use crate::types::IntrinsicType;
-pub use add::{add, add_scalar, AddExt};
-pub use div::{div, div_scalar, DivExt};
-pub use mul::{mul, mul_scalar, MulExt};
-pub use rem::{rem, rem_scalar, RemCast, RemExt};
-pub use sub::{sub, sub_scalar, SubExt};
+pub use add::{AddExt, add, add_scalar};
+pub use div::{DivExt, div, div_scalar};
+pub use mul::{MulExt, mul, mul_scalar};
+pub use rem::{RemCast, RemExt, rem, rem_scalar};
+pub use sub::{SubExt, sub, sub_scalar};
 
 // Add, Sub, Mul operations are supported by cpu, benchmark shows that they usually
 // have same threshold based on number of bits
@@ -39,28 +39,30 @@ unsafe fn arith_scalar<T, U, V>(
     V: IntrinsicType,
     U: Copy,
 {
-    #[cfg(feature = "verify")]
-    assert_selection_is_valid!(selection, array);
-    dst.validity.reference(&array.validity);
+    unsafe {
+        #[cfg(feature = "verify")]
+        assert_selection_is_valid!(selection, array);
+        dst.validity.reference(&array.validity);
 
-    let dst = dst.data.as_mut();
-    let uninitialized = dst.clear_and_resize(array.len());
+        let dst = dst.data.as_mut();
+        let uninitialized = dst.clear_and_resize(array.len());
 
-    let array_data = array.data.as_slice();
-    let scalar = transformer(scalar);
+        let array_data = array.data.as_slice();
+        let scalar = transformer(scalar);
 
-    if selection.ones_ratio() < partial_arith_threshold {
-        selection.iter_ones().for_each(|index| {
-            *uninitialized.get_unchecked_mut(index) =
-                arith_func(*array_data.get_unchecked(index), scalar);
-        });
-    } else {
-        // Following code will be optimized for different target-feature to perform
-        // auto-vectorization
-        array_data
-            .iter()
-            .zip(uninitialized)
-            .for_each(|(&element, uninit)| *uninit = arith_func(element, scalar));
+        if selection.ones_ratio() < partial_arith_threshold {
+            selection.iter_ones().for_each(|index| {
+                *uninitialized.get_unchecked_mut(index) =
+                    arith_func(*array_data.get_unchecked(index), scalar);
+            });
+        } else {
+            // Following code will be optimized for different target-feature to perform
+            // auto-vectorization
+            array_data
+                .iter()
+                .zip(uninitialized)
+                .for_each(|(&element, uninit)| *uninit = arith_func(element, scalar));
+        }
     }
 }
 
@@ -86,31 +88,33 @@ unsafe fn arith_arrays<T, U, V>(
     V: IntrinsicType,
     U: IntrinsicType,
 {
-    #[cfg(feature = "verify")]
-    {
-        assert_selection_is_valid!(selection, lhs);
-        assert_eq!(lhs.len(), rhs.len());
-    }
+    unsafe {
+        #[cfg(feature = "verify")]
+        {
+            assert_selection_is_valid!(selection, lhs);
+            assert_eq!(lhs.len(), rhs.len());
+        }
 
-    combine_validities(&lhs.validity, &rhs.validity, &mut dst.validity);
+        combine_validities(&lhs.validity, &rhs.validity, &mut dst.validity);
 
-    let uninitialized = dst.data.as_mut().clear_and_resize(lhs.len());
+        let uninitialized = dst.data.as_mut().clear_and_resize(lhs.len());
 
-    let lhs = lhs.data.as_slice();
-    let rhs = rhs.data.as_slice();
+        let lhs = lhs.data.as_slice();
+        let rhs = rhs.data.as_slice();
 
-    if selection.ones_ratio() < partial_arith_threshold {
-        selection.iter_ones().for_each(|index| {
-            *uninitialized.get_unchecked_mut(index) =
-                arith_func(*lhs.get_unchecked(index), *rhs.get_unchecked(index));
-        });
-    } else {
-        // Following code will be optimized for different target-feature to perform
-        // auto-vectorization
-        lhs.into_iter()
-            .zip(rhs)
-            .zip(uninitialized)
-            .for_each(|((&lhs, &rhs), uninit)| *uninit = arith_func(lhs, rhs));
+        if selection.ones_ratio() < partial_arith_threshold {
+            selection.iter_ones().for_each(|index| {
+                *uninitialized.get_unchecked_mut(index) =
+                    arith_func(*lhs.get_unchecked(index), *rhs.get_unchecked(index));
+            });
+        } else {
+            // Following code will be optimized for different target-feature to perform
+            // auto-vectorization
+            lhs.into_iter()
+                .zip(rhs)
+                .zip(uninitialized)
+                .for_each(|((&lhs, &rhs), uninit)| *uninit = arith_func(lhs, rhs));
+        }
     }
 }
 
@@ -137,7 +141,7 @@ macro_rules! dynamic_arith_scalar_func {
             ) where
                 PrimitiveArray<T>: Array,
                 T: $ext_trait,
-            {
+            { unsafe {
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
                 {
                     // Note that this `unsafe` block is safe because we're testing
@@ -172,7 +176,7 @@ macro_rules! dynamic_arith_scalar_func {
                     $arith_func,
                     $transformer,
                 )
-            }
+            }}
         }
         dynamic_arith_scalar_func!(#[cfg(target_arch = "aarch64")], "neon", neon, $func_name, $ext_trait, $arith_func, $transformer);
         dynamic_arith_scalar_func!(#[cfg(any(target_arch = "x86", target_arch = "x86_64"))], "avx2", avx2, $func_name, $ext_trait, $arith_func, $transformer);
@@ -193,7 +197,7 @@ macro_rules! dynamic_arith_scalar_func {
             ) where
                 PrimitiveArray<T>: Array,
                 T: $ext_trait,
-            {
+            { unsafe {
                 arith_scalar(
                     selection,
                     array,
@@ -203,7 +207,7 @@ macro_rules! dynamic_arith_scalar_func {
                     $arith_func,
                     $transformer,
                 )
-            }
+            }}
         }
     };
 }
@@ -231,7 +235,7 @@ macro_rules! dynamic_arith_arrays_func {
             ) where
                 PrimitiveArray<T>: Array,
                 T: $ext_trait,
-            {
+            { unsafe {
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
                 {
                     // Note that this `unsafe` block is safe because we're testing
@@ -265,7 +269,7 @@ macro_rules! dynamic_arith_arrays_func {
                     T::PARTIAL_ARITH_THRESHOLD,
                     $arith_func,
                 )
-            }
+            }}
         }
         dynamic_arith_arrays_func!(#[cfg(target_arch = "aarch64")], "neon", neon, $func_name, $ext_trait, $arith_func);
         dynamic_arith_arrays_func!(#[cfg(any(target_arch = "x86", target_arch = "x86_64"))], "avx2", avx2, $func_name, $ext_trait, $arith_func);
@@ -286,7 +290,7 @@ macro_rules! dynamic_arith_arrays_func {
             ) where
                 PrimitiveArray<T>: Array,
                 T: $ext_trait,
-            {
+            { unsafe {
                 arith_arrays(
                     selection,
                     lhs,
@@ -295,7 +299,7 @@ macro_rules! dynamic_arith_arrays_func {
                     T::[<$func_suffix:upper _PARTIAL_ARITH_THRESHOLD>],
                     $arith_func,
                 )
-            }
+            }}
         }
     };
 }

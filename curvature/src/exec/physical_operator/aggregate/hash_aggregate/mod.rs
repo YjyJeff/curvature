@@ -26,17 +26,17 @@ use data_block::types::{LogicalType, PhysicalSize};
 use hashbrown::raw::{RawIntoIter, RawTable as SwissTable};
 use parking_lot::Mutex;
 use rayon::iter::{IntoParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
-use snafu::{ensure, ResultExt, Snafu};
+use snafu::{ResultExt, Snafu, ensure};
 use strength_reduce::StrengthReducedU64;
 
 use std::fmt::Debug;
 use std::ops::DerefMut;
+use std::sync::Arc;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::atomic::{AtomicBool, AtomicUsize};
-use std::sync::Arc;
 use std::time::Duration;
 
-use self::hash_table::{probing_swiss_table, Element, HashTable, HashTableMetrics};
+use self::hash_table::{Element, HashTable, HashTableMetrics, probing_swiss_table};
 use self::serde::{Serde, SerdeKey};
 use crate::common::client_context::ClientContext;
 use crate::common::profiler::ScopedTimerGuard;
@@ -48,14 +48,14 @@ use crate::exec::physical_expr::function::aggregate::{
 use crate::exec::physical_operator::ext_traits::{SinkOperatorExt, SourceOperatorExt};
 use crate::exec::physical_operator::metric::{Count, MetricsSet, Time};
 use crate::exec::physical_operator::{
-    impl_regular_for_non_regular, use_types_for_impl_regular_for_non_regular, FinalizeSinkSnafu,
-    GlobalSinkState, GlobalSourceState, LocalSinkState, LocalSourceState, OperatorResult,
-    ParallelismDegree, PhysicalOperator, ReadDataSnafu, SinkExecStatus, SourceExecStatus,
-    StateStringify, Stringify, WriteDataSnafu,
+    FinalizeSinkSnafu, GlobalSinkState, GlobalSourceState, LocalSinkState, LocalSourceState,
+    OperatorResult, ParallelismDegree, PhysicalOperator, ReadDataSnafu, SinkExecStatus,
+    SourceExecStatus, StateStringify, Stringify, WriteDataSnafu, impl_regular_for_non_regular,
+    use_types_for_impl_regular_for_non_regular,
 };
 
-use crate::exec::physical_operator::utils::downcast_mut_local_state;
 use crate::STANDARD_VECTOR_SIZE;
+use crate::exec::physical_operator::utils::downcast_mut_local_state;
 
 use super::Arena;
 
@@ -68,7 +68,9 @@ pub enum HashAggregateError {
         "Group by keys passed to HashAggregate is empty, use `SimpleAggregate` instead "
     ))]
     EmptyGroupByKeys,
-    #[snafu(display("`FieldRef` with index `{ref_index}` is out or range, the input only has `{input_size}` fields"))]
+    #[snafu(display(
+        "`FieldRef` with index `{ref_index}` is out or range, the input only has `{input_size}` fields"
+    ))]
     FieldRefOutOfRange { ref_index: usize, input_size: usize },
     #[snafu(display(
         "TypeMismatch: `FieldRef` with index `{ref_index}` has logical type `{:?}`, however the field in the input has logical type `{:?}`",
@@ -89,7 +91,9 @@ pub enum HashAggregateError {
         serde_key: &'static str,
         group_by_keys: Vec<LogicalType>,
     },
-    #[snafu(display("Aggregation functions passed to HashAggregate is empty. HashAggregate needs at least one aggregation function"))]
+    #[snafu(display(
+        "Aggregation functions passed to HashAggregate is empty. HashAggregate needs at least one aggregation function"
+    ))]
     EmptyAggregationFuncs,
 }
 
@@ -711,12 +715,14 @@ impl<S: Serde> PhysicalOperator for HashAggregate<S> {
         local_state: &mut dyn LocalSinkState,
     ) -> OperatorResult<SinkExecStatus> {
         debug_assert_eq!(input.num_arrays(), self.children[0].output_types().len());
-        debug_assert!(input
-            .arrays()
-            .iter()
-            .map(|array| array.logical_type())
-            .zip(self.children[0].output_types())
-            .all(|(input, output)| input == output));
+        debug_assert!(
+            input
+                .arrays()
+                .iter()
+                .map(|array| array.logical_type())
+                .zip(self.children[0].output_types())
+                .all(|(input, output)| input == output)
+        );
 
         let local_state = downcast_mut_local_state!(
             self,
@@ -980,7 +986,10 @@ impl<S: Serde> SourceOperatorExt for HashAggregate<S> {
                     return Err(source);
                 }
                 MutateArrayError::Length { inner } => {
-                    panic!("DataBlock read from HashAggregate's local source state must have same length. Error: `{}`", inner)
+                    panic!(
+                        "DataBlock read from HashAggregate's local source state must have same length. Error: `{}`",
+                        inner
+                    )
                 }
             }
         }
@@ -1012,9 +1021,11 @@ fn combine_partitioned_tables<K: SerdeKey>(
 
     // Check the input is valid, all of them have same partition count
     debug_assert!(collected_swiss_tables.len() >= 2);
-    debug_assert!(collected_swiss_tables
-        .iter()
-        .all(|thread_local_table| thread_local_table.tables.len() == partition_count));
+    debug_assert!(
+        collected_swiss_tables
+            .iter()
+            .all(|thread_local_table| thread_local_table.tables.len() == partition_count)
+    );
 
     // Transpose the two dimension vector from `parallelism * partition` to `partition * parallelism`
     // Note that the arena still in the collected_swiss_tables
@@ -1067,9 +1078,11 @@ fn combine_not_partitioned_tables<K: SerdeKey>(
     agg_func_list: &AggregationFunctionList,
 ) -> OperatorResult<()> {
     debug_assert!(!collected_swiss_tables.is_empty());
-    debug_assert!(collected_swiss_tables
-        .iter()
-        .all(|thread_local_tables| thread_local_tables.tables.len() == 1));
+    debug_assert!(
+        collected_swiss_tables
+            .iter()
+            .all(|thread_local_tables| thread_local_tables.tables.len() == 1)
+    );
 
     let mut combined_state_ptrs = Vec::new();
     let mut partial_state_ptrs = Vec::new();
@@ -1109,34 +1122,36 @@ unsafe fn combine_swiss_table<'a, K: SerdeKey>(
     combined_state_ptrs: &mut Vec<AggregationStatesPtr>,
     agg_func_list: &AggregationFunctionList,
 ) -> OperatorResult<()> {
-    combined_state_ptrs.resize(partial_table.len(), AggregationStatesPtr::dangling());
-    partial_state_ptrs.resize(partial_table.len(), AggregationStatesPtr::dangling());
+    unsafe {
+        combined_state_ptrs.resize(partial_table.len(), AggregationStatesPtr::dangling());
+        partial_state_ptrs.resize(partial_table.len(), AggregationStatesPtr::dangling());
 
-    partial_table
-        .iter()
-        .map(|bucket| bucket.as_mut())
-        .zip(partial_state_ptrs.iter_mut())
-        .zip(combined_state_ptrs.iter_mut())
-        .for_each(|((element, partial_ptr), combined_ptr)| {
-            *partial_ptr = element.agg_states_ptr;
+        partial_table
+            .iter()
+            .map(|bucket| bucket.as_mut())
+            .zip(partial_state_ptrs.iter_mut())
+            .zip(combined_state_ptrs.iter_mut())
+            .for_each(|((element, partial_ptr), combined_ptr)| {
+                *partial_ptr = element.agg_states_ptr;
 
-            probing_swiss_table(
-                combined_table,
-                combined_arena,
-                &mut element.serde_key,
-                element.hash_value,
-                combined_ptr,
-                agg_func_list,
-            )
-        });
+                probing_swiss_table(
+                    combined_table,
+                    combined_arena,
+                    &mut element.serde_key,
+                    element.hash_value,
+                    combined_ptr,
+                    agg_func_list,
+                )
+            });
 
-    // SAFETY: the partial_state_ptr is guaranteed by the safety of the function
-    // The combined_state_ptrs points to the arena that has same lifetime with the combined_table
-    // Both of them have length: `partial_table.len()`
-    agg_func_list
-        .combine_states(partial_state_ptrs, combined_state_ptrs)
-        .boxed()
-        .context(FinalizeSinkSnafu)
+        // SAFETY: the partial_state_ptr is guaranteed by the safety of the function
+        // The combined_state_ptrs points to the arena that has same lifetime with the combined_table
+        // Both of them have length: `partial_table.len()`
+        agg_func_list
+            .combine_states(partial_state_ptrs, combined_state_ptrs)
+            .boxed()
+            .context(FinalizeSinkSnafu)
+    }
 }
 
 /// Trait for partitioning the [`HashValue`] into partition index
@@ -1213,8 +1228,8 @@ mod tests {
     use super::serde::FixedSizedSerdeKey;
 
     use super::*;
-    use crate::exec::physical_expr::function::aggregate::min_max::Min;
     use crate::exec::physical_expr::function::aggregate::AggregationFunction;
+    use crate::exec::physical_expr::function::aggregate::min_max::Min;
     use crate::exec::physical_expr::function::aggregate::{count::CountStar, sum::Sum};
     use crate::exec::physical_operator::table_scan::empty_table_scan::EmptyTableScan;
     use data_block::array::{Float32Array, Int32Array, Int64Array};

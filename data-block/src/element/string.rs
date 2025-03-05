@@ -150,7 +150,7 @@ impl<'a> StringView<'a> {
     /// The clippy hint is wrong!
     #[allow(clippy::unnecessary_cast)]
     pub(crate) unsafe fn expand(&self) -> StringView<'static> {
-        *((self as *const _) as *const StringView<'static>)
+        unsafe { *((self as *const _) as *const StringView<'static>) }
     }
 
     /// Calibrate the old pointer to new pointer. Reallocation, serialization would invalid
@@ -182,12 +182,12 @@ impl<'a> StringView<'a> {
     /// Inlined ptr that contains the prefix
     #[inline]
     pub(crate) unsafe fn inlined_ptr(&self) -> *const u8 {
-        self.content.inlined.as_ptr()
+        unsafe { self.content.inlined.as_ptr() }
     }
 
     #[inline]
     pub(crate) unsafe fn indirect_ptr(&self) -> *const u8 {
-        self.content.indirect.pointer
+        unsafe { self.content.indirect.pointer }
     }
 
     /// Read the prefix as u32
@@ -454,20 +454,22 @@ impl<'a> ElementRefSerdeExt<'a> for StringView<'a> {
 
     #[inline]
     unsafe fn deserialize(ptr: &'a mut *const u8) -> StringView<'a> {
-        let length = std::ptr::read_unaligned(*ptr as *const u32);
-        let data_ptr = ptr.add(std::mem::size_of::<u32>());
-        let v = if length <= INLINE_LEN as u32 {
-            let mut inlined = [0; INLINE_LEN];
-            std::ptr::copy_nonoverlapping(data_ptr, inlined.as_mut_ptr(), length as usize);
-            Self {
-                length,
-                content: StringViewContent { inlined },
-            }
-        } else {
-            Self::new_indirect(data_ptr, length)
-        };
-        *ptr = ptr.add(std::mem::size_of::<u32>() + length as usize);
-        v
+        unsafe {
+            let length = std::ptr::read_unaligned(*ptr as *const u32);
+            let data_ptr = ptr.add(std::mem::size_of::<u32>());
+            let v = if length <= INLINE_LEN as u32 {
+                let mut inlined = [0; INLINE_LEN];
+                std::ptr::copy_nonoverlapping(data_ptr, inlined.as_mut_ptr(), length as usize);
+                Self {
+                    length,
+                    content: StringViewContent { inlined },
+                }
+            } else {
+                Self::new_indirect(data_ptr, length)
+            };
+            *ptr = ptr.add(std::mem::size_of::<u32>() + length as usize);
+            v
+        }
     }
 }
 

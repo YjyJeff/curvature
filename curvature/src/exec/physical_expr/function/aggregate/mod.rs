@@ -5,7 +5,7 @@ pub mod count;
 pub mod min_max;
 pub mod sum;
 
-use std::alloc::{alloc, dealloc, handle_alloc_error, Layout};
+use std::alloc::{Layout, alloc, dealloc, handle_alloc_error};
 #[cfg(not(feature = "likely"))]
 use std::convert::identity as likely;
 use std::fmt::{Debug, Display};
@@ -20,7 +20,7 @@ use data_block::array::iter::ArrayNonNullValuesIter;
 use data_block::array::{Array, ArrayError, ArrayImpl};
 use data_block::types::{Element, ElementRef, LogicalType, PhysicalType};
 use data_block::utils::roundup_to_multiple_of_pow_of_two_base;
-use snafu::{ensure, ResultExt, Snafu};
+use snafu::{ResultExt, Snafu, ensure};
 
 use super::Function;
 use crate::common::utils::bytemuck::TransparentWrapper;
@@ -162,7 +162,7 @@ impl AggregationStatesPtr {
     /// View the ptr.add(offset) as &mut T
     #[inline]
     unsafe fn offset_as_mut<'a, T>(self, offset: usize) -> &'a mut T {
-        &mut *(self.0.as_ptr().add(offset).cast::<T>())
+        unsafe { &mut *(self.0.as_ptr().add(offset).cast::<T>()) }
     }
 
     /// Create a new dangling pointer
@@ -260,12 +260,14 @@ impl AggregationFunctionList {
     /// Init the allocated pointer
     #[inline]
     unsafe fn init(&self, ptr: NonNull<u8>) -> AggregationStatesPtr {
-        std::ptr::copy_nonoverlapping(
-            self.init_states.as_ptr(),
-            ptr.as_ptr(),
-            self.states_layout.layout.size(),
-        );
-        AggregationStatesPtr(ptr)
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                self.init_states.as_ptr(),
+                ptr.as_ptr(),
+                self.states_layout.layout.size(),
+            );
+            AggregationStatesPtr(ptr)
+        }
     }
 
     /// Allocate the initialized `AggregationStates` in the arena, return the pointer to it
@@ -293,10 +295,12 @@ impl AggregationFunctionList {
     /// and have never been dropped/deallocated before
     #[inline]
     pub(crate) unsafe fn dealloc_states(&self, states_ptr: AggregationStatesPtr) {
-        // Before deallocation, we need to drop the states
-        self.drop_states(&[states_ptr]);
-        // Deallocate the ptr from the global memory allocator
-        dealloc(states_ptr.0.as_ptr(), self.states_layout.layout)
+        unsafe {
+            // Before deallocation, we need to drop the states
+            self.drop_states(&[states_ptr]);
+            // Deallocate the ptr from the global memory allocator
+            dealloc(states_ptr.0.as_ptr(), self.states_layout.layout)
+        }
     }
 
     /// Update the states in the arena
@@ -310,17 +314,19 @@ impl AggregationFunctionList {
         payloads: &[&ArrayImpl],
         state_ptrs: &[AggregationStatesPtr],
     ) -> Result<()> {
-        let mut payload_index = 0;
-        self.funcs
-            .iter()
-            .zip(self.states_layout.states_offsets.iter())
-            .try_for_each(|(func, &state_offset)| {
-                let old = payload_index;
-                payload_index += func.arguments().len();
-                let func_payloads = &payloads[old..payload_index];
+        unsafe {
+            let mut payload_index = 0;
+            self.funcs
+                .iter()
+                .zip(self.states_layout.states_offsets.iter())
+                .try_for_each(|(func, &state_offset)| {
+                    let old = payload_index;
+                    payload_index += func.arguments().len();
+                    let func_payloads = &payloads[old..payload_index];
 
-                func.update_states(func_payloads, state_ptrs, state_offset)
-            })
+                    func.update_states(func_payloads, state_ptrs, state_offset)
+                })
+        }
     }
 
     /// Update the states with batch
@@ -336,16 +342,18 @@ impl AggregationFunctionList {
         payloads: &[&ArrayImpl],
         states_ptr: AggregationStatesPtr,
     ) -> Result<()> {
-        let mut payload_index = 0;
-        self.funcs
-            .iter()
-            .zip(self.states_layout.states_offsets.iter())
-            .try_for_each(|(func, &state_offset)| {
-                let old = payload_index;
-                payload_index += func.arguments().len();
-                let func_payloads = &payloads[old..payload_index];
-                func.batch_update_states(len, func_payloads, states_ptr, state_offset)
-            })
+        unsafe {
+            let mut payload_index = 0;
+            self.funcs
+                .iter()
+                .zip(self.states_layout.states_offsets.iter())
+                .try_for_each(|(func, &state_offset)| {
+                    let old = payload_index;
+                    payload_index += func.arguments().len();
+                    let func_payloads = &payloads[old..payload_index];
+                    func.batch_update_states(len, func_payloads, states_ptr, state_offset)
+                })
+        }
     }
 
     /// Combine the partial states into combined states
@@ -359,12 +367,14 @@ impl AggregationFunctionList {
         partial_state_ptrs: &[AggregationStatesPtr],
         combined_state_ptrs: &[AggregationStatesPtr],
     ) -> Result<()> {
-        self.funcs
-            .iter()
-            .zip(&self.states_layout.states_offsets)
-            .try_for_each(|(func, &state_offset)| {
-                func.combine_states(partial_state_ptrs, combined_state_ptrs, state_offset)
-            })
+        unsafe {
+            self.funcs
+                .iter()
+                .zip(&self.states_layout.states_offsets)
+                .try_for_each(|(func, &state_offset)| {
+                    func.combine_states(partial_state_ptrs, combined_state_ptrs, state_offset)
+                })
+        }
     }
 
     /// Take the states in the arena,
@@ -378,16 +388,18 @@ impl AggregationFunctionList {
         state_ptrs: &[AggregationStatesPtr],
         output: &mut [ArrayImpl],
     ) -> Result<()> {
-        debug_assert_eq!(self.funcs.len(), output.len());
+        unsafe {
+            debug_assert_eq!(self.funcs.len(), output.len());
 
-        self.funcs
-            .iter()
-            .zip(&self.states_layout.states_offsets)
-            .zip(output)
-            .try_for_each(|((func, &state_offset), output)| {
-                // SAFETY: the state_offset is guaranteed by the constructor, the output guaranteed by the caller
-                func.take_states(state_ptrs, state_offset, output)
-            })
+            self.funcs
+                .iter()
+                .zip(&self.states_layout.states_offsets)
+                .zip(output)
+                .try_for_each(|((func, &state_offset), output)| {
+                    // SAFETY: the state_offset is guaranteed by the constructor, the output guaranteed by the caller
+                    func.take_states(state_ptrs, state_offset, output)
+                })
+        }
     }
 
     /// Drop the states allocated in the state_ptrs
@@ -396,10 +408,12 @@ impl AggregationFunctionList {
     ///
     /// - `ptr` should be valid pointers and have never been dropped before
     pub unsafe fn drop_states(&self, state_ptrs: &[AggregationStatesPtr]) {
-        self.funcs
-            .iter()
-            .zip(&self.states_layout.states_offsets)
-            .for_each(|(func, &state_offset)| func.drop_states(state_ptrs, state_offset));
+        unsafe {
+            self.funcs
+                .iter()
+                .zip(&self.states_layout.states_offsets)
+                .for_each(|(func, &state_offset)| func.drop_states(state_ptrs, state_offset));
+        }
     }
 }
 
@@ -563,10 +577,7 @@ pub trait SpecialOptionalUnaryAggregationFunction<PayloadArray: Array, OutputArr
     Stringify + Function
 {
     /// State
-    type State: SpecialOptionalUnaryAggregationState<
-        PayloadArray,
-        OutputElement = OutputArray::Element,
-    >;
+    type State: SpecialOptionalUnaryAggregationState<PayloadArray, OutputElement = OutputArray::Element>;
 }
 
 /// Trait for the state of the special unary aggregation function
@@ -900,10 +911,12 @@ where
     }
 
     unsafe fn init_state(&self, ptr: AggregationStatesPtr, state_offset: usize) {
-        let ptr = ptr.offset_as_mut::<F::State>(state_offset).peel_mut();
+        unsafe {
+            let ptr = ptr.offset_as_mut::<F::State>(state_offset).peel_mut();
 
-        // Using write here to avoid drop the uninitiated value, especially for `Vec<u8>`  and `String`
-        std::ptr::write(ptr, None);
+            // Using write here to avoid drop the uninitiated value, especially for `Vec<u8>`  and `String`
+            std::ptr::write(ptr, None);
+        }
     }
 
     unsafe fn update_states(
@@ -912,30 +925,32 @@ where
         state_ptrs: &[AggregationStatesPtr],
         state_offset: usize,
     ) -> Result<()> {
-        let payload = payloads[0];
+        unsafe {
+            let payload = payloads[0];
 
-        let payload: &PayloadArray = payload
-            .try_into()
-            .expect("Unary aggregation's payload array should match its signature");
+            let payload: &PayloadArray = payload
+                .try_into()
+                .expect("Unary aggregation's payload array should match its signature");
 
-        let validity = payload.validity();
-        if validity.all_valid() {
-            // All of the element in the payload is not null
-            payload
-                .values_iter()
-                .zip(state_ptrs)
-                .try_for_each(|(payload_element, ptr)| {
+            let validity = payload.validity();
+            if validity.all_valid() {
+                // All of the element in the payload is not null
+                payload
+                    .values_iter()
+                    .zip(state_ptrs)
+                    .try_for_each(|(payload_element, ptr)| {
+                        ptr.offset_as_mut::<F::State>(state_offset)
+                            .update(payload_element)
+                    })
+            } else {
+                // Some elements are null, only update the element that is not null
+                validity.iter_ones().try_for_each(|index| {
+                    let payload_element = payload.get_value_unchecked(index);
+                    let ptr = *state_ptrs.get_unchecked(index);
                     ptr.offset_as_mut::<F::State>(state_offset)
                         .update(payload_element)
                 })
-        } else {
-            // Some elements are null, only update the element that is not null
-            validity.iter_ones().try_for_each(|index| unsafe {
-                let payload_element = payload.get_value_unchecked(index);
-                let ptr = *state_ptrs.get_unchecked(index);
-                ptr.offset_as_mut::<F::State>(state_offset)
-                    .update(payload_element)
-            })
+            }
         }
     }
 
@@ -946,21 +961,23 @@ where
         states_ptr: AggregationStatesPtr,
         state_offset: usize,
     ) -> Result<()> {
-        let payload = payloads[0];
+        unsafe {
+            let payload = payloads[0];
 
-        let payload: &PayloadArray = payload
-            .try_into()
-            .expect("Unary aggregation's payload array should match its signature");
+            let payload: &PayloadArray = payload
+                .try_into()
+                .expect("Unary aggregation's payload array should match its signature");
 
-        let validity = payload.validity();
-        let state = states_ptr
-            .offset_as_mut::<F::State>(state_offset)
-            .peel_mut();
+            let validity = payload.validity();
+            let state = states_ptr
+                .offset_as_mut::<F::State>(state_offset)
+                .peel_mut();
 
-        if validity.all_valid() {
-            F::State::batch_update(state, payload.values_iter())
-        } else {
-            F::State::batch_update(state, ArrayNonNullValuesIter::new(payload, validity))
+            if validity.all_valid() {
+                F::State::batch_update(state, payload.values_iter())
+            } else {
+                F::State::batch_update(state, ArrayNonNullValuesIter::new(payload, validity))
+            }
         }
     }
 
@@ -970,14 +987,16 @@ where
         combined_state_ptrs: &[AggregationStatesPtr],
         state_offset: usize,
     ) -> Result<()> {
-        combined_state_ptrs
-            .iter()
-            .zip(partial_state_ptrs)
-            .try_for_each(|(combined, partial)| {
-                let combined = combined.offset_as_mut::<F::State>(state_offset);
-                let partial = partial.offset_as_mut::<F::State>(state_offset);
-                combined.combine(partial)
-            })
+        unsafe {
+            combined_state_ptrs
+                .iter()
+                .zip(partial_state_ptrs)
+                .try_for_each(|(combined, partial)| {
+                    let combined = combined.offset_as_mut::<F::State>(state_offset);
+                    let partial = partial.offset_as_mut::<F::State>(state_offset);
+                    combined.combine(partial)
+                })
+        }
     }
 
     unsafe fn take_states(
@@ -986,24 +1005,28 @@ where
         state_offset: usize,
         output: &mut ArrayImpl,
     ) -> Result<()> {
-        let output: &mut OutputArray = output
-            .try_into()
-            .expect("Output of the unary aggregation should match its signature");
+        unsafe {
+            let output: &mut OutputArray = output
+                .try_into()
+                .expect("Output of the unary aggregation should match its signature");
 
-        let trusted_len_iterator = state_ptrs.iter().map(|ptr| {
-            let state = ptr.offset_as_mut::<F::State>(state_offset);
-            state.take()
-        });
+            let trusted_len_iterator = state_ptrs.iter().map(|ptr| {
+                let state = ptr.offset_as_mut::<F::State>(state_offset);
+                state.take()
+            });
 
-        output.replace_with_trusted_len_iterator(state_ptrs.len(), trusted_len_iterator);
+            output.replace_with_trusted_len_iterator(state_ptrs.len(), trusted_len_iterator);
 
-        Ok(())
+            Ok(())
+        }
     }
 
     unsafe fn drop_states(&self, state_ptrs: &[AggregationStatesPtr], state_offset: usize) {
-        state_ptrs.iter().for_each(|ptr| {
-            let state = ptr.offset_as_mut::<F::State>(state_offset);
-            drop(state.peel_mut().take());
-        });
+        unsafe {
+            state_ptrs.iter().for_each(|ptr| {
+                let state = ptr.offset_as_mut::<F::State>(state_offset);
+                drop(state.peel_mut().take());
+            });
+        }
     }
 }

@@ -55,26 +55,28 @@ unsafe fn cmp_scalar<T: PartialOrdExt>(
 ) where
     PrimitiveArray<T>: Array<Element = T>,
 {
-    #[cfg(feature = "verify")]
-    assert_selection_is_valid!(selection, array);
-    // Benchmark shows the two and_inplace function cost 50% of the time 😭
+    unsafe {
+        #[cfg(feature = "verify")]
+        assert_selection_is_valid!(selection, array);
+        // Benchmark shows the two and_inplace function cost 50% of the time 😭
 
-    and_inplace(selection, array.validity());
-    if selection.ones_ratio() < partial_arith_threshold {
-        selection
-            .mutate()
-            .mutate_ones(|index| cmp_scalars_func(array.get_value_unchecked(index), scalar))
-    } else {
-        // Benchmark shows clear_and_resize may cost lots of time
-        cmp_func(
-            &array.data,
-            scalar,
-            temp.data_mut()
+        and_inplace(selection, array.validity());
+        if selection.ones_ratio() < partial_arith_threshold {
+            selection
                 .mutate()
-                .clear_and_resize(array.len())
-                .as_mut_ptr(),
-        );
-        and_inplace(selection, temp.data());
+                .mutate_ones(|index| cmp_scalars_func(array.get_value_unchecked(index), scalar))
+        } else {
+            // Benchmark shows clear_and_resize may cost lots of time
+            cmp_func(
+                &array.data,
+                scalar,
+                temp.data_mut()
+                    .mutate()
+                    .clear_and_resize(array.len())
+                    .as_mut_ptr(),
+            );
+            and_inplace(selection, temp.data());
+        }
     }
 }
 
@@ -102,33 +104,35 @@ unsafe fn cmp<T: PartialOrdExt>(
 ) where
     PrimitiveArray<T>: Array<Element = T>,
 {
-    #[cfg(feature = "verify")]
-    {
-        assert_selection_is_valid!(selection, lhs);
-        assert_eq!(lhs.len(), rhs.len());
-    }
-    // Benchmark shows the two and_inplace function cost 50% of the time 😭
+    unsafe {
+        #[cfg(feature = "verify")]
+        {
+            assert_selection_is_valid!(selection, lhs);
+            assert_eq!(lhs.len(), rhs.len());
+        }
+        // Benchmark shows the two and_inplace function cost 50% of the time 😭
 
-    and_inplace(selection, lhs.validity());
-    and_inplace(selection, rhs.validity());
-    if selection.ones_ratio() < partial_arith_threshold {
-        selection.mutate().mutate_ones(|index| {
-            cmp_scalars_func(
-                lhs.get_value_unchecked(index),
-                rhs.get_value_unchecked(index),
-            )
-        })
-    } else {
-        // Benchmark shows clear_and_resize may cost lots of time
-        cmp_func(
-            &lhs.data,
-            &rhs.data,
-            temp.data_mut()
-                .mutate()
-                .clear_and_resize(lhs.len())
-                .as_mut_ptr(),
-        );
-        and_inplace(selection, temp.data());
+        and_inplace(selection, lhs.validity());
+        and_inplace(selection, rhs.validity());
+        if selection.ones_ratio() < partial_arith_threshold {
+            selection.mutate().mutate_ones(|index| {
+                cmp_scalars_func(
+                    lhs.get_value_unchecked(index),
+                    rhs.get_value_unchecked(index),
+                )
+            })
+        } else {
+            // Benchmark shows clear_and_resize may cost lots of time
+            cmp_func(
+                &lhs.data,
+                &rhs.data,
+                temp.data_mut()
+                    .mutate()
+                    .clear_and_resize(lhs.len())
+                    .as_mut_ptr(),
+            );
+            and_inplace(selection, temp.data());
+        }
     }
 }
 
@@ -162,7 +166,7 @@ macro_rules! impl_partial_ord_ext {
                 array: &PrimitiveArray<$ty>,
                 scalar: $ty,
                 temp: &mut BooleanArray,
-            ){
+            ){ unsafe {
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
                 {
                     if std::arch::is_x86_feature_detected!("avx2") {
@@ -183,14 +187,14 @@ macro_rules! impl_partial_ord_ext {
                 {
                     cmp_scalar_default(selection, array, scalar, temp, $ty::PARTIAL_CMP_THRESHOLD, $cmp_func);
                 }
-            }
+            }}
 
             unsafe fn $cmp_func(
                 selection: &mut Bitmap,
                 lhs: &PrimitiveArray<$ty>,
                 rhs: &PrimitiveArray<$ty>,
                 temp: &mut BooleanArray,
-            ){
+            ){ unsafe {
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
                 {
                     if std::arch::is_x86_feature_detected!("avx2") {
@@ -211,7 +215,7 @@ macro_rules! impl_partial_ord_ext {
                 {
                     cmp_default(selection, lhs, rhs, temp, $ty::PARTIAL_CMP_THRESHOLD, $cmp_func);
                 }
-            }
+            }}
         }
     }
 }
@@ -260,7 +264,7 @@ macro_rules! timestamp_cmp_scalar {
                 array: &PrimitiveArray<i64>,
                 scalar: i64,
                 temp: &mut BooleanArray,
-            ) {
+            ) { unsafe {
                 #[cfg(feature = "verify")]
                 super::check_timestamp_array_and_multiplier::<AM>(array);
 
@@ -318,7 +322,7 @@ macro_rules! timestamp_cmp_scalar {
                         [<timestamp_scalar_ $cmp _scalar>]::<AM, SM>,
                     );
                 }
-            }
+            }}
 
             /// # Safety
             ///
@@ -337,7 +341,7 @@ macro_rules! timestamp_cmp_scalar {
                 lhs: &PrimitiveArray<i64>,
                 rhs: &PrimitiveArray<i64>,
                 temp: &mut BooleanArray,
-            ) {
+            ) { unsafe {
                 #[cfg(feature = "verify")]
                 {
                     super::check_timestamp_array_and_multiplier::<LM>(lhs);
@@ -398,7 +402,7 @@ macro_rules! timestamp_cmp_scalar {
                         [<timestamp_scalar_ $cmp _scalar>]::<LM, RM>,
                     );
                 }
-            }
+            }}
         }
     };
 }

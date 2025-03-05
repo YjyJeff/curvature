@@ -29,8 +29,8 @@ use data_block::compute::comparison::{
     timestamp_scalar_gt_scalar, timestamp_scalar_le_scalar, timestamp_scalar_lt_scalar,
     timestamp_scalar_ne_scalar,
 };
-use data_block::element::string::StringView;
 use data_block::element::Element;
+use data_block::element::string::StringView;
 use data_block::types::{LogicalType, TimeUnit};
 
 /// Comparison operator
@@ -214,9 +214,9 @@ macro_rules! cmp_wrapper {
                 array: &StringArray,
                 scalar: StringView<'_>,
                 _temp: &BooleanArray,
-            ) {
+            ) { unsafe {
                 data_block::compute::comparison::string::[<$cmp _scalar>](selection, array, scalar);
-            }
+            }}
 
             /// Wrapper of the cmp for string, such that it matches the function signature
             /// in function set
@@ -226,9 +226,9 @@ macro_rules! cmp_wrapper {
                 lhs: &StringArray,
                 rhs: &StringArray,
                 _temp: &BooleanArray,
-            ) {
+            ) { unsafe {
                 data_block::compute::comparison::string::$cmp(selection, lhs, rhs);
-            }
+            }}
 
             /// Wrapper of the cmp_scalar for boolean, such that it matches the function signature
             /// in function set
@@ -238,9 +238,9 @@ macro_rules! cmp_wrapper {
                 array: &BooleanArray,
                 scalar: bool,
                 _temp: &BooleanArray,
-            ) {
+            ) { unsafe {
                 data_block::compute::comparison::boolean::[<$cmp _scalar>](selection, array, scalar);
-            }
+            }}
 
             /// Wrapper of the cmp_scalar for generic array, such that it matches the function signature
             /// in function set
@@ -253,9 +253,9 @@ macro_rules! cmp_wrapper {
             ) where
                 for<'a, 'b> <A::Element as Element>::ElementRef<'a>:
                     PartialOrd<<A::Element as Element>::ElementRef<'b>>,
-            {
+            { unsafe {
                 data_block::compute::comparison::[<$cmp _scalar>](selection, array, scalar);
-            }
+            }}
 
             /// Wrapper of the cmp for generic array, such that it matches the function signature
             /// in function set
@@ -268,9 +268,9 @@ macro_rules! cmp_wrapper {
             ) where
                 for<'a, 'b> <A::Element as Element>::ElementRef<'a>:
                     PartialOrd<<A::Element as Element>::ElementRef<'b>>,
-            {
+            { unsafe {
                 data_block::compute::comparison::$cmp(selection, lhs, rhs);
-            }
+            }}
         }
     };
 }

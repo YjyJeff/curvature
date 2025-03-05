@@ -100,7 +100,7 @@ macro_rules! impl_fixed_sized_serde_key_serializer {
             impl Serde for FixedSizedSerdeKeySerializer<$serde_key_ty> {
                 type SerdeKey = FixedSizedSerdeKey<$serde_key_ty>;
 
-                unsafe fn serialize(arrays: &[&ArrayImpl], keys: &mut [Self::SerdeKey]) {
+                unsafe fn serialize(arrays: &[&ArrayImpl], keys: &mut [Self::SerdeKey]) { unsafe {
                     let mut offset_in_byte = 0;
                     // Clear the keys
                     keys.iter_mut().for_each(|serde_key| *serde_key= Default::default());
@@ -126,9 +126,9 @@ macro_rules! impl_fixed_sized_serde_key_serializer {
                             }
                         }
                     }
-                }
+                }}
 
-                unsafe fn deserialize(arrays: &mut [ArrayImpl], keys: &[Self::SerdeKey]){
+                unsafe fn deserialize(arrays: &mut [ArrayImpl], keys: &[Self::SerdeKey]){ unsafe {
                     let mut offset_in_byte = 0;
                     for (index, array) in arrays.iter_mut().enumerate() {
                         match array{
@@ -151,13 +151,13 @@ macro_rules! impl_fixed_sized_serde_key_serializer {
                             }
                         }
                     }
-                }
+                }}
             }
 
             impl Serde for NonNullableFixedSizedSerdeKeySerializer<$serde_key_ty> {
                 type SerdeKey = $serde_key_ty;
 
-                unsafe fn serialize(arrays: &[&ArrayImpl], keys: &mut [Self::SerdeKey]){
+                unsafe fn serialize(arrays: &[&ArrayImpl], keys: &mut [Self::SerdeKey]){ unsafe {
                     let mut offset_in_byte = 0;
                     for array in arrays {
                         match array {
@@ -180,9 +180,9 @@ macro_rules! impl_fixed_sized_serde_key_serializer {
                             }
                         }
                     }
-                }
+                }}
 
-                unsafe fn deserialize(arrays: &mut [ArrayImpl], keys: &[Self::SerdeKey]){
+                unsafe fn deserialize(arrays: &mut [ArrayImpl], keys: &[Self::SerdeKey]){ unsafe {
                     let mut offset_in_byte = 0;
                     for array in arrays.iter_mut() {
                         match array{
@@ -205,7 +205,7 @@ macro_rules! impl_fixed_sized_serde_key_serializer {
                             }
                         }
                     }
-                }
+                }}
             }
         )+
     };
@@ -239,34 +239,36 @@ unsafe fn serialize_fsa_into_fsk<A, T, K, F>(
     K: Eq + Hash + Default + Clone + Debug + 'static,
     F: Fn(T) -> T,
 {
-    // Assert we have enough space
-    debug_assert!(offset_in_byte + mem::size_of::<T>() <= mem::size_of::<K>());
+    unsafe {
+        // Assert we have enough space
+        debug_assert!(offset_in_byte + mem::size_of::<T>() <= mem::size_of::<K>());
 
-    let set_mask = 1 << index;
+        let set_mask = 1 << index;
 
-    let validity = array.validity();
-    if validity.all_valid() {
-        array.values_iter().zip(keys).for_each(|(val, serde_key)| {
-            let val = func(val);
-            let src = (&val) as *const _ as *const u8;
-            let dst = (&mut serde_key.key) as *mut _ as *mut u8;
-            // mem::size_of::<T> is important, it is a constant, give compiler lots of
-            // optimization info
-            std::ptr::copy_nonoverlapping(src, dst.add(offset_in_byte), mem::size_of::<T>());
+        let validity = array.validity();
+        if validity.all_valid() {
+            array.values_iter().zip(keys).for_each(|(val, serde_key)| {
+                let val = func(val);
+                let src = (&val) as *const _ as *const u8;
+                let dst = (&mut serde_key.key) as *mut _ as *mut u8;
+                // mem::size_of::<T> is important, it is a constant, give compiler lots of
+                // optimization info
+                std::ptr::copy_nonoverlapping(src, dst.add(offset_in_byte), mem::size_of::<T>());
 
-            serde_key.validity |= set_mask;
-        });
-    } else {
-        validity.iter_ones().for_each(|index| unsafe {
-            let val = func(array.get_value_unchecked(index));
-            let serde_key = keys.get_unchecked_mut(index);
-            let src = (&val) as *const _ as *const u8;
-            let dst = (&mut serde_key.key) as *mut _ as *mut u8;
-            // mem::size_of::<T> is important, it is a constant, give compiler lots of
-            // optimization info
-            std::ptr::copy_nonoverlapping(src, dst.add(offset_in_byte), mem::size_of::<T>());
-            serde_key.validity |= set_mask;
-        });
+                serde_key.validity |= set_mask;
+            });
+        } else {
+            validity.iter_ones().for_each(|index| {
+                let val = func(array.get_value_unchecked(index));
+                let serde_key = keys.get_unchecked_mut(index);
+                let src = (&val) as *const _ as *const u8;
+                let dst = (&mut serde_key.key) as *mut _ as *mut u8;
+                // mem::size_of::<T> is important, it is a constant, give compiler lots of
+                // optimization info
+                std::ptr::copy_nonoverlapping(src, dst.add(offset_in_byte), mem::size_of::<T>());
+                serde_key.validity |= set_mask;
+            });
+        }
     }
 }
 
@@ -281,18 +283,20 @@ unsafe fn deserialize_fsa_from_fsk<A, T, K>(
     for<'a> T: Element<ElementRef<'a> = T>,
     K: Eq + Hash + Default + Clone + Debug + 'static,
 {
-    let mask = 1 << index;
+    unsafe {
+        let mask = 1 << index;
 
-    let trusted_len_iterator = keys.iter().map(|serde_key| {
-        if serde_key.validity & mask != 0 {
-            let ptr = (&serde_key.key) as *const _ as *const u8;
-            Some(std::ptr::read_unaligned(ptr.add(offset_in_byte) as *const T))
-        } else {
-            None
-        }
-    });
+        let trusted_len_iterator = keys.iter().map(|serde_key| {
+            if serde_key.validity & mask != 0 {
+                let ptr = (&serde_key.key) as *const _ as *const u8;
+                Some(std::ptr::read_unaligned(ptr.add(offset_in_byte) as *const T))
+            } else {
+                None
+            }
+        });
 
-    array.replace_with_trusted_len_iterator(keys.len(), trusted_len_iterator)
+        array.replace_with_trusted_len_iterator(keys.len(), trusted_len_iterator)
+    }
 }
 
 /// Serialize the non nullable fixed size array into the fixed sized key
@@ -307,17 +311,19 @@ unsafe fn serialize_non_nullable_fsa_into_fsk<A, T, K, F>(
     K: Eq + Hash + Default + Clone + Debug + 'static,
     F: Fn(T) -> T,
 {
-    // Assert we have enough space
-    debug_assert!(offset_in_byte + mem::size_of::<T>() <= mem::size_of::<K>());
+    unsafe {
+        // Assert we have enough space
+        debug_assert!(offset_in_byte + mem::size_of::<T>() <= mem::size_of::<K>());
 
-    array.values_iter().zip(keys).for_each(|(val, serde_key)| {
-        let val = func(val);
-        let src = (&val) as *const _ as *const u8;
-        let dst = serde_key as *mut _ as *mut u8;
-        // mem::size_of::<T> is important, it is a constant, give compiler lots of
-        // optimization info
-        std::ptr::copy_nonoverlapping(src, dst.add(offset_in_byte), mem::size_of::<T>());
-    });
+        array.values_iter().zip(keys).for_each(|(val, serde_key)| {
+            let val = func(val);
+            let src = (&val) as *const _ as *const u8;
+            let dst = serde_key as *mut _ as *mut u8;
+            // mem::size_of::<T> is important, it is a constant, give compiler lots of
+            // optimization info
+            std::ptr::copy_nonoverlapping(src, dst.add(offset_in_byte), mem::size_of::<T>());
+        });
+    }
 }
 
 /// Deserialize the non nullable fixed size array from the fixed sized key
@@ -330,12 +336,14 @@ unsafe fn deserialize_non_nullable_fsa_from_fsk<A, T, K>(
     for<'a> T: Element<ElementRef<'a> = T>,
     K: Eq + Hash + Default + Clone + Debug + 'static,
 {
-    let trusted_len_iterator = keys.iter().map(|serde_key| {
-        let ptr = serde_key as *const _ as *const u8;
-        std::ptr::read_unaligned(ptr.add(offset_in_byte) as *const T)
-    });
+    unsafe {
+        let trusted_len_iterator = keys.iter().map(|serde_key| {
+            let ptr = serde_key as *const _ as *const u8;
+            std::ptr::read_unaligned(ptr.add(offset_in_byte) as *const T)
+        });
 
-    array.replace_with_trusted_len_values_iterator(keys.len(), trusted_len_iterator)
+        array.replace_with_trusted_len_values_iterator(keys.len(), trusted_len_iterator)
+    }
 }
 
 // Variable size
@@ -346,6 +354,14 @@ impl SerdeKey for Vec<u8> {
 
 /// Serializer that can serialize all of the arrays that contains null. It will serialize
 /// them into bytes array
+///
+/// # Note
+///
+/// It will serialize the row into a `Vec<u8>`, when the row size is ver big, like
+/// contains multiple large strings, the `Vec<u8>` will grows exponential and copy the
+/// data repeatedly. Which may cause OOM and wasts lots of CPU time. A simple and efficient
+/// optimization could be: manage the grows in blocks.
+/// See [datafusion issue](https://github.com/apache/datafusion/issues/7065) for details
 #[derive(Debug)]
 pub struct GeneralSerializer;
 
@@ -392,31 +408,35 @@ impl Serde for GeneralSerializer {
     type SerdeKey = Vec<u8>;
 
     unsafe fn serialize(arrays: &[&ArrayImpl], keys: &mut [Vec<u8>]) {
-        // Clear all of the keys
-        keys.iter_mut().for_each(|key| key.clear());
+        unsafe {
+            // Clear all of the keys
+            keys.iter_mut().for_each(|key| key.clear());
 
-        for &array in arrays.iter() {
-            macro_rules! serialize {
+            for &array in arrays.iter() {
+                macro_rules! serialize {
                 ($({$variant:ident, $ty:ty}),+) => {
                     serde!(array, keys, serialize_element_ref_into_bytes, $({$variant, $ty}),+)
                 };
             }
 
-            for_all_serde_array!(serialize);
+                for_all_serde_array!(serialize);
+            }
         }
     }
 
     unsafe fn deserialize(arrays: &mut [ArrayImpl], keys: &[Vec<u8>]) {
-        // FIXME: reuse this memory across different blocks
-        let mut ptrs = keys.iter().map(|key| key.as_ptr()).collect::<Vec<_>>();
-        for array in arrays {
-            macro_rules! deserialize {
+        unsafe {
+            // FIXME: reuse this memory across different blocks
+            let mut ptrs = keys.iter().map(|key| key.as_ptr()).collect::<Vec<_>>();
+            for array in arrays {
+                macro_rules! deserialize {
                 ($({$variant:ident, $ty:ty}),+) => {
                     serde!(array, &mut ptrs, deserialize_from_bytes, $({$variant, $ty}),+)
                 };
             }
 
-            for_all_serde_array!(deserialize)
+                for_all_serde_array!(deserialize)
+            }
         }
     }
 }
@@ -450,20 +470,26 @@ where
     A: Array,
     for<'a> <A::Element as Element>::ElementRef<'a>: ElementRefSerdeExt<'a>,
 {
-    let len = ptrs.len();
+    unsafe {
+        let len = ptrs.len();
 
-    let trusted_len_iterator = ptrs.iter_mut().map(|ptr| {
-        let not_null = **ptr != 0;
-        *ptr = ptr.add(1);
-        if not_null {
-            // deserialize data
-            Some(<<A::Element as Element>::ElementRef<'_> as ElementRefSerdeExt>::deserialize(ptr))
-        } else {
-            None
-        }
-    });
+        let trusted_len_iterator = ptrs.iter_mut().map(|ptr| {
+            let not_null = **ptr != 0;
+            *ptr = ptr.add(1);
+            if not_null {
+                // deserialize data
+                Some(
+                    <<A::Element as Element>::ElementRef<'_> as ElementRefSerdeExt>::deserialize(
+                        ptr,
+                    ),
+                )
+            } else {
+                None
+            }
+        });
 
-    array.replace_with_trusted_len_ref_iterator(len, trusted_len_iterator)
+        array.replace_with_trusted_len_ref_iterator(len, trusted_len_iterator)
+    }
 }
 
 /// Serializer that can serialize all of the arrays that does not contain null. It will serialize
@@ -475,31 +501,35 @@ impl Serde for NonNullableGeneralSerializer {
     type SerdeKey = Vec<u8>;
 
     unsafe fn serialize(arrays: &[&ArrayImpl], keys: &mut [Self::SerdeKey]) {
-        // Clear all of the keys
-        keys.iter_mut().for_each(|key| key.clear());
+        unsafe {
+            // Clear all of the keys
+            keys.iter_mut().for_each(|key| key.clear());
 
-        for &array in arrays.iter() {
-            macro_rules! serialize {
+            for &array in arrays.iter() {
+                macro_rules! serialize {
                 ($({$variant:ident, $ty:ty}),+) => {
                     serde!(array, keys, serialize_non_nullable_element_ref_into_bytes, $({$variant, $ty}),+)
                 };
             }
 
-            for_all_serde_array!(serialize);
+                for_all_serde_array!(serialize);
+            }
         }
     }
 
     unsafe fn deserialize(arrays: &mut [ArrayImpl], keys: &[Self::SerdeKey]) {
-        // FIXME: reuse this memory across different blocks
-        let mut ptrs = keys.iter().map(|key| key.as_ptr()).collect::<Vec<_>>();
-        for array in arrays {
-            macro_rules! deserialize {
+        unsafe {
+            // FIXME: reuse this memory across different blocks
+            let mut ptrs = keys.iter().map(|key| key.as_ptr()).collect::<Vec<_>>();
+            for array in arrays {
+                macro_rules! deserialize {
                 ($({$variant:ident, $ty:ty}),+) => {
                     serde!(array, &mut ptrs, deserialize_non_nullable_from_bytes, $({$variant, $ty}),+)
                 };
             }
 
-            for_all_serde_array!(deserialize)
+                for_all_serde_array!(deserialize)
+            }
         }
     }
 }
@@ -519,13 +549,15 @@ where
     A: Array,
     for<'a> <A::Element as Element>::ElementRef<'a>: ElementRefSerdeExt<'a>,
 {
-    let len = ptrs.len();
+    unsafe {
+        let len = ptrs.len();
 
-    let trusted_len_iterator = ptrs.iter_mut().map(|ptr| {
-        <<A::Element as Element>::ElementRef<'_> as ElementRefSerdeExt>::deserialize(ptr)
-    });
+        let trusted_len_iterator = ptrs.iter_mut().map(|ptr| {
+            <<A::Element as Element>::ElementRef<'_> as ElementRefSerdeExt>::deserialize(ptr)
+        });
 
-    array.replace_with_trusted_len_values_ref_iterator(len, trusted_len_iterator)
+        array.replace_with_trusted_len_values_ref_iterator(len, trusted_len_iterator)
+    }
 }
 
 #[cfg(test)]

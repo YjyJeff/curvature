@@ -25,11 +25,7 @@ pub struct Count<const STAR: bool> {
 
 impl<const STAR: bool> Stringify for Count<STAR> {
     fn name(&self) -> &'static str {
-        if STAR {
-            "CountStar"
-        } else {
-            "Count"
-        }
+        if STAR { "CountStar" } else { "Count" }
     }
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -105,18 +101,20 @@ impl<const STAR: bool> AggregationFunction for Count<STAR> {
         states_ptr: AggregationStatesPtr,
         state_offset: usize,
     ) -> Result<()> {
-        let len = if STAR {
-            len as u64
-        } else {
-            let validity = payloads[0].validity();
-            validity
-                .count_ones()
-                .map_or(len as u64, |count_ones| count_ones as u64)
-        };
-        let state = states_ptr.offset_as_mut::<CountState>(state_offset);
-        state.0 += len;
+        unsafe {
+            let len = if STAR {
+                len as u64
+            } else {
+                let validity = payloads[0].validity();
+                validity
+                    .count_ones()
+                    .map_or(len as u64, |count_ones| count_ones as u64)
+            };
+            let state = states_ptr.offset_as_mut::<CountState>(state_offset);
+            state.0 += len;
 
-        Ok(())
+            Ok(())
+        }
     }
 
     unsafe fn combine_states(
@@ -125,15 +123,17 @@ impl<const STAR: bool> AggregationFunction for Count<STAR> {
         combined_state_ptrs: &[AggregationStatesPtr],
         state_offset: usize,
     ) -> Result<()> {
-        partial_state_ptrs
-            .iter()
-            .zip(combined_state_ptrs)
-            .for_each(|(partial, combined)| {
-                let combined = combined.offset_as_mut::<CountState>(state_offset);
-                combined.0 += partial.offset_as_mut::<CountState>(state_offset).0;
-            });
+        unsafe {
+            partial_state_ptrs
+                .iter()
+                .zip(combined_state_ptrs)
+                .for_each(|(partial, combined)| {
+                    let combined = combined.offset_as_mut::<CountState>(state_offset);
+                    combined.0 += partial.offset_as_mut::<CountState>(state_offset).0;
+                });
 
-        Ok(())
+            Ok(())
+        }
     }
 
     unsafe fn take_states(
@@ -142,22 +142,24 @@ impl<const STAR: bool> AggregationFunction for Count<STAR> {
         state_offset: usize,
         output: &mut data_block::array::ArrayImpl,
     ) -> Result<()> {
-        let output: &mut UInt64Array = output
-            .try_into()
-            .expect("Output array of the count should be UInt64Array");
+        unsafe {
+            let output: &mut UInt64Array = output
+                .try_into()
+                .expect("Output array of the count should be UInt64Array");
 
-        // TBD: It looks like we do not need to clear it, because it is always empty after
-        // it is created!
-        output.validity_mut().mutate().clear();
+            // TBD: It looks like we do not need to clear it, because it is always empty after
+            // it is created!
+            output.validity_mut().mutate().clear();
 
-        output.replace_with_trusted_len_values_iterator(
-            state_ptrs.len(),
-            state_ptrs
-                .iter()
-                .map(|ptr| ptr.offset_as_mut::<CountState>(state_offset).0),
-        );
+            output.replace_with_trusted_len_values_iterator(
+                state_ptrs.len(),
+                state_ptrs
+                    .iter()
+                    .map(|ptr| ptr.offset_as_mut::<CountState>(state_offset).0),
+            );
 
-        Ok(())
+            Ok(())
+        }
     }
 
     /// Do nothing, no memory to drop

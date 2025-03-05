@@ -25,10 +25,10 @@ where
 
     (0..size)
         .map(|_| {
-            if rng.gen::<f32>() < null_density {
+            if rng.r#gen::<f32>() < null_density {
                 None
             } else {
-                Some(rng.gen())
+                Some(rng.r#gen())
             }
         })
         .collect::<PrimitiveArray<T>>()
@@ -45,10 +45,10 @@ where
 {
     let mut rng = StdRng::seed_from_u64(seed);
     (0..size).map(move |_| {
-        if rng.gen::<f32>() < null_density {
+        if rng.r#gen::<f32>() < null_density {
             None
         } else {
-            let value = rng.gen::<f32>() < true_density;
+            let value = rng.r#gen::<f32>() < true_density;
             Some(value)
         }
     })
@@ -78,7 +78,7 @@ pub fn create_string_array(
 
     (0..length)
         .map(|_| {
-            if rng.gen::<f32>() < null_density {
+            if rng.r#gen::<f32>() < null_density {
                 None
             } else {
                 Some(Alphanumeric.sample_string(&mut rng, size))
@@ -94,7 +94,7 @@ pub fn create_var_string_array_iter(
 ) -> impl Iterator<Item = Option<String>> {
     let mut rng = StdRng::seed_from_u64(seed);
     (0..length).map(move |_| {
-        if rng.gen::<f32>() < null_density {
+        if rng.r#gen::<f32>() < null_density {
             None
         } else {
             let size = rng.gen_range(0..=128);

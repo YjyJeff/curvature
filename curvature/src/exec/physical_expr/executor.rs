@@ -9,7 +9,7 @@ use data_block::bitmap::{BitStore, Bitmap};
 use data_block::block::{DataBlock, MutateArrayError};
 use data_block::types::{Array, LogicalType};
 
-use super::{is_boolean_expr, ExprError, ExprResult, PhysicalExpr};
+use super::{ExprError, ExprResult, PhysicalExpr, is_boolean_expr};
 use crate::exec::physical_expr::conjunction::OrConjunction;
 use crate::exec::physical_expr::field_ref::FieldRef;
 use crate::exec::physical_expr::utils::CompactExprDisplayWrapper;

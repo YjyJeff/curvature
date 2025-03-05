@@ -3,17 +3,17 @@
 #![allow(missing_docs)]
 
 use std::num::NonZeroU64;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
+use curvature::STANDARD_VECTOR_SIZE;
 use curvature::common::client_context::{ClientContext, ExecArgs};
 use curvature::common::types::ParallelismDegree;
 use curvature::common::uuid::QueryId;
-use curvature::exec::physical_operator::table_scan::numbers::Numbers;
 use curvature::exec::physical_operator::PhysicalOperator;
+use curvature::exec::physical_operator::table_scan::numbers::Numbers;
 use curvature::exec::query_executor::QueryExecutor;
-use curvature::STANDARD_VECTOR_SIZE;
 use data_block::array::ArrayImpl;
 use data_block::block::DataBlock;
 use data_block::compute::sequence::sequence;

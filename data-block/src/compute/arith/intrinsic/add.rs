@@ -2,9 +2,9 @@ use std::convert::identity;
 use std::ops::Add;
 
 use super::{
-    arith_arrays, arith_scalar, dynamic_arith_arrays_func, dynamic_arith_scalar_func,
-    NATIVE_PARTIAL_ARITH_THRESHOLD_16_BIT, NATIVE_PARTIAL_ARITH_THRESHOLD_32_BIT,
-    NATIVE_PARTIAL_ARITH_THRESHOLD_64_BIT, NATIVE_PARTIAL_ARITH_THRESHOLD_8_BIT,
+    NATIVE_PARTIAL_ARITH_THRESHOLD_8_BIT, NATIVE_PARTIAL_ARITH_THRESHOLD_16_BIT,
+    NATIVE_PARTIAL_ARITH_THRESHOLD_32_BIT, NATIVE_PARTIAL_ARITH_THRESHOLD_64_BIT, arith_arrays,
+    arith_scalar, dynamic_arith_arrays_func, dynamic_arith_scalar_func,
 };
 use crate::array::{Array, PrimitiveArray};
 use crate::bitmap::Bitmap;

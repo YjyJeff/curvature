@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 use data_block::array::{Array, BooleanArray};
 use data_block::compute::logical;
 use data_block_benches::{create_boolean_array, create_boolean_array_iter};

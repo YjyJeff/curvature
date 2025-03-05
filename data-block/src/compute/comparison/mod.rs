@@ -22,21 +22,23 @@ unsafe fn cmp_scalar<A: Array, F>(
 ) where
     F: Fn(<A::Element as Element>::ElementRef<'_>, <A::Element as Element>::ElementRef<'_>) -> bool,
 {
-    #[cfg(feature = "verify")]
-    assert_selection_is_valid!(selection, array);
+    unsafe {
+        #[cfg(feature = "verify")]
+        assert_selection_is_valid!(selection, array);
 
-    let validity = array.validity();
+        let validity = array.validity();
 
-    if validity.all_valid() && selection.all_valid() {
-        selection.mutate().reset(
-            array.len(),
-            array.values_iter().map(|lhs| cmp_func(lhs, scalar)),
-        );
-    } else {
-        and_inplace(selection, validity);
-        selection
-            .mutate()
-            .mutate_ones(|index| cmp_func(array.get_value_unchecked(index), scalar));
+        if validity.all_valid() && selection.all_valid() {
+            selection.mutate().reset(
+                array.len(),
+                array.values_iter().map(|lhs| cmp_func(lhs, scalar)),
+            );
+        } else {
+            and_inplace(selection, validity);
+            selection
+                .mutate()
+                .mutate_ones(|index| cmp_func(array.get_value_unchecked(index), scalar));
+        }
     }
 }
 
@@ -56,7 +58,7 @@ pub unsafe fn eq_scalar<A: Array>(
     for<'a, 'b> <A::Element as Element>::ElementRef<'a>:
         PartialEq<<A::Element as Element>::ElementRef<'b>>,
 {
-    cmp_scalar(selection, array, scalar, |lhs, rhs| lhs == rhs)
+    unsafe { cmp_scalar(selection, array, scalar, |lhs, rhs| lhs == rhs) }
 }
 
 /// Perform `array != scalar` between an Array and its ElementRef
@@ -75,7 +77,7 @@ pub unsafe fn ne_scalar<A: Array>(
     for<'a, 'b> <A::Element as Element>::ElementRef<'a>:
         PartialEq<<A::Element as Element>::ElementRef<'b>>,
 {
-    cmp_scalar(selection, array, scalar, |lhs, rhs| lhs != rhs)
+    unsafe { cmp_scalar(selection, array, scalar, |lhs, rhs| lhs != rhs) }
 }
 
 /// Perform `array > scalar` between an Array and its ElementRef
@@ -94,7 +96,7 @@ pub unsafe fn gt_scalar<A: Array>(
     for<'a, 'b> <A::Element as Element>::ElementRef<'a>:
         PartialOrd<<A::Element as Element>::ElementRef<'b>>,
 {
-    cmp_scalar(selection, array, scalar, |lhs, rhs| lhs > rhs)
+    unsafe { cmp_scalar(selection, array, scalar, |lhs, rhs| lhs > rhs) }
 }
 
 /// Perform `array >= scalar` between an Array and its ElementRef
@@ -113,7 +115,7 @@ pub unsafe fn ge_scalar<A: Array>(
     for<'a, 'b> <A::Element as Element>::ElementRef<'a>:
         PartialOrd<<A::Element as Element>::ElementRef<'b>>,
 {
-    cmp_scalar(selection, array, scalar, |lhs, rhs| lhs >= rhs)
+    unsafe { cmp_scalar(selection, array, scalar, |lhs, rhs| lhs >= rhs) }
 }
 
 /// Perform `array < scalar` between an Array and its ElementRef
@@ -132,7 +134,7 @@ pub unsafe fn lt_scalar<A: Array>(
     for<'a, 'b> <A::Element as Element>::ElementRef<'a>:
         PartialOrd<<A::Element as Element>::ElementRef<'b>>,
 {
-    cmp_scalar(selection, array, scalar, |lhs, rhs| lhs < rhs)
+    unsafe { cmp_scalar(selection, array, scalar, |lhs, rhs| lhs < rhs) }
 }
 
 /// Perform `array <= scalar` between an Array and its ElementRef
@@ -151,7 +153,7 @@ pub unsafe fn le_scalar<A: Array>(
     for<'a, 'b> <A::Element as Element>::ElementRef<'a>:
         PartialOrd<<A::Element as Element>::ElementRef<'b>>,
 {
-    cmp_scalar(selection, array, scalar, |lhs, rhs| lhs <= rhs)
+    unsafe { cmp_scalar(selection, array, scalar, |lhs, rhs| lhs <= rhs) }
 }
 
 /// Returns true if two elements ref are equal
@@ -250,28 +252,30 @@ unsafe fn cmp<A: Array, F>(selection: &mut Bitmap, lhs: &A, rhs: &A, cmp_func: F
 where
     F: Fn(<A::Element as Element>::ElementRef<'_>, <A::Element as Element>::ElementRef<'_>) -> bool,
 {
-    #[cfg(feature = "verify")]
-    {
-        assert_selection_is_valid!(selection, lhs);
-        assert_eq!(lhs.len(), rhs.len());
-    }
+    unsafe {
+        #[cfg(feature = "verify")]
+        {
+            assert_selection_is_valid!(selection, lhs);
+            assert_eq!(lhs.len(), rhs.len());
+        }
 
-    if selection.all_valid() && lhs.validity().all_valid() && rhs.validity().all_valid() {
-        selection.mutate().reset(
-            lhs.len(),
-            lhs.values_iter()
-                .zip(rhs.values_iter())
-                .map(|(lhs, rhs)| cmp_func(lhs, rhs)),
-        );
-    } else {
-        and_inplace(selection, lhs.validity());
-        and_inplace(selection, rhs.validity());
-        selection.mutate().mutate_ones(|index| {
-            cmp_func(
-                lhs.get_value_unchecked(index),
-                rhs.get_value_unchecked(index),
-            )
-        });
+        if selection.all_valid() && lhs.validity().all_valid() && rhs.validity().all_valid() {
+            selection.mutate().reset(
+                lhs.len(),
+                lhs.values_iter()
+                    .zip(rhs.values_iter())
+                    .map(|(lhs, rhs)| cmp_func(lhs, rhs)),
+            );
+        } else {
+            and_inplace(selection, lhs.validity());
+            and_inplace(selection, rhs.validity());
+            selection.mutate().mutate_ones(|index| {
+                cmp_func(
+                    lhs.get_value_unchecked(index),
+                    rhs.get_value_unchecked(index),
+                )
+            });
+        }
     }
 }
 
@@ -288,7 +292,7 @@ where
     for<'a, 'b> <A::Element as Element>::ElementRef<'a>:
         PartialEq<<A::Element as Element>::ElementRef<'b>>,
 {
-    cmp(selection, lhs, rhs, |lhs, rhs| lhs == rhs)
+    unsafe { cmp(selection, lhs, rhs, |lhs, rhs| lhs == rhs) }
 }
 
 /// Perform `array != array`
@@ -304,7 +308,7 @@ where
     for<'a, 'b> <A::Element as Element>::ElementRef<'a>:
         PartialEq<<A::Element as Element>::ElementRef<'b>>,
 {
-    cmp(selection, lhs, rhs, |lhs, rhs| lhs != rhs)
+    unsafe { cmp(selection, lhs, rhs, |lhs, rhs| lhs != rhs) }
 }
 
 /// Perform `array > array`
@@ -320,7 +324,7 @@ where
     for<'a, 'b> <A::Element as Element>::ElementRef<'a>:
         PartialOrd<<A::Element as Element>::ElementRef<'b>>,
 {
-    cmp(selection, lhs, rhs, |lhs, rhs| lhs > rhs)
+    unsafe { cmp(selection, lhs, rhs, |lhs, rhs| lhs > rhs) }
 }
 
 /// Perform `array >= array`
@@ -336,7 +340,7 @@ where
     for<'a, 'b> <A::Element as Element>::ElementRef<'a>:
         PartialOrd<<A::Element as Element>::ElementRef<'b>>,
 {
-    cmp(selection, lhs, rhs, |lhs, rhs| lhs >= rhs)
+    unsafe { cmp(selection, lhs, rhs, |lhs, rhs| lhs >= rhs) }
 }
 
 /// Perform `array < array`
@@ -352,7 +356,7 @@ where
     for<'a, 'b> <A::Element as Element>::ElementRef<'a>:
         PartialOrd<<A::Element as Element>::ElementRef<'b>>,
 {
-    cmp(selection, lhs, rhs, |lhs, rhs| lhs < rhs)
+    unsafe { cmp(selection, lhs, rhs, |lhs, rhs| lhs < rhs) }
 }
 
 /// Perform `array <= array`
@@ -368,7 +372,7 @@ where
     for<'a, 'b> <A::Element as Element>::ElementRef<'a>:
         PartialOrd<<A::Element as Element>::ElementRef<'b>>,
 {
-    cmp(selection, lhs, rhs, |lhs, rhs| lhs <= rhs)
+    unsafe { cmp(selection, lhs, rhs, |lhs, rhs| lhs <= rhs) }
 }
 
 #[cfg(test)]

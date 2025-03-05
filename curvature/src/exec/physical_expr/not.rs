@@ -7,19 +7,23 @@ use data_block::bitmap::Bitmap;
 use data_block::block::DataBlock;
 use data_block::compute::logical::{and_inplace, and_not_inplace};
 use data_block::types::{Array, LogicalType};
-use snafu::{ensure, Snafu};
+use snafu::{Snafu, ensure};
 
 use crate::common::profiler::ScopedTimerGuard;
 use crate::exec::physical_expr::{constant::Constant, utils::CompactExprDisplayWrapper};
 
 use super::executor::ExprExecCtx;
-use super::{execute_unary_child, ExprResult, PhysicalExpr, Stringify};
+use super::{ExprResult, PhysicalExpr, Stringify, execute_unary_child};
 
 /// Error returned by creating the not expression
 #[derive(Debug, Snafu)]
 pub enum NotError {
     /// The input is not a boolean expression
-    #[snafu(display("`Not` expression requires the input should be a boolean expression. However the input `{}` returns `{:?}`", expr, expr_return_type))]
+    #[snafu(display(
+        "`Not` expression requires the input should be a boolean expression. However the input `{}` returns `{:?}`",
+        expr,
+        expr_return_type
+    ))]
     NotBooleanExpr {
         /// Input expression
         expr: String,
@@ -27,7 +31,9 @@ pub enum NotError {
         expr_return_type: LogicalType,
     },
     /// Input is a constant expression
-    #[snafu(display("Input of the `not` expression is a constant expression: `{constant}`, it makes no sense. Handle it in the planner/optimizer"))]
+    #[snafu(display(
+        "Input of the `not` expression is a constant expression: `{constant}`, it makes no sense. Handle it in the planner/optimizer"
+    ))]
     ConstantExpr {
         /// The constant expression
         constant: String,

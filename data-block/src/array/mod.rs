@@ -144,11 +144,13 @@ pub trait Array: Sealed + Debug + 'static + Sized {
         &self,
         index: usize,
     ) -> Option<<Self::Element as Element>::ElementRef<'_>> {
-        let validity = self.validity();
-        if validity.is_empty() || validity.get_unchecked(index) {
-            Some(self.get_value_unchecked(index))
-        } else {
-            None
+        unsafe {
+            let validity = self.validity();
+            if validity.is_empty() || validity.get_unchecked(index) {
+                Some(self.get_value_unchecked(index))
+            } else {
+                None
+            }
         }
     }
 
@@ -260,14 +262,16 @@ pub trait Array: Sealed + Debug + 'static + Sized {
     ///
     /// - `selection` should not be referenced by any array
     unsafe fn filter(&mut self, selection: &Bitmap, source: &Self) {
-        #[cfg(feature = "verify")]
-        assert!(selection.is_empty() || selection.len() == source.len());
+        unsafe {
+            #[cfg(feature = "verify")]
+            assert!(selection.is_empty() || selection.len() == source.len());
 
-        if selection.all_valid() || source.len() == 1 {
-            // All of the elements are selected or source is a Constant Array
-            self.reference(source)
-        } else {
-            crate::compute::filter::filter(selection, source, self)
+            if selection.all_valid() || source.len() == 1 {
+                // All of the elements are selected or source is a Constant Array
+                self.reference(source)
+            } else {
+                crate::compute::filter::filter(selection, source, self)
+            }
         }
     }
 
@@ -381,26 +385,26 @@ macro_rules! array_impl {
             /// # Safety
             ///
             /// `index < self.len()`
-            pub unsafe fn get_unchecked(&self, index: usize) -> Option<ElementImplRef<'_>> {
+            pub unsafe fn get_unchecked(&self, index: usize) -> Option<ElementImplRef<'_>> { unsafe {
                 match self {
                     $(
                         Self::$variant(array) => array.get_unchecked(index).map(ElementImplRef::$variant),
                     )+
                 }
-            }
+            }}
 
             /// Get the value of element ref without bound check
             ///
             /// # Safety
             ///
             /// `index < self.len()`
-            pub unsafe fn get_value_unchecked(&self, index: usize) -> ElementImplRef<'_> {
+            pub unsafe fn get_value_unchecked(&self, index: usize) -> ElementImplRef<'_> { unsafe {
                 match self {
                     $(
                         Self::$variant(array) => ElementImplRef::$variant(array.get_value_unchecked(index)),
                     )+
                 }
-            }
+            }}
 
             /// Debug the array slice
             ///
@@ -511,13 +515,13 @@ macro_rules! array_impl {
             /// # Safety
             ///
             /// Satisfy the mutate condition
-            pub unsafe fn clear(&mut self) {
+            pub unsafe fn clear(&mut self) { unsafe {
                 match self {
                     $(
                         Self::$variant(array) => array.clear(),
                     )+
                 }
-            }
+            }}
         }
 
         $(

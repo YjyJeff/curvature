@@ -61,29 +61,34 @@ impl FieldRef {
     ///
     /// `selection` should be empty or has the same length with `input.len()`
     pub(crate) unsafe fn copy_into_selection(&self, input: &DataBlock, selection: &mut Bitmap) {
-        debug_assert!(selection.is_empty() || selection.len() == input.len());
+        unsafe {
+            debug_assert!(selection.is_empty() || selection.len() == input.len());
 
-        let array = input.get_array(self.field_index).unwrap_or_else(|| {
-            panic!(
-                "`FieldRef` with index {}, however the leaf_input only have `{}` arrays",
-                self.field_index,
-                input.num_arrays(),
-            )
-        });
+            let array = input.get_array(self.field_index).unwrap_or_else(|| {
+                panic!(
+                    "`FieldRef` with index {}, however the leaf_input only have `{}` arrays",
+                    self.field_index,
+                    input.num_arrays(),
+                )
+            });
 
-        let ArrayImpl::Boolean(array) = array else {
-            panic!("`copy_into_selection` requires the input array is an `BooleanArray`, found `{}`Array", array.ident())
-        };
+            let ArrayImpl::Boolean(array) = array else {
+                panic!(
+                    "`copy_into_selection` requires the input array is an `BooleanArray`, found `{}`Array",
+                    array.ident()
+                )
+            };
 
-        if array.len() == 1 {
-            // Flatten it !
-            let valid = array.validity().all_valid();
-            if !valid || !array.data().all_valid() {
-                selection.mutate().set_all_invalid(input.len());
+            if array.len() == 1 {
+                // Flatten it !
+                let valid = array.validity().all_valid();
+                if !valid || !array.data().all_valid() {
+                    selection.mutate().set_all_invalid(input.len());
+                }
+            } else {
+                and_inplace(selection, array.data());
+                and_inplace(selection, array.validity());
             }
-        } else {
-            and_inplace(selection, array.data());
-            and_inplace(selection, array.validity());
         }
     }
 }

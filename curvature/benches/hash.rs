@@ -3,7 +3,7 @@
 #![allow(missing_docs)]
 
 use ahash::RandomState;
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use rand::Rng;
 
 #[inline(always)]
@@ -25,7 +25,7 @@ unsafe fn simd_hash_avx2<T: std::hash::Hash>(keys: &[T], hashes: &mut [u64]) {
 
 fn hash(c: &mut Criterion) {
     let mut rng = rand::thread_rng();
-    let values = (0..1024).map(|_| rng.gen::<u32>()).collect::<Vec<_>>();
+    let values = (0..1024).map(|_| rng.r#gen::<u32>()).collect::<Vec<_>>();
     let mut hashes = vec![0; 1024];
 
     c.bench_function("non-simd-hash", |b| {

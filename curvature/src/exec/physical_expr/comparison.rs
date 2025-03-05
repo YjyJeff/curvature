@@ -6,13 +6,13 @@ use data_block::array::ArrayImpl;
 use data_block::bitmap::Bitmap;
 use data_block::block::DataBlock;
 use data_block::types::LogicalType;
-use snafu::{ensure, Snafu};
+use snafu::{Snafu, ensure};
 
 use super::executor::ExprExecCtx;
 use super::utils::CompactExprDisplayWrapper;
-use super::{execute_binary_children, ExprResult, PhysicalExpr, Stringify};
+use super::{ExprResult, PhysicalExpr, Stringify, execute_binary_children};
 use crate::common::expr_operator::comparison::{
-    infer_comparison_func_set, CmpOperator, ComparisonFunctionSet,
+    CmpOperator, ComparisonFunctionSet, infer_comparison_func_set,
 };
 use crate::common::profiler::ScopedTimerGuard;
 use crate::exec::physical_expr::constant::Constant;
@@ -28,7 +28,7 @@ pub enum ComparisonError {
         op: CmpOperator,
     },
     #[snafu(display(
-        "Perform `{}` between two constants(left: `{}`, right: `{}`) makes no sense. Planner/Optimizer should handle it in advance", 
+        "Perform `{}` between two constants(left: `{}`, right: `{}`) makes no sense. Planner/Optimizer should handle it in advance",
         op,
         left,
         right

@@ -31,7 +31,7 @@ impl BooleanArray {
     /// physical type of the logical type should be `Boolean`
     #[inline]
     pub unsafe fn new_unchecked(logical_type: LogicalType) -> Self {
-        Self::with_capacity_unchecked(logical_type, 0)
+        unsafe { Self::with_capacity_unchecked(logical_type, 0) }
     }
 
     /// Create a new [`BooleanArray`] with given capacity
@@ -74,7 +74,7 @@ impl BooleanArray {
     /// the Bitmap must not get accessed (read or written) through any other array.
     #[inline]
     pub unsafe fn data_mut(&mut self) -> &mut Bitmap {
-        self.data.as_mut()
+        unsafe { self.data.as_mut() }
     }
 
     /// Get underling bitmap data
@@ -108,7 +108,7 @@ impl Array for BooleanArray {
 
     #[inline]
     unsafe fn validity_mut(&mut self) -> &mut Bitmap {
-        self.validity.as_mut()
+        unsafe { self.validity.as_mut() }
     }
 
     #[inline]
@@ -118,10 +118,12 @@ impl Array for BooleanArray {
 
     #[inline]
     unsafe fn get_value_unchecked(&self, index: usize) -> bool {
-        #[cfg(feature = "verify")]
-        assert!(index < self.data.len());
+        unsafe {
+            #[cfg(feature = "verify")]
+            assert!(index < self.data.len());
 
-        self.data.get_unchecked(index)
+            self.data.get_unchecked(index)
+        }
     }
 
     #[inline]
@@ -137,8 +139,10 @@ impl Array for BooleanArray {
 
     #[inline]
     unsafe fn set_all_invalid(&mut self, len: usize) {
-        self.validity.as_mut().mutate().set_all_invalid(len);
-        self.data.as_mut().mutate().set_all_invalid(len);
+        unsafe {
+            self.validity.as_mut().mutate().set_all_invalid(len);
+            self.data.as_mut().mutate().set_all_invalid(len);
+        }
     }
 
     unsafe fn replace_with_trusted_len_values_iterator<I>(
@@ -148,29 +152,33 @@ impl Array for BooleanArray {
     ) where
         I: Iterator<Item = bool>,
     {
-        self.validity.as_mut().mutate().clear();
-        self.data.as_mut().mutate().reset(len, trusted_len_iterator);
+        unsafe {
+            self.validity.as_mut().mutate().clear();
+            self.data.as_mut().mutate().reset(len, trusted_len_iterator);
+        }
     }
 
     unsafe fn replace_with_trusted_len_iterator<I>(&mut self, len: usize, trusted_len_iterator: I)
     where
         I: Iterator<Item = Option<bool>>,
     {
-        let mut uninitiated = self.data.as_mut().mutate();
-        let _ = uninitiated.clear_and_resize(len);
-        let mut uninitiated_validity = self.validity.as_mut().mutate();
+        unsafe {
+            let mut uninitiated = self.data.as_mut().mutate();
+            let _ = uninitiated.clear_and_resize(len);
+            let mut uninitiated_validity = self.validity.as_mut().mutate();
 
-        uninitiated_validity.reset(
-            len,
-            trusted_len_iterator.enumerate().map(|(i, val)| {
-                if let Some(val) = val {
-                    uninitiated.set_unchecked(i, val);
-                    true
-                } else {
-                    false
-                }
-            }),
-        );
+            uninitiated_validity.reset(
+                len,
+                trusted_len_iterator.enumerate().map(|(i, val)| {
+                    if let Some(val) = val {
+                        uninitiated.set_unchecked(i, val);
+                        true
+                    } else {
+                        false
+                    }
+                }),
+            );
+        }
     }
 
     unsafe fn replace_with_trusted_len_values_ref_iterator<'a, I>(
@@ -180,7 +188,9 @@ impl Array for BooleanArray {
     ) where
         I: Iterator<Item = bool> + 'a,
     {
-        self.replace_with_trusted_len_values_iterator(len, trusted_len_iterator);
+        unsafe {
+            self.replace_with_trusted_len_values_iterator(len, trusted_len_iterator);
+        }
     }
 
     unsafe fn replace_with_trusted_len_ref_iterator<'a, I>(
@@ -190,23 +200,29 @@ impl Array for BooleanArray {
     ) where
         I: Iterator<Item = Option<bool>> + 'a,
     {
-        self.replace_with_trusted_len_iterator(len, trusted_len_iterator);
+        unsafe {
+            self.replace_with_trusted_len_iterator(len, trusted_len_iterator);
+        }
     }
 
     unsafe fn clear(&mut self) {
-        self.data.as_mut().mutate().clear();
-        self.validity.as_mut().mutate().clear();
+        unsafe {
+            self.data.as_mut().mutate().clear();
+            self.validity.as_mut().mutate().clear();
+        }
     }
 
     unsafe fn copy(&mut self, source: &Self, start: usize, len: usize) {
-        #[cfg(feature = "verify")]
-        assert!(start + len <= source.len());
+        unsafe {
+            #[cfg(feature = "verify")]
+            assert!(start + len <= source.len());
 
-        self.validity
-            .as_mut()
-            .mutate()
-            .copy(&source.validity, start, len);
-        self.data.as_mut().mutate().copy(&source.data, start, len);
+            self.validity
+                .as_mut()
+                .mutate()
+                .copy(&source.validity, start, len);
+            self.data.as_mut().mutate().copy(&source.data, start, len);
+        }
     }
 }
 

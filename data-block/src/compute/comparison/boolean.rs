@@ -16,14 +16,16 @@ use crate::compute::logical::{
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn eq_scalar(selection: &mut Bitmap, array: &BooleanArray, scalar: bool) {
-    #[cfg(feature = "verify")]
-    assert_selection_is_valid!(selection, array);
+    unsafe {
+        #[cfg(feature = "verify")]
+        assert_selection_is_valid!(selection, array);
 
-    and_inplace(selection, array.validity());
-    if scalar {
-        and_inplace(selection, array.data());
-    } else {
-        and_not_inplace(selection, array.data(), array.len())
+        and_inplace(selection, array.validity());
+        if scalar {
+            and_inplace(selection, array.data());
+        } else {
+            and_not_inplace(selection, array.data(), array.len())
+        }
     }
 }
 
@@ -36,15 +38,17 @@ pub unsafe fn eq_scalar(selection: &mut Bitmap, array: &BooleanArray, scalar: bo
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn ne_scalar(selection: &mut Bitmap, array: &BooleanArray, scalar: bool) {
-    #[cfg(feature = "verify")]
-    assert_selection_is_valid!(selection, array);
+    unsafe {
+        #[cfg(feature = "verify")]
+        assert_selection_is_valid!(selection, array);
 
-    and_inplace(selection, array.validity());
+        and_inplace(selection, array.validity());
 
-    if !scalar {
-        and_inplace(selection, array.data());
-    } else {
-        and_not_inplace(selection, array.data(), array.len())
+        if !scalar {
+            and_inplace(selection, array.data());
+        } else {
+            and_not_inplace(selection, array.data(), array.len())
+        }
     }
 }
 
@@ -57,20 +61,22 @@ pub unsafe fn ne_scalar(selection: &mut Bitmap, array: &BooleanArray, scalar: bo
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn gt_scalar(selection: &mut Bitmap, array: &BooleanArray, scalar: bool) {
-    #[cfg(feature = "verify")]
-    assert_selection_is_valid!(selection, array);
+    unsafe {
+        #[cfg(feature = "verify")]
+        assert_selection_is_valid!(selection, array);
 
-    and_inplace(selection, array.validity());
+        and_inplace(selection, array.validity());
 
-    if !scalar {
-        and_inplace(selection, array.data());
-    } else {
-        // Compiler will optimize it to memset
-        selection
-            .mutate()
-            .clear_and_resize(array.len())
-            .iter_mut()
-            .for_each(|v| *v = 0);
+        if !scalar {
+            and_inplace(selection, array.data());
+        } else {
+            // Compiler will optimize it to memset
+            selection
+                .mutate()
+                .clear_and_resize(array.len())
+                .iter_mut()
+                .for_each(|v| *v = 0);
+        }
     }
 }
 
@@ -83,12 +89,14 @@ pub unsafe fn gt_scalar(selection: &mut Bitmap, array: &BooleanArray, scalar: bo
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn ge_scalar(selection: &mut Bitmap, array: &BooleanArray, scalar: bool) {
-    #[cfg(feature = "verify")]
-    assert_selection_is_valid!(selection, array);
+    unsafe {
+        #[cfg(feature = "verify")]
+        assert_selection_is_valid!(selection, array);
 
-    and_inplace(selection, array.validity());
-    if scalar {
-        and_inplace(selection, array.data())
+        and_inplace(selection, array.validity());
+        if scalar {
+            and_inplace(selection, array.data())
+        }
     }
 }
 
@@ -101,20 +109,22 @@ pub unsafe fn ge_scalar(selection: &mut Bitmap, array: &BooleanArray, scalar: bo
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn lt_scalar(selection: &mut Bitmap, array: &BooleanArray, scalar: bool) {
-    #[cfg(feature = "verify")]
-    assert_selection_is_valid!(selection, array);
+    unsafe {
+        #[cfg(feature = "verify")]
+        assert_selection_is_valid!(selection, array);
 
-    and_inplace(selection, array.validity());
+        and_inplace(selection, array.validity());
 
-    if scalar {
-        and_not_inplace(selection, array.data(), array.len());
-    } else {
-        // Compiler will optimize it to memset
-        selection
-            .mutate()
-            .clear_and_resize(array.len())
-            .iter_mut()
-            .for_each(|v| *v = 0);
+        if scalar {
+            and_not_inplace(selection, array.data(), array.len());
+        } else {
+            // Compiler will optimize it to memset
+            selection
+                .mutate()
+                .clear_and_resize(array.len())
+                .iter_mut()
+                .for_each(|v| *v = 0);
+        }
     }
 }
 
@@ -127,13 +137,15 @@ pub unsafe fn lt_scalar(selection: &mut Bitmap, array: &BooleanArray, scalar: bo
 ///
 /// - `selection` should not be referenced by any array
 pub unsafe fn le_scalar(selection: &mut Bitmap, array: &BooleanArray, scalar: bool) {
-    #[cfg(feature = "verify")]
-    assert_selection_is_valid!(selection, array);
+    unsafe {
+        #[cfg(feature = "verify")]
+        assert_selection_is_valid!(selection, array);
 
-    and_inplace(selection, array.validity());
+        and_inplace(selection, array.validity());
 
-    if !scalar {
-        and_not_inplace(selection, array.data(), array.len());
+        if !scalar {
+            and_not_inplace(selection, array.data(), array.len());
+        }
     }
 }
 
@@ -145,22 +157,24 @@ unsafe fn cmp(
     temp: &mut BooleanArray,
     func: impl Fn(&[BitStore], &[BitStore], &mut [BitStore]),
 ) {
-    #[cfg(feature = "verify")]
-    {
-        assert_selection_is_valid!(selection, lhs);
-        assert_eq!(lhs.len(), rhs.len());
+    unsafe {
+        #[cfg(feature = "verify")]
+        {
+            assert_selection_is_valid!(selection, lhs);
+            assert_eq!(lhs.len(), rhs.len());
+        }
+
+        and_inplace(selection, lhs.validity());
+        and_inplace(selection, rhs.validity());
+
+        func(
+            lhs.data.as_raw_slice(),
+            rhs.data.as_raw_slice(),
+            temp.data.as_mut().mutate().clear_and_resize(lhs.len()),
+        );
+
+        and_inplace(selection, &temp.data);
     }
-
-    and_inplace(selection, lhs.validity());
-    and_inplace(selection, rhs.validity());
-
-    func(
-        lhs.data.as_raw_slice(),
-        rhs.data.as_raw_slice(),
-        temp.data.as_mut().mutate().clear_and_resize(lhs.len()),
-    );
-
-    and_inplace(selection, &temp.data);
 }
 
 /// Perform `BooleanArray == BooleanArray`
@@ -177,7 +191,9 @@ pub unsafe fn eq(
     rhs: &BooleanArray,
     temp: &mut BooleanArray,
 ) {
-    cmp(selection, lhs, rhs, temp, not_xor_bitmaps_dynamic);
+    unsafe {
+        cmp(selection, lhs, rhs, temp, not_xor_bitmaps_dynamic);
+    }
 }
 
 /// Perform `BooleanArray != BooleanArray`
@@ -194,7 +210,7 @@ pub unsafe fn ne(
     rhs: &BooleanArray,
     temp: &mut BooleanArray,
 ) {
-    cmp(selection, lhs, rhs, temp, xor_bitmaps_dynamic)
+    unsafe { cmp(selection, lhs, rhs, temp, xor_bitmaps_dynamic) }
 }
 
 /// Perform `BooleanArray > BooleanArray`
@@ -211,7 +227,7 @@ pub unsafe fn gt(
     rhs: &BooleanArray,
     temp: &mut BooleanArray,
 ) {
-    cmp(selection, lhs, rhs, temp, and_not_bitmaps_dynamic)
+    unsafe { cmp(selection, lhs, rhs, temp, and_not_bitmaps_dynamic) }
 }
 
 /// Perform `BooleanArray >= BooleanArray`
@@ -228,7 +244,7 @@ pub unsafe fn ge(
     rhs: &BooleanArray,
     temp: &mut BooleanArray,
 ) {
-    cmp(selection, lhs, rhs, temp, or_not_bitmaps_dynamic)
+    unsafe { cmp(selection, lhs, rhs, temp, or_not_bitmaps_dynamic) }
 }
 
 /// Perform `BooleanArray < BooleanArray`
@@ -245,7 +261,7 @@ pub unsafe fn lt(
     rhs: &BooleanArray,
     temp: &mut BooleanArray,
 ) {
-    cmp(selection, lhs, rhs, temp, not_and_bitmaps_dynamic)
+    unsafe { cmp(selection, lhs, rhs, temp, not_and_bitmaps_dynamic) }
 }
 
 /// Perform `BooleanArray <= BooleanArray`
@@ -262,7 +278,7 @@ pub unsafe fn le(
     rhs: &BooleanArray,
     temp: &mut BooleanArray,
 ) {
-    cmp(selection, lhs, rhs, temp, not_or_bitmaps_dynamic)
+    unsafe { cmp(selection, lhs, rhs, temp, not_or_bitmaps_dynamic) }
 }
 
 #[cfg(test)]

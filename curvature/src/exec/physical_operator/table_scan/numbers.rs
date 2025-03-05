@@ -6,25 +6,25 @@
 
 use std::cmp::min;
 use std::num::NonZeroU64;
+use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering::Relaxed;
-use std::sync::Arc;
 use std::time::Duration;
 
 use crate::exec::physical_operator::{
+    GlobalSourceState, LocalSourceState, MAX_PARALLELISM_DEGREE, OperatorResult, ParallelismDegree,
+    PhysicalOperator, SourceExecStatus, SourceOperatorExt, StateStringify, Stringify,
     impl_regular_for_non_regular, impl_sink_for_non_sink,
     use_types_for_impl_regular_for_non_regular, use_types_for_impl_sink_for_non_sink,
-    GlobalSourceState, LocalSourceState, OperatorResult, ParallelismDegree, PhysicalOperator,
-    SourceExecStatus, SourceOperatorExt, StateStringify, Stringify, MAX_PARALLELISM_DEGREE,
 };
 
 use_types_for_impl_regular_for_non_regular!();
 use_types_for_impl_sink_for_non_sink!();
 
+use crate::STANDARD_VECTOR_SIZE;
 use crate::common::client_context::ClientContext;
 use crate::common::profiler::ScopedTimerGuard;
 use crate::exec::physical_operator::metric::{MetricsSet, Time};
-use crate::STANDARD_VECTOR_SIZE;
 use curvature_procedural_macro::MetricsSetBuilder;
 use data_block::array::ArrayImpl;
 use data_block::block::{DataBlock, MutateArrayError};
@@ -297,7 +297,10 @@ impl SourceOperatorExt for Numbers {
             match e {
                 MutateArrayError::Inner { .. } => unsafe { std::hint::unreachable_unchecked() },
                 MutateArrayError::Length { inner } => {
-                    panic!("Array after sequence should have same length with data block len. Array len: `{}`, data block len: `{}`", inner.array_len, inner.length);
+                    panic!(
+                        "Array after sequence should have same length with data block len. Array len: `{}`, data block len: `{}`",
+                        inner.array_len, inner.length
+                    );
                 }
             }
         }

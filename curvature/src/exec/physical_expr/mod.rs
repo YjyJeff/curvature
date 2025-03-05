@@ -219,7 +219,9 @@ fn handle_mutate_array_error<T: PhysicalExpr>(
         MutateArrayError::Length { inner } => {
             let err_msg = format!(
                 "Child expression `{}` produce FlatArray with length: `{}`, it does not equal to the leaf_input length: `{}`",
-                CompactExprDisplayWrapper::new(&*expr.children()[inner.index]), inner.array_len, inner.length,
+                CompactExprDisplayWrapper::new(&*expr.children()[inner.index]),
+                inner.array_len,
+                inner.length,
             );
             ExprError::Execute {
                 expr: expr_string,

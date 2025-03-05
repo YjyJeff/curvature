@@ -12,33 +12,35 @@ use crate::bitmap::Bitmap;
 /// - No other arrays that reference the `dst`'s data and validity are accessed! In the
 ///   computation graph, it will never happens
 pub unsafe fn filter<A: Array>(selection: &Bitmap, array: &A, dst: &mut A) {
-    #[cfg(feature = "verify")]
-    assert_eq!(selection.len(), array.len());
+    unsafe {
+        #[cfg(feature = "verify")]
+        assert_eq!(selection.len(), array.len());
 
-    let validity = array.validity();
+        let validity = array.validity();
 
-    // Array and selection has same length, selection is not empty
-    let count_ones = selection.count_ones_unchecked();
+        // Array and selection has same length, selection is not empty
+        let count_ones = selection.count_ones_unchecked();
 
-    if validity.all_valid() {
-        dst.validity_mut().mutate().clear();
-        dst.replace_with_trusted_len_values_ref_iterator(
-            count_ones,
-            selection
-                .iter_ones()
-                .map(|index| array.get_value_unchecked(index)),
-        );
-    } else {
-        dst.replace_with_trusted_len_ref_iterator(
-            count_ones,
-            selection.iter_ones().map(|index| {
-                if validity.get_unchecked(index) {
-                    Some(array.get_value_unchecked(index))
-                } else {
-                    None
-                }
-            }),
-        );
+        if validity.all_valid() {
+            dst.validity_mut().mutate().clear();
+            dst.replace_with_trusted_len_values_ref_iterator(
+                count_ones,
+                selection
+                    .iter_ones()
+                    .map(|index| array.get_value_unchecked(index)),
+            );
+        } else {
+            dst.replace_with_trusted_len_ref_iterator(
+                count_ones,
+                selection.iter_ones().map(|index| {
+                    if validity.get_unchecked(index) {
+                        Some(array.get_value_unchecked(index))
+                    } else {
+                        None
+                    }
+                }),
+            );
+        }
     }
 }
 

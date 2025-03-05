@@ -1,9 +1,9 @@
 //! Streaming limit operator
 
 use std::num::NonZeroU64;
+use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering::Relaxed;
-use std::sync::Arc;
 use std::time::Duration;
 
 use crate::common::client_context::ClientContext;
@@ -12,14 +12,14 @@ use crate::exec::physical_operator::ext_traits::RegularOperatorExt;
 use crate::exec::physical_operator::metric::{MetricsSet, Time};
 use crate::exec::physical_operator::utils::downcast_mut_local_state;
 use crate::exec::physical_operator::{
-    impl_sink_for_non_sink, impl_source_for_non_source, use_types_for_impl_sink_for_non_sink,
-    use_types_for_impl_source_for_non_source, GlobalOperatorState, LocalOperatorState,
-    OperatorExecStatus, OperatorResult, PhysicalOperator, StateStringify, Stringify,
+    GlobalOperatorState, LocalOperatorState, OperatorExecStatus, OperatorResult, PhysicalOperator,
+    StateStringify, Stringify, impl_sink_for_non_sink, impl_source_for_non_source,
+    use_types_for_impl_sink_for_non_sink, use_types_for_impl_source_for_non_source,
 };
 use curvature_procedural_macro::MetricsSetBuilder;
 use data_block::block::DataBlock;
 use data_block::types::LogicalType;
-use snafu::{ensure, Snafu};
+use snafu::{Snafu, ensure};
 
 use_types_for_impl_sink_for_non_sink!();
 use_types_for_impl_source_for_non_source!();

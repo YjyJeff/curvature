@@ -20,7 +20,7 @@ use snafu::ensure;
 
 use crate::aligned_vec::AlignedVec;
 use crate::bitmap::Bitmap;
-use crate::element::string::{StringElement, StringView, INLINE_LEN};
+use crate::element::string::{INLINE_LEN, StringElement, StringView};
 use crate::private::Sealed;
 use crate::types::{LogicalType, PhysicalType};
 use std::fmt::Debug;
@@ -60,7 +60,7 @@ impl StringArray {
     /// physical type of the logical type should be `String`
     #[inline]
     pub unsafe fn new_unchecked(logical_type: LogicalType) -> Self {
-        Self::with_capacity_unchecked(logical_type, 0)
+        unsafe { Self::with_capacity_unchecked(logical_type, 0) }
     }
 
     /// Create a new [`StringArray`] with given capacity
@@ -172,7 +172,7 @@ impl Array for StringArray {
 
     #[inline]
     unsafe fn validity_mut(&mut self) -> &mut Bitmap {
-        self.validity.as_mut()
+        unsafe { self.validity.as_mut() }
     }
 
     #[inline]
@@ -180,10 +180,12 @@ impl Array for StringArray {
         &self,
         index: usize,
     ) -> <Self::Element as crate::element::Element>::ElementRef<'_> {
-        #[cfg(feature = "verify")]
-        assert!(index < self.len());
+        unsafe {
+            #[cfg(feature = "verify")]
+            assert!(index < self.len());
 
-        self.views.get_unchecked(index).shorten()
+            self.views.get_unchecked(index).shorten()
+        }
     }
 
     #[inline]
@@ -202,14 +204,16 @@ impl Array for StringArray {
 
     #[inline]
     unsafe fn set_all_invalid(&mut self, len: usize) {
-        self.validity.as_mut().mutate().set_all_invalid(len);
-        // Reset all of the string view with default
-        self.views
-            .as_mut()
-            .clear_and_resize(len)
-            .iter_mut()
-            .for_each(|view| *view = StringView::default());
-        self._bytes.as_mut().clear();
+        unsafe {
+            self.validity.as_mut().mutate().set_all_invalid(len);
+            // Reset all of the string view with default
+            self.views
+                .as_mut()
+                .clear_and_resize(len)
+                .iter_mut()
+                .for_each(|view| *view = StringView::default());
+            self._bytes.as_mut().clear();
+        }
     }
 
     #[inline]
@@ -220,60 +224,64 @@ impl Array for StringArray {
     ) where
         I: Iterator<Item = Self::Element>,
     {
-        self.validity.as_mut().mutate().clear();
+        unsafe {
+            self.validity.as_mut().mutate().clear();
 
-        let uninitiated_views = self.views.as_mut().clear_and_resize(len);
-        let uninitiated_bytes = self._bytes.as_mut();
-        uninitiated_bytes.clear();
-        self._calibrate_offsets.clear();
+            let uninitiated_views = self.views.as_mut().clear_and_resize(len);
+            let uninitiated_bytes = self._bytes.as_mut();
+            uninitiated_bytes.clear();
+            self._calibrate_offsets.clear();
 
-        trusted_len_iterator
-            .enumerate()
-            .for_each(|(index, element)| {
-                assign_string_view(
-                    element.view,
-                    uninitiated_bytes,
-                    uninitiated_views,
-                    index,
-                    &mut self._calibrate_offsets,
-                )
-            });
-
-        calibrate_pointers(
-            uninitiated_bytes.as_ptr(),
-            uninitiated_views,
-            &self._calibrate_offsets,
-        )
-    }
-
-    unsafe fn replace_with_trusted_len_iterator<I>(&mut self, len: usize, trusted_len_iterator: I)
-    where
-        I: Iterator<Item = Option<Self::Element>>,
-    {
-        let mut uninitiated_validity = self.validity.as_mut().mutate();
-
-        let uninitiated_views = self.views.as_mut().clear_and_resize(len);
-        let uninitiated_bytes = self._bytes.as_mut();
-        uninitiated_bytes.clear();
-        self._calibrate_offsets.clear();
-
-        uninitiated_validity.reset(
-            len,
-            trusted_len_iterator.enumerate().map(|(index, element)| {
-                if let Some(element) = element {
+            trusted_len_iterator
+                .enumerate()
+                .for_each(|(index, element)| {
                     assign_string_view(
                         element.view,
                         uninitiated_bytes,
                         uninitiated_views,
                         index,
                         &mut self._calibrate_offsets,
-                    );
-                    true
-                } else {
-                    false
-                }
-            }),
-        );
+                    )
+                });
+
+            calibrate_pointers(
+                uninitiated_bytes.as_ptr(),
+                uninitiated_views,
+                &self._calibrate_offsets,
+            )
+        }
+    }
+
+    unsafe fn replace_with_trusted_len_iterator<I>(&mut self, len: usize, trusted_len_iterator: I)
+    where
+        I: Iterator<Item = Option<Self::Element>>,
+    {
+        unsafe {
+            let mut uninitiated_validity = self.validity.as_mut().mutate();
+
+            let uninitiated_views = self.views.as_mut().clear_and_resize(len);
+            let uninitiated_bytes = self._bytes.as_mut();
+            uninitiated_bytes.clear();
+            self._calibrate_offsets.clear();
+
+            uninitiated_validity.reset(
+                len,
+                trusted_len_iterator.enumerate().map(|(index, element)| {
+                    if let Some(element) = element {
+                        assign_string_view(
+                            element.view,
+                            uninitiated_bytes,
+                            uninitiated_views,
+                            index,
+                            &mut self._calibrate_offsets,
+                        );
+                        true
+                    } else {
+                        false
+                    }
+                }),
+            );
+        }
     }
 
     #[inline]
@@ -284,28 +292,30 @@ impl Array for StringArray {
     ) where
         I: Iterator<Item = StringView<'a>>,
     {
-        self.validity.as_mut().mutate().clear();
+        unsafe {
+            self.validity.as_mut().mutate().clear();
 
-        let uninitiated_views = self.views.as_mut().clear_and_resize(len);
-        let uninitiated_bytes = self._bytes.as_mut();
-        uninitiated_bytes.clear();
-        self._calibrate_offsets.clear();
+            let uninitiated_views = self.views.as_mut().clear_and_resize(len);
+            let uninitiated_bytes = self._bytes.as_mut();
+            uninitiated_bytes.clear();
+            self._calibrate_offsets.clear();
 
-        trusted_len_iterator.enumerate().for_each(|(index, view)| {
-            assign_string_view(
-                view,
-                uninitiated_bytes,
+            trusted_len_iterator.enumerate().for_each(|(index, view)| {
+                assign_string_view(
+                    view,
+                    uninitiated_bytes,
+                    uninitiated_views,
+                    index,
+                    &mut self._calibrate_offsets,
+                )
+            });
+
+            calibrate_pointers(
+                uninitiated_bytes.as_ptr(),
                 uninitiated_views,
-                index,
-                &mut self._calibrate_offsets,
+                &self._calibrate_offsets,
             )
-        });
-
-        calibrate_pointers(
-            uninitiated_bytes.as_ptr(),
-            uninitiated_views,
-            &self._calibrate_offsets,
-        )
+        }
     }
 
     unsafe fn replace_with_trusted_len_ref_iterator<'a, I>(
@@ -315,80 +325,86 @@ impl Array for StringArray {
     ) where
         I: Iterator<Item = Option<StringView<'a>>>,
     {
-        let mut uninitiated_validity = self.validity.as_mut().mutate();
+        unsafe {
+            let mut uninitiated_validity = self.validity.as_mut().mutate();
 
-        let uninitiated_views = self.views.as_mut().clear_and_resize(len);
-        let uninitiated_bytes = self._bytes.as_mut();
-        uninitiated_bytes.clear();
-        self._calibrate_offsets.clear();
+            let uninitiated_views = self.views.as_mut().clear_and_resize(len);
+            let uninitiated_bytes = self._bytes.as_mut();
+            uninitiated_bytes.clear();
+            self._calibrate_offsets.clear();
 
-        uninitiated_validity.reset(
-            len,
-            trusted_len_iterator.enumerate().map(|(index, view)| {
-                if let Some(view) = view {
-                    assign_string_view(
-                        view,
-                        uninitiated_bytes,
-                        uninitiated_views,
-                        index,
-                        &mut self._calibrate_offsets,
-                    );
-                    true
-                } else {
-                    false
-                }
-            }),
-        );
+            uninitiated_validity.reset(
+                len,
+                trusted_len_iterator.enumerate().map(|(index, view)| {
+                    if let Some(view) = view {
+                        assign_string_view(
+                            view,
+                            uninitiated_bytes,
+                            uninitiated_views,
+                            index,
+                            &mut self._calibrate_offsets,
+                        );
+                        true
+                    } else {
+                        false
+                    }
+                }),
+            );
+        }
     }
 
     #[inline]
     unsafe fn clear(&mut self) {
-        self.views.as_mut().clear();
-        self._bytes.as_mut().clear();
-        self.validity.as_mut().mutate().clear();
+        unsafe {
+            self.views.as_mut().clear();
+            self._bytes.as_mut().clear();
+            self.validity.as_mut().mutate().clear();
+        }
     }
 
     unsafe fn copy(&mut self, source: &Self, start: usize, len: usize) {
-        #[cfg(feature = "verify")]
-        assert!(start + len <= source.len());
+        unsafe {
+            #[cfg(feature = "verify")]
+            assert!(start + len <= source.len());
 
-        self.validity
-            .as_mut()
-            .mutate()
-            .copy(&source.validity, start, len);
+            self.validity
+                .as_mut()
+                .mutate()
+                .copy(&source.validity, start, len);
 
-        let mut bytes_len = 0;
-        let mut bytes_src = None;
-        self._calibrate_offsets.clear();
-        source
-            .views
-            .get_slice_unchecked(start, len)
-            .iter()
-            .for_each(|view| {
-                if view.is_inlined() {
-                    self._calibrate_offsets.push(usize::MAX);
-                } else {
-                    if bytes_src.is_none() {
-                        bytes_src = Some(view.indirect_ptr());
+            let mut bytes_len = 0;
+            let mut bytes_src = None;
+            self._calibrate_offsets.clear();
+            source
+                .views
+                .get_slice_unchecked(start, len)
+                .iter()
+                .for_each(|view| {
+                    if view.is_inlined() {
+                        self._calibrate_offsets.push(usize::MAX);
+                    } else {
+                        if bytes_src.is_none() {
+                            bytes_src = Some(view.indirect_ptr());
+                        }
+                        self._calibrate_offsets.push(bytes_len);
+                        bytes_len += view.length as usize;
                     }
-                    self._calibrate_offsets.push(bytes_len);
-                    bytes_len += view.length as usize;
-                }
-            });
+                });
 
-        // Copy View
-        let views_dst = self.views.as_mut().clear_and_resize(len);
-        std::ptr::copy_nonoverlapping(
-            source.views.as_ptr().add(start),
-            views_dst.as_mut_ptr(),
-            len,
-        );
+            // Copy View
+            let views_dst = self.views.as_mut().clear_and_resize(len);
+            std::ptr::copy_nonoverlapping(
+                source.views.as_ptr().add(start),
+                views_dst.as_mut_ptr(),
+                len,
+            );
 
-        // Copy bytes
-        let bytes_dst = self._bytes.as_mut().clear_and_resize(bytes_len);
-        if let Some(bytes_src) = bytes_src {
-            std::ptr::copy_nonoverlapping(bytes_src, bytes_dst.as_mut_ptr(), bytes_len);
-            calibrate_pointers(bytes_dst.as_ptr(), views_dst, &self._calibrate_offsets);
+            // Copy bytes
+            let bytes_dst = self._bytes.as_mut().clear_and_resize(bytes_len);
+            if let Some(bytes_src) = bytes_src {
+                std::ptr::copy_nonoverlapping(bytes_src, bytes_dst.as_mut_ptr(), bytes_len);
+                calibrate_pointers(bytes_dst.as_ptr(), views_dst, &self._calibrate_offsets);
+            }
         }
     }
 }
@@ -427,16 +443,16 @@ unsafe fn assign_string_view(
     index: usize,
     calibrate_offsets: &mut Vec<usize>,
 ) {
-    *views.get_unchecked_mut(index) = view.expand();
+    unsafe {
+        *views.get_unchecked_mut(index) = view.expand();
 
-    if view.is_inlined() {
-        // Do not need to calibrate
-        calibrate_offsets.push(usize::MAX);
-    } else {
-        let len = view.length as usize;
-        calibrate_offsets.push(bytes.len);
-        bytes.reserve(len);
-        unsafe {
+        if view.is_inlined() {
+            // Do not need to calibrate
+            calibrate_offsets.push(usize::MAX);
+        } else {
+            let len = view.length as usize;
+            calibrate_offsets.push(bytes.len);
+            bytes.reserve(len);
             // Copy the string content to bytes
             let dst = bytes.ptr.as_ptr().add(bytes.len);
             std::ptr::copy_nonoverlapping(view.as_ptr(), dst, len);

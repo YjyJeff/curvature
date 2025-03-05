@@ -2,7 +2,7 @@
 
 use std::iter::FusedIterator;
 
-use super::{get_bit_unchecked, BitStore, Bitmap, BIT_STORE_BITS};
+use super::{BIT_STORE_BITS, BitStore, Bitmap, get_bit_unchecked};
 use crate::aligned_vec::AlignedVec;
 
 #[derive(Debug)]

@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use data_block::bitmap::Bitmap;
 use regex::{Error as RegexError, Regex, RegexBuilder};
-use snafu::{ensure, Snafu};
+use snafu::{Snafu, ensure};
 
 use data_block::array::{Array, ArrayImpl, StringArray};
 use data_block::block::DataBlock;
@@ -16,13 +16,17 @@ use crate::exec::physical_expr::constant::Constant;
 
 use super::executor::ExprExecCtx;
 use super::utils::CompactExprDisplayWrapper;
-use super::{execute_unary_child, ExprResult, PhysicalExpr, Stringify};
+use super::{ExprResult, PhysicalExpr, Stringify, execute_unary_child};
 
 /// Error returned by creating the [`RegexMatch`]
 #[derive(Debug, Snafu)]
 pub enum RegexMatchError {
     /// Input is invalid
-    #[snafu(display("Input of the `RegexMatch` should produce `StringArray`, however the input: `{}` has logical type: `{:?}`", input, logical_type))]
+    #[snafu(display(
+        "Input of the `RegexMatch` should produce `StringArray`, however the input: `{}` has logical type: `{:?}`",
+        input,
+        logical_type
+    ))]
     InvalidInput {
         /// Input passed to create the RegexMatch
         input: String,
@@ -38,7 +42,9 @@ pub enum RegexMatchError {
         source: RegexError,
     },
     /// Input is a constant expression, invalid
-    #[snafu(display("Input of the regex_match is a constant expression: `{expr}`, it makes no sense. Handle it in the planner/optimizer"))]
+    #[snafu(display(
+        "Input of the regex_match is a constant expression: `{expr}`, it makes no sense. Handle it in the planner/optimizer"
+    ))]
     ConstantExpr {
         /// Invalid constant expression
         expr: String,

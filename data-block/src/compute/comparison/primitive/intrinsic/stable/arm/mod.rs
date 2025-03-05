@@ -168,19 +168,17 @@ unsafe fn pack_byte_cmp<const NOT: bool>(
     cmp_3: uint8x16_t,
     mask_8: uint8x16_t,
 ) -> u64 {
-    let cmp_0 = vandq_u8(cmp_0, mask_8);
-    let cmp_1 = vandq_u8(cmp_1, mask_8);
-    let cmp_2 = vandq_u8(cmp_2, mask_8);
-    let cmp_3 = vandq_u8(cmp_3, mask_8);
-    let sum_0 = vpaddq_u8(cmp_0, cmp_1);
-    let sum_1 = vpaddq_u8(cmp_2, cmp_3);
-    let sum_0 = vpaddq_u8(sum_0, sum_1);
-    let sum_0 = vpaddq_u8(sum_0, sum_0);
-    let mask = vgetq_lane_u64(vreinterpretq_u64_u8(sum_0), 0);
-    if NOT {
-        mask ^ u64::MAX
-    } else {
-        mask
+    unsafe {
+        let cmp_0 = vandq_u8(cmp_0, mask_8);
+        let cmp_1 = vandq_u8(cmp_1, mask_8);
+        let cmp_2 = vandq_u8(cmp_2, mask_8);
+        let cmp_3 = vandq_u8(cmp_3, mask_8);
+        let sum_0 = vpaddq_u8(cmp_0, cmp_1);
+        let sum_1 = vpaddq_u8(cmp_2, cmp_3);
+        let sum_0 = vpaddq_u8(sum_0, sum_1);
+        let sum_0 = vpaddq_u8(sum_0, sum_0);
+        let mask = vgetq_lane_u64(vreinterpretq_u64_u8(sum_0), 0);
+        if NOT { mask ^ u64::MAX } else { mask }
     }
 }
 
@@ -198,30 +196,32 @@ unsafe fn byte_cmp_scalar<const NOT: bool, T: ByteIntrinsic>(
     dst: *mut BitStore,
     cmp: unsafe fn(T::Simd, T::Simd) -> T::SimdCmp,
 ) {
-    if lhs.len == 0 {
-        return;
-    }
+    unsafe {
+        if lhs.len == 0 {
+            return;
+        }
 
-    let rhs = T::BROADCAST(rhs);
-    let mask_8 = vld1q_u8(MASK_8.as_ptr());
-    let num_loops = roundup_loops(lhs.len, 64);
-    let mut lhs_ptr = lhs.ptr.as_ptr();
+        let rhs = T::BROADCAST(rhs);
+        let mask_8 = vld1q_u8(MASK_8.as_ptr());
+        let num_loops = roundup_loops(lhs.len, 64);
+        let mut lhs_ptr = lhs.ptr.as_ptr();
 
-    for simd_index in 0..num_loops {
-        let lhs_0 = T::LOAD(lhs_ptr);
-        let lhs_1 = T::LOAD(lhs_ptr.add(16));
-        let lhs_2 = T::LOAD(lhs_ptr.add(32));
-        let lhs_3 = T::LOAD(lhs_ptr.add(48));
-        let mask = pack_byte_cmp::<NOT>(
-            cmp(lhs_0, rhs),
-            cmp(lhs_1, rhs),
-            cmp(lhs_2, rhs),
-            cmp(lhs_3, rhs),
-            mask_8,
-        );
+        for simd_index in 0..num_loops {
+            let lhs_0 = T::LOAD(lhs_ptr);
+            let lhs_1 = T::LOAD(lhs_ptr.add(16));
+            let lhs_2 = T::LOAD(lhs_ptr.add(32));
+            let lhs_3 = T::LOAD(lhs_ptr.add(48));
+            let mask = pack_byte_cmp::<NOT>(
+                cmp(lhs_0, rhs),
+                cmp(lhs_1, rhs),
+                cmp(lhs_2, rhs),
+                cmp(lhs_3, rhs),
+                mask_8,
+            );
 
-        *dst.add(simd_index) = mask;
-        lhs_ptr = lhs_ptr.add(64);
+            *dst.add(simd_index) = mask;
+            lhs_ptr = lhs_ptr.add(64);
+        }
     }
 }
 
@@ -233,38 +233,40 @@ unsafe fn byte_cmp<const NOT: bool, T: ByteIntrinsic>(
     dst: *mut BitStore,
     cmp: unsafe fn(T::Simd, T::Simd) -> T::SimdCmp,
 ) {
-    #[cfg(feature = "verify")]
-    assert_eq!(lhs.len, rhs.len);
+    unsafe {
+        #[cfg(feature = "verify")]
+        assert_eq!(lhs.len, rhs.len);
 
-    if lhs.len == 0 {
-        return;
-    }
+        if lhs.len == 0 {
+            return;
+        }
 
-    let mask_8 = vld1q_u8(MASK_8.as_ptr());
-    let num_loops = roundup_loops(lhs.len, 64);
-    let mut lhs_ptr = lhs.ptr.as_ptr();
-    let mut rhs_ptr = rhs.ptr.as_ptr();
+        let mask_8 = vld1q_u8(MASK_8.as_ptr());
+        let num_loops = roundup_loops(lhs.len, 64);
+        let mut lhs_ptr = lhs.ptr.as_ptr();
+        let mut rhs_ptr = rhs.ptr.as_ptr();
 
-    for simd_index in 0..num_loops {
-        let lhs_0 = T::LOAD(lhs_ptr);
-        let lhs_1 = T::LOAD(lhs_ptr.add(16));
-        let lhs_2 = T::LOAD(lhs_ptr.add(32));
-        let lhs_3 = T::LOAD(lhs_ptr.add(48));
-        let rhs_0 = T::LOAD(rhs_ptr);
-        let rhs_1 = T::LOAD(rhs_ptr.add(16));
-        let rhs_2 = T::LOAD(rhs_ptr.add(32));
-        let rhs_3 = T::LOAD(rhs_ptr.add(48));
-        let mask = pack_byte_cmp::<NOT>(
-            cmp(lhs_0, rhs_0),
-            cmp(lhs_1, rhs_1),
-            cmp(lhs_2, rhs_2),
-            cmp(lhs_3, rhs_3),
-            mask_8,
-        );
+        for simd_index in 0..num_loops {
+            let lhs_0 = T::LOAD(lhs_ptr);
+            let lhs_1 = T::LOAD(lhs_ptr.add(16));
+            let lhs_2 = T::LOAD(lhs_ptr.add(32));
+            let lhs_3 = T::LOAD(lhs_ptr.add(48));
+            let rhs_0 = T::LOAD(rhs_ptr);
+            let rhs_1 = T::LOAD(rhs_ptr.add(16));
+            let rhs_2 = T::LOAD(rhs_ptr.add(32));
+            let rhs_3 = T::LOAD(rhs_ptr.add(48));
+            let mask = pack_byte_cmp::<NOT>(
+                cmp(lhs_0, rhs_0),
+                cmp(lhs_1, rhs_1),
+                cmp(lhs_2, rhs_2),
+                cmp(lhs_3, rhs_3),
+                mask_8,
+            );
 
-        *dst.add(simd_index) = mask;
-        lhs_ptr = lhs_ptr.add(64);
-        rhs_ptr = rhs_ptr.add(64);
+            *dst.add(simd_index) = mask;
+            lhs_ptr = lhs_ptr.add(64);
+            rhs_ptr = rhs_ptr.add(64);
+        }
     }
 }
 
@@ -286,13 +288,11 @@ unsafe fn pack_half_word_cmp<const NOT: bool>(
     mask_low: uint16x8_t,
     mask_high: uint16x8_t,
 ) -> u16 {
-    let cmp_0 = vandq_u16(cmp_0, mask_low);
-    let cmp_1 = vandq_u16(cmp_1, mask_high);
-    let mask = vaddvq_u16(vaddq_u16(cmp_0, cmp_1));
-    if NOT {
-        mask ^ u16::MAX
-    } else {
-        mask
+    unsafe {
+        let cmp_0 = vandq_u16(cmp_0, mask_low);
+        let cmp_1 = vandq_u16(cmp_1, mask_high);
+        let mask = vaddvq_u16(vaddq_u16(cmp_0, cmp_1));
+        if NOT { mask ^ u16::MAX } else { mask }
     }
 }
 
@@ -304,23 +304,26 @@ unsafe fn half_word_cmp_scalar<const NOT: bool, T: HalfWordIntrinsic>(
     dst: *mut BitStore,
     cmp: unsafe fn(T::Simd, T::Simd) -> T::SimdCmp,
 ) {
-    if lhs.len == 0 {
-        return;
-    }
+    unsafe {
+        if lhs.len == 0 {
+            return;
+        }
 
-    let rhs = T::BROADCAST(rhs);
-    let mask_low = vld1q_u16(MASK_16_LOW.as_ptr());
-    let mask_high = vld1q_u16(MASK_16_HIGH.as_ptr());
-    let num_loops = roundup_loops(lhs.len, 16);
-    let mut lhs_ptr = lhs.ptr.as_ptr();
-    let dst = dst as *mut u16;
+        let rhs = T::BROADCAST(rhs);
+        let mask_low = vld1q_u16(MASK_16_LOW.as_ptr());
+        let mask_high = vld1q_u16(MASK_16_HIGH.as_ptr());
+        let num_loops = roundup_loops(lhs.len, 16);
+        let mut lhs_ptr = lhs.ptr.as_ptr();
+        let dst = dst as *mut u16;
 
-    for simd_index in 0..num_loops {
-        let lhs_0 = T::LOAD(lhs_ptr);
-        let lhs_1 = T::LOAD(lhs_ptr.add(8));
-        let mask = pack_half_word_cmp::<NOT>(cmp(lhs_0, rhs), cmp(lhs_1, rhs), mask_low, mask_high);
-        *dst.add(simd_index) = mask as _;
-        lhs_ptr = lhs_ptr.add(16);
+        for simd_index in 0..num_loops {
+            let lhs_0 = T::LOAD(lhs_ptr);
+            let lhs_1 = T::LOAD(lhs_ptr.add(8));
+            let mask =
+                pack_half_word_cmp::<NOT>(cmp(lhs_0, rhs), cmp(lhs_1, rhs), mask_low, mask_high);
+            *dst.add(simd_index) = mask as _;
+            lhs_ptr = lhs_ptr.add(16);
+        }
     }
 }
 
@@ -332,30 +335,36 @@ unsafe fn half_word_cmp<const NOT: bool, T: HalfWordIntrinsic>(
     dst: *mut BitStore,
     cmp: unsafe fn(T::Simd, T::Simd) -> T::SimdCmp,
 ) {
-    #[cfg(feature = "verify")]
-    assert_eq!(lhs.len, rhs.len);
-    if lhs.len == 0 {
-        return;
-    }
+    unsafe {
+        #[cfg(feature = "verify")]
+        assert_eq!(lhs.len, rhs.len);
+        if lhs.len == 0 {
+            return;
+        }
 
-    let mask_low = vld1q_u16(MASK_16_LOW.as_ptr());
-    let mask_high = vld1q_u16(MASK_16_HIGH.as_ptr());
-    let num_loops = roundup_loops(lhs.len, 16);
-    let mut lhs_ptr = lhs.ptr.as_ptr();
-    let mut rhs_ptr = rhs.ptr.as_ptr();
-    let dst = dst as *mut u16;
+        let mask_low = vld1q_u16(MASK_16_LOW.as_ptr());
+        let mask_high = vld1q_u16(MASK_16_HIGH.as_ptr());
+        let num_loops = roundup_loops(lhs.len, 16);
+        let mut lhs_ptr = lhs.ptr.as_ptr();
+        let mut rhs_ptr = rhs.ptr.as_ptr();
+        let dst = dst as *mut u16;
 
-    for simd_index in 0..num_loops {
-        let lhs_0 = T::LOAD(lhs_ptr);
-        let lhs_1 = T::LOAD(lhs_ptr.add(8));
-        let rhs_0 = T::LOAD(rhs_ptr);
-        let rhs_1 = T::LOAD(rhs_ptr.add(8));
-        let mask =
-            pack_half_word_cmp::<NOT>(cmp(lhs_0, rhs_0), cmp(lhs_1, rhs_1), mask_low, mask_high);
+        for simd_index in 0..num_loops {
+            let lhs_0 = T::LOAD(lhs_ptr);
+            let lhs_1 = T::LOAD(lhs_ptr.add(8));
+            let rhs_0 = T::LOAD(rhs_ptr);
+            let rhs_1 = T::LOAD(rhs_ptr.add(8));
+            let mask = pack_half_word_cmp::<NOT>(
+                cmp(lhs_0, rhs_0),
+                cmp(lhs_1, rhs_1),
+                mask_low,
+                mask_high,
+            );
 
-        *dst.add(simd_index) = mask as _;
-        lhs_ptr = lhs_ptr.add(16);
-        rhs_ptr = rhs_ptr.add(16);
+            *dst.add(simd_index) = mask as _;
+            lhs_ptr = lhs_ptr.add(16);
+            rhs_ptr = rhs_ptr.add(16);
+        }
     }
 }
 
@@ -375,15 +384,13 @@ unsafe fn pack_word_cmp<const NOT: bool>(
     mask_low: uint16x8_t,
     mask_high: uint16x8_t,
 ) -> u16 {
-    let uzp_0 = vuzp1q_u16(vreinterpretq_u16_u32(cmp_0), vreinterpretq_u16_u32(cmp_1));
-    let uzp_1 = vuzp1q_u16(vreinterpretq_u16_u32(cmp_2), vreinterpretq_u16_u32(cmp_3));
-    let uzp_0 = vandq_u16(uzp_0, mask_low);
-    let uzp_1 = vandq_u16(uzp_1, mask_high);
-    let mask = vaddvq_u16(vaddq_u16(uzp_0, uzp_1));
-    if NOT {
-        mask ^ u16::MAX
-    } else {
-        mask
+    unsafe {
+        let uzp_0 = vuzp1q_u16(vreinterpretq_u16_u32(cmp_0), vreinterpretq_u16_u32(cmp_1));
+        let uzp_1 = vuzp1q_u16(vreinterpretq_u16_u32(cmp_2), vreinterpretq_u16_u32(cmp_3));
+        let uzp_0 = vandq_u16(uzp_0, mask_low);
+        let uzp_1 = vandq_u16(uzp_1, mask_high);
+        let mask = vaddvq_u16(vaddq_u16(uzp_0, uzp_1));
+        if NOT { mask ^ u16::MAX } else { mask }
     }
 }
 
@@ -395,30 +402,32 @@ unsafe fn word_cmp_scalar<const NOT: bool, T: WordIntrinsic>(
     dst: *mut BitStore,
     cmp: unsafe fn(T::Simd, T::Simd) -> T::SimdCmp,
 ) {
-    if lhs.len == 0 {
-        return;
-    }
+    unsafe {
+        if lhs.len == 0 {
+            return;
+        }
 
-    let rhs = T::BROADCAST(rhs);
-    let mask_low = vld1q_u16(MASK_16_LOW.as_ptr());
-    let mask_high = vld1q_u16(MASK_16_HIGH.as_ptr());
-    let num_loops = roundup_loops(lhs.len, 16);
-    let mut lhs_ptr = lhs.ptr.as_ptr();
-    let dst = dst as *mut u16;
+        let rhs = T::BROADCAST(rhs);
+        let mask_low = vld1q_u16(MASK_16_LOW.as_ptr());
+        let mask_high = vld1q_u16(MASK_16_HIGH.as_ptr());
+        let num_loops = roundup_loops(lhs.len, 16);
+        let mut lhs_ptr = lhs.ptr.as_ptr();
+        let dst = dst as *mut u16;
 
-    for simd_index in 0..num_loops {
-        let lhs_0 = T::LOAD(lhs_ptr);
-        let lhs_1 = T::LOAD(lhs_ptr.add(4));
-        let lhs_2 = T::LOAD(lhs_ptr.add(8));
-        let lhs_3 = T::LOAD(lhs_ptr.add(12));
+        for simd_index in 0..num_loops {
+            let lhs_0 = T::LOAD(lhs_ptr);
+            let lhs_1 = T::LOAD(lhs_ptr.add(4));
+            let lhs_2 = T::LOAD(lhs_ptr.add(8));
+            let lhs_3 = T::LOAD(lhs_ptr.add(12));
 
-        let cmp_0 = cmp(lhs_0, rhs);
-        let cmp_1 = cmp(lhs_1, rhs);
-        let cmp_2 = cmp(lhs_2, rhs);
-        let cmp_3 = cmp(lhs_3, rhs);
-        let mask = pack_word_cmp::<NOT>(cmp_0, cmp_1, cmp_2, cmp_3, mask_low, mask_high);
-        *dst.add(simd_index) = mask;
-        lhs_ptr = lhs_ptr.add(16);
+            let cmp_0 = cmp(lhs_0, rhs);
+            let cmp_1 = cmp(lhs_1, rhs);
+            let cmp_2 = cmp(lhs_2, rhs);
+            let cmp_3 = cmp(lhs_3, rhs);
+            let mask = pack_word_cmp::<NOT>(cmp_0, cmp_1, cmp_2, cmp_3, mask_low, mask_high);
+            *dst.add(simd_index) = mask;
+            lhs_ptr = lhs_ptr.add(16);
+        }
     }
 }
 
@@ -430,38 +439,40 @@ unsafe fn word_cmp<const NOT: bool, T: WordIntrinsic>(
     dst: *mut BitStore,
     cmp: unsafe fn(T::Simd, T::Simd) -> T::SimdCmp,
 ) {
-    #[cfg(feature = "verify")]
-    assert_eq!(lhs.len, rhs.len);
-    if lhs.len == 0 {
-        return;
-    }
+    unsafe {
+        #[cfg(feature = "verify")]
+        assert_eq!(lhs.len, rhs.len);
+        if lhs.len == 0 {
+            return;
+        }
 
-    let mask_low = vld1q_u16(MASK_16_LOW.as_ptr());
-    let mask_high = vld1q_u16(MASK_16_HIGH.as_ptr());
-    let num_loops = roundup_loops(lhs.len, 16);
-    let mut lhs_ptr = lhs.ptr.as_ptr();
-    let mut rhs_ptr = rhs.ptr.as_ptr();
-    let dst = dst as *mut u16;
+        let mask_low = vld1q_u16(MASK_16_LOW.as_ptr());
+        let mask_high = vld1q_u16(MASK_16_HIGH.as_ptr());
+        let num_loops = roundup_loops(lhs.len, 16);
+        let mut lhs_ptr = lhs.ptr.as_ptr();
+        let mut rhs_ptr = rhs.ptr.as_ptr();
+        let dst = dst as *mut u16;
 
-    for simd_index in 0..num_loops {
-        let lhs_0 = T::LOAD(lhs_ptr);
-        let lhs_1 = T::LOAD(lhs_ptr.add(4));
-        let lhs_2 = T::LOAD(lhs_ptr.add(8));
-        let lhs_3 = T::LOAD(lhs_ptr.add(12));
-        let rhs_0 = T::LOAD(rhs_ptr);
-        let rhs_1 = T::LOAD(rhs_ptr.add(4));
-        let rhs_2 = T::LOAD(rhs_ptr.add(8));
-        let rhs_3 = T::LOAD(rhs_ptr.add(12));
+        for simd_index in 0..num_loops {
+            let lhs_0 = T::LOAD(lhs_ptr);
+            let lhs_1 = T::LOAD(lhs_ptr.add(4));
+            let lhs_2 = T::LOAD(lhs_ptr.add(8));
+            let lhs_3 = T::LOAD(lhs_ptr.add(12));
+            let rhs_0 = T::LOAD(rhs_ptr);
+            let rhs_1 = T::LOAD(rhs_ptr.add(4));
+            let rhs_2 = T::LOAD(rhs_ptr.add(8));
+            let rhs_3 = T::LOAD(rhs_ptr.add(12));
 
-        let cmp_0 = cmp(lhs_0, rhs_0);
-        let cmp_1 = cmp(lhs_1, rhs_1);
-        let cmp_2 = cmp(lhs_2, rhs_2);
-        let cmp_3 = cmp(lhs_3, rhs_3);
+            let cmp_0 = cmp(lhs_0, rhs_0);
+            let cmp_1 = cmp(lhs_1, rhs_1);
+            let cmp_2 = cmp(lhs_2, rhs_2);
+            let cmp_3 = cmp(lhs_3, rhs_3);
 
-        let mask = pack_word_cmp::<NOT>(cmp_0, cmp_1, cmp_2, cmp_3, mask_low, mask_high);
-        *dst.add(simd_index) = mask;
-        lhs_ptr = lhs_ptr.add(16);
-        rhs_ptr = rhs_ptr.add(16);
+            let mask = pack_word_cmp::<NOT>(cmp_0, cmp_1, cmp_2, cmp_3, mask_low, mask_high);
+            *dst.add(simd_index) = mask;
+            lhs_ptr = lhs_ptr.add(16);
+            rhs_ptr = rhs_ptr.add(16);
+        }
     }
 }
 
@@ -480,15 +491,13 @@ unsafe fn pack_double_word_cmp<const NOT: bool>(
     cmp_3: uint64x2_t,
     mask_low: uint16x8_t,
 ) -> u8 {
-    let uzp_0 = vuzp1q_u32(vreinterpretq_u32_u64(cmp_0), vreinterpretq_u32_u64(cmp_1));
-    let uzp_1 = vuzp1q_u32(vreinterpretq_u32_u64(cmp_2), vreinterpretq_u32_u64(cmp_3));
-    let uzp = vuzp1q_u16(vreinterpretq_u16_u32(uzp_0), vreinterpretq_u16_u32(uzp_1));
-    let mask = vaddvq_u16(vandq_u16(uzp, mask_low)) as u8;
+    unsafe {
+        let uzp_0 = vuzp1q_u32(vreinterpretq_u32_u64(cmp_0), vreinterpretq_u32_u64(cmp_1));
+        let uzp_1 = vuzp1q_u32(vreinterpretq_u32_u64(cmp_2), vreinterpretq_u32_u64(cmp_3));
+        let uzp = vuzp1q_u16(vreinterpretq_u16_u32(uzp_0), vreinterpretq_u16_u32(uzp_1));
+        let mask = vaddvq_u16(vandq_u16(uzp, mask_low)) as u8;
 
-    if NOT {
-        mask ^ u8::MAX
-    } else {
-        mask
+        if NOT { mask ^ u8::MAX } else { mask }
     }
 }
 
@@ -500,31 +509,33 @@ unsafe fn double_word_cmp_scalar<const NOT: bool, T: DoubleWordIntrinsic>(
     dst: *mut BitStore,
     cmp: unsafe fn(T::Simd, T::Simd) -> T::SimdCmp,
 ) {
-    if lhs.len == 0 {
-        return;
-    }
+    unsafe {
+        if lhs.len == 0 {
+            return;
+        }
 
-    let rhs = T::BROADCAST(rhs);
-    let num_loops = roundup_loops(lhs.len, 8);
-    let mask_low = vld1q_u16(MASK_16_LOW.as_ptr());
-    let mut lhs_ptr = lhs.ptr.as_ptr();
-    let dst = dst as *mut u8;
+        let rhs = T::BROADCAST(rhs);
+        let num_loops = roundup_loops(lhs.len, 8);
+        let mask_low = vld1q_u16(MASK_16_LOW.as_ptr());
+        let mut lhs_ptr = lhs.ptr.as_ptr();
+        let dst = dst as *mut u8;
 
-    for simd_index in 0..num_loops {
-        let lhs_0 = T::LOAD(lhs_ptr);
-        let lhs_1 = T::LOAD(lhs_ptr.add(2));
-        let lhs_2 = T::LOAD(lhs_ptr.add(4));
-        let lhs_3 = T::LOAD(lhs_ptr.add(6));
+        for simd_index in 0..num_loops {
+            let lhs_0 = T::LOAD(lhs_ptr);
+            let lhs_1 = T::LOAD(lhs_ptr.add(2));
+            let lhs_2 = T::LOAD(lhs_ptr.add(4));
+            let lhs_3 = T::LOAD(lhs_ptr.add(6));
 
-        let cmp_0 = cmp(lhs_0, rhs);
-        let cmp_1 = cmp(lhs_1, rhs);
-        let cmp_2 = cmp(lhs_2, rhs);
-        let cmp_3 = cmp(lhs_3, rhs);
+            let cmp_0 = cmp(lhs_0, rhs);
+            let cmp_1 = cmp(lhs_1, rhs);
+            let cmp_2 = cmp(lhs_2, rhs);
+            let cmp_3 = cmp(lhs_3, rhs);
 
-        let mask = pack_double_word_cmp::<NOT>(cmp_0, cmp_1, cmp_2, cmp_3, mask_low);
+            let mask = pack_double_word_cmp::<NOT>(cmp_0, cmp_1, cmp_2, cmp_3, mask_low);
 
-        *dst.add(simd_index) = mask;
-        lhs_ptr = lhs_ptr.add(8);
+            *dst.add(simd_index) = mask;
+            lhs_ptr = lhs_ptr.add(8);
+        }
     }
 }
 
@@ -536,39 +547,41 @@ unsafe fn double_word_cmp<const NOT: bool, T: DoubleWordIntrinsic>(
     dst: *mut BitStore,
     cmp: unsafe fn(T::Simd, T::Simd) -> T::SimdCmp,
 ) {
-    #[cfg(feature = "verify")]
-    assert_eq!(lhs.len, rhs.len);
+    unsafe {
+        #[cfg(feature = "verify")]
+        assert_eq!(lhs.len, rhs.len);
 
-    if lhs.len == 0 {
-        return;
-    }
+        if lhs.len == 0 {
+            return;
+        }
 
-    let num_loops = roundup_loops(lhs.len, 8);
-    let mask_low = vld1q_u16(MASK_16_LOW.as_ptr());
-    let mut lhs_ptr = lhs.ptr.as_ptr();
-    let mut rhs_ptr = rhs.ptr.as_ptr();
-    let dst = dst as *mut u8;
+        let num_loops = roundup_loops(lhs.len, 8);
+        let mask_low = vld1q_u16(MASK_16_LOW.as_ptr());
+        let mut lhs_ptr = lhs.ptr.as_ptr();
+        let mut rhs_ptr = rhs.ptr.as_ptr();
+        let dst = dst as *mut u8;
 
-    for simd_index in 0..num_loops {
-        let lhs_0 = T::LOAD(lhs_ptr);
-        let lhs_1 = T::LOAD(lhs_ptr.add(2));
-        let lhs_2 = T::LOAD(lhs_ptr.add(4));
-        let lhs_3 = T::LOAD(lhs_ptr.add(6));
+        for simd_index in 0..num_loops {
+            let lhs_0 = T::LOAD(lhs_ptr);
+            let lhs_1 = T::LOAD(lhs_ptr.add(2));
+            let lhs_2 = T::LOAD(lhs_ptr.add(4));
+            let lhs_3 = T::LOAD(lhs_ptr.add(6));
 
-        let rhs_0 = T::LOAD(rhs_ptr);
-        let rhs_1 = T::LOAD(rhs_ptr.add(2));
-        let rhs_2 = T::LOAD(rhs_ptr.add(4));
-        let rhs_3 = T::LOAD(rhs_ptr.add(6));
+            let rhs_0 = T::LOAD(rhs_ptr);
+            let rhs_1 = T::LOAD(rhs_ptr.add(2));
+            let rhs_2 = T::LOAD(rhs_ptr.add(4));
+            let rhs_3 = T::LOAD(rhs_ptr.add(6));
 
-        let cmp_0 = cmp(lhs_0, rhs_0);
-        let cmp_1 = cmp(lhs_1, rhs_1);
-        let cmp_2 = cmp(lhs_2, rhs_2);
-        let cmp_3 = cmp(lhs_3, rhs_3);
-        let mask = pack_double_word_cmp::<NOT>(cmp_0, cmp_1, cmp_2, cmp_3, mask_low);
+            let cmp_0 = cmp(lhs_0, rhs_0);
+            let cmp_1 = cmp(lhs_1, rhs_1);
+            let cmp_2 = cmp(lhs_2, rhs_2);
+            let cmp_3 = cmp(lhs_3, rhs_3);
+            let mask = pack_double_word_cmp::<NOT>(cmp_0, cmp_1, cmp_2, cmp_3, mask_low);
 
-        *dst.add(simd_index) = mask;
-        lhs_ptr = lhs_ptr.add(8);
-        rhs_ptr = lhs_ptr.add(8);
+            *dst.add(simd_index) = mask;
+            lhs_ptr = lhs_ptr.add(8);
+            rhs_ptr = lhs_ptr.add(8);
+        }
     }
 }
 
@@ -577,66 +590,66 @@ macro_rules! cmp {
         paste::paste! {
             // Array cmp scalar
             #[target_feature(enable = "neon")]
-            pub(super) unsafe fn [<eq_scalar_ $ty _neon>](array: &AlignedVec<$ty>, scalar: $ty, dst: *mut BitStore) {
+            pub(super) unsafe fn [<eq_scalar_ $ty _neon>](array: &AlignedVec<$ty>, scalar: $ty, dst: *mut BitStore) { unsafe {
                 $cmp_scalar_func::<false, $ty>(array, scalar, dst, $ty::EQ);
-            }
+            }}
 
             #[target_feature(enable = "neon")]
-            pub(super) unsafe fn [<ne_scalar_ $ty _neon>](array: &AlignedVec<$ty>, scalar: $ty, dst: *mut BitStore) {
+            pub(super) unsafe fn [<ne_scalar_ $ty _neon>](array: &AlignedVec<$ty>, scalar: $ty, dst: *mut BitStore) { unsafe {
                 $cmp_scalar_func::<true, $ty>(array, scalar, dst, $ty::EQ);
-            }
+            }}
 
             #[target_feature(enable = "neon")]
-            pub(super) unsafe fn [<gt_scalar_ $ty _neon>](array: &AlignedVec<$ty>, scalar: $ty, dst: *mut BitStore) {
+            pub(super) unsafe fn [<gt_scalar_ $ty _neon>](array: &AlignedVec<$ty>, scalar: $ty, dst: *mut BitStore) { unsafe {
                 $cmp_scalar_func::<false, $ty>(array, scalar, dst, $ty::GT);
-            }
+            }}
 
             #[target_feature(enable = "neon")]
-            pub(super) unsafe fn [<ge_scalar_ $ty _neon>](array: &AlignedVec<$ty>, scalar: $ty, dst: *mut BitStore) {
+            pub(super) unsafe fn [<ge_scalar_ $ty _neon>](array: &AlignedVec<$ty>, scalar: $ty, dst: *mut BitStore) { unsafe {
                 $cmp_scalar_func::<false, $ty>(array, scalar, dst, $ty::GE);
-            }
+            }}
 
             #[target_feature(enable = "neon")]
-            pub(super) unsafe fn [<lt_scalar_ $ty _neon>](array: &AlignedVec<$ty>, scalar: $ty, dst: *mut BitStore) {
+            pub(super) unsafe fn [<lt_scalar_ $ty _neon>](array: &AlignedVec<$ty>, scalar: $ty, dst: *mut BitStore) { unsafe {
                 $cmp_scalar_func::<false, $ty>(array, scalar, dst, $ty::LT);
-            }
+            }}
 
             #[target_feature(enable = "neon")]
-            pub(super) unsafe fn [<le_scalar_ $ty _neon>](array: &AlignedVec<$ty>, scalar: $ty, dst: *mut BitStore) {
+            pub(super) unsafe fn [<le_scalar_ $ty _neon>](array: &AlignedVec<$ty>, scalar: $ty, dst: *mut BitStore) { unsafe {
                 $cmp_scalar_func::<false, $ty>(array, scalar, dst, $ty::LE);
-            }
+            }}
 
             // Array cmp array
 
             #[target_feature(enable = "neon")]
-            pub(super) unsafe fn [<eq_ $ty _neon>](lhs: &AlignedVec<$ty>, rhs: &AlignedVec<$ty>, dst: *mut BitStore) {
+            pub(super) unsafe fn [<eq_ $ty _neon>](lhs: &AlignedVec<$ty>, rhs: &AlignedVec<$ty>, dst: *mut BitStore) { unsafe {
                 $cmp_arrays_func::<false, $ty>(lhs, rhs, dst, $ty::EQ);
-            }
+            }}
 
             #[target_feature(enable = "neon")]
-            pub(super) unsafe fn [<ne_ $ty _neon>](lhs: &AlignedVec<$ty>, rhs: &AlignedVec<$ty>, dst: *mut BitStore) {
+            pub(super) unsafe fn [<ne_ $ty _neon>](lhs: &AlignedVec<$ty>, rhs: &AlignedVec<$ty>, dst: *mut BitStore) { unsafe {
                 $cmp_arrays_func::<true, $ty>(lhs, rhs, dst, $ty::EQ);
-            }
+            }}
 
             #[target_feature(enable = "neon")]
-            pub(super) unsafe fn [<gt_ $ty _neon>](lhs: &AlignedVec<$ty>, rhs: &AlignedVec<$ty>, dst: *mut BitStore) {
+            pub(super) unsafe fn [<gt_ $ty _neon>](lhs: &AlignedVec<$ty>, rhs: &AlignedVec<$ty>, dst: *mut BitStore) { unsafe {
                 $cmp_arrays_func::<false, $ty>(lhs, rhs, dst, $ty::GT);
-            }
+            }}
 
             #[target_feature(enable = "neon")]
-            pub(super) unsafe fn [<ge_ $ty _neon>](lhs: &AlignedVec<$ty>, rhs: &AlignedVec<$ty>, dst: *mut BitStore) {
+            pub(super) unsafe fn [<ge_ $ty _neon>](lhs: &AlignedVec<$ty>, rhs: &AlignedVec<$ty>, dst: *mut BitStore) { unsafe {
                 $cmp_arrays_func::<false, $ty>(lhs, rhs, dst, $ty::GE);
-            }
+            }}
 
             #[target_feature(enable = "neon")]
-            pub(super) unsafe fn [<lt_ $ty _neon>](lhs: &AlignedVec<$ty>, rhs: &AlignedVec<$ty>, dst: *mut BitStore) {
+            pub(super) unsafe fn [<lt_ $ty _neon>](lhs: &AlignedVec<$ty>, rhs: &AlignedVec<$ty>, dst: *mut BitStore) { unsafe {
                 $cmp_arrays_func::<false, $ty>(lhs, rhs, dst, $ty::LT);
-            }
+            }}
 
             #[target_feature(enable = "neon")]
-            pub(super) unsafe fn [<le_ $ty _neon>](lhs: &AlignedVec<$ty>, rhs: &AlignedVec<$ty>, dst: *mut BitStore) {
+            pub(super) unsafe fn [<le_ $ty _neon>](lhs: &AlignedVec<$ty>, rhs: &AlignedVec<$ty>, dst: *mut BitStore) { unsafe {
                 $cmp_arrays_func::<false, $ty>(lhs, rhs, dst, $ty::LE);
-            }
+            }}
         }
     };
 }
@@ -671,37 +684,39 @@ unsafe fn timestamp_cmp_scalar_neon<const AM: i64, const NOT: bool>(
     dst: *mut BitStore,
     cmp_func: unsafe fn(int64x2_t, int64x2_t) -> uint64x2_t,
 ) {
-    if array.is_empty() {
-        return;
-    }
+    unsafe {
+        if array.is_empty() {
+            return;
+        }
 
-    let scalar = vdupq_n_s64(scalar);
-    let num_loops = roundup_loops(array.len(), 8);
-    let mask_low = vld1q_u16(MASK_16_LOW.as_ptr());
-    let mut lhs_ptr = array.ptr.as_ptr();
-    let dst = dst as *mut u8;
+        let scalar = vdupq_n_s64(scalar);
+        let num_loops = roundup_loops(array.len(), 8);
+        let mask_low = vld1q_u16(MASK_16_LOW.as_ptr());
+        let mut lhs_ptr = array.ptr.as_ptr();
+        let dst = dst as *mut u8;
 
-    for simd_index in 0..num_loops {
-        // neon does not support multiply s64. Using non-simd version for multiply
-        // if `AM == 1`, compiler will optimize the following code to load!
-        let lhs_0 = vld1q_s64(AlignedArray([(*lhs_ptr) * AM, (*lhs_ptr.add(1)) * AM]).as_ptr());
-        let lhs_1 =
-            vld1q_s64(AlignedArray([(*lhs_ptr.add(2)) * AM, (*lhs_ptr.add(3)) * AM]).as_ptr());
-        let lhs_2 =
-            vld1q_s64(AlignedArray([(*lhs_ptr.add(4)) * AM, (*lhs_ptr.add(5)) * AM]).as_ptr());
-        let lhs_3 =
-            vld1q_s64(AlignedArray([(*lhs_ptr.add(6)) * AM, (*lhs_ptr.add(7)) * AM]).as_ptr());
+        for simd_index in 0..num_loops {
+            // neon does not support multiply s64. Using non-simd version for multiply
+            // if `AM == 1`, compiler will optimize the following code to load!
+            let lhs_0 = vld1q_s64(AlignedArray([(*lhs_ptr) * AM, (*lhs_ptr.add(1)) * AM]).as_ptr());
+            let lhs_1 =
+                vld1q_s64(AlignedArray([(*lhs_ptr.add(2)) * AM, (*lhs_ptr.add(3)) * AM]).as_ptr());
+            let lhs_2 =
+                vld1q_s64(AlignedArray([(*lhs_ptr.add(4)) * AM, (*lhs_ptr.add(5)) * AM]).as_ptr());
+            let lhs_3 =
+                vld1q_s64(AlignedArray([(*lhs_ptr.add(6)) * AM, (*lhs_ptr.add(7)) * AM]).as_ptr());
 
-        // Compare with simd
-        let cmp_0 = cmp_func(lhs_0, scalar);
-        let cmp_1 = cmp_func(lhs_1, scalar);
-        let cmp_2 = cmp_func(lhs_2, scalar);
-        let cmp_3 = cmp_func(lhs_3, scalar);
+            // Compare with simd
+            let cmp_0 = cmp_func(lhs_0, scalar);
+            let cmp_1 = cmp_func(lhs_1, scalar);
+            let cmp_2 = cmp_func(lhs_2, scalar);
+            let cmp_3 = cmp_func(lhs_3, scalar);
 
-        let mask = pack_double_word_cmp::<NOT>(cmp_0, cmp_1, cmp_2, cmp_3, mask_low);
+            let mask = pack_double_word_cmp::<NOT>(cmp_0, cmp_1, cmp_2, cmp_3, mask_low);
 
-        *dst.add(simd_index) = mask;
-        lhs_ptr = lhs_ptr.add(8);
+            *dst.add(simd_index) = mask;
+            lhs_ptr = lhs_ptr.add(8);
+        }
     }
 }
 
@@ -711,8 +726,10 @@ pub(super) unsafe fn timestamp_eq_scalar_neon<const AM: i64, const SM: i64>(
     scalar: i64,
     dst: *mut BitStore,
 ) {
-    let scalar = scalar * SM;
-    timestamp_cmp_scalar_neon::<AM, false>(array, scalar, dst, vceqq_s64)
+    unsafe {
+        let scalar = scalar * SM;
+        timestamp_cmp_scalar_neon::<AM, false>(array, scalar, dst, vceqq_s64)
+    }
 }
 
 #[target_feature(enable = "neon")]
@@ -721,8 +738,10 @@ pub(super) unsafe fn timestamp_ne_scalar_neon<const AM: i64, const SM: i64>(
     scalar: i64,
     dst: *mut BitStore,
 ) {
-    let scalar = scalar * SM;
-    timestamp_cmp_scalar_neon::<AM, true>(array, scalar, dst, vceqq_s64)
+    unsafe {
+        let scalar = scalar * SM;
+        timestamp_cmp_scalar_neon::<AM, true>(array, scalar, dst, vceqq_s64)
+    }
 }
 
 #[target_feature(enable = "neon")]
@@ -731,8 +750,10 @@ pub(super) unsafe fn timestamp_gt_scalar_neon<const AM: i64, const SM: i64>(
     scalar: i64,
     dst: *mut BitStore,
 ) {
-    let scalar = scalar * SM;
-    timestamp_cmp_scalar_neon::<AM, false>(array, scalar, dst, vcgtq_s64)
+    unsafe {
+        let scalar = scalar * SM;
+        timestamp_cmp_scalar_neon::<AM, false>(array, scalar, dst, vcgtq_s64)
+    }
 }
 
 #[target_feature(enable = "neon")]
@@ -741,8 +762,10 @@ pub(super) unsafe fn timestamp_ge_scalar_neon<const AM: i64, const SM: i64>(
     scalar: i64,
     dst: *mut BitStore,
 ) {
-    let scalar = scalar * SM;
-    timestamp_cmp_scalar_neon::<AM, false>(array, scalar, dst, vcgeq_s64)
+    unsafe {
+        let scalar = scalar * SM;
+        timestamp_cmp_scalar_neon::<AM, false>(array, scalar, dst, vcgeq_s64)
+    }
 }
 
 #[target_feature(enable = "neon")]
@@ -751,8 +774,10 @@ pub(super) unsafe fn timestamp_lt_scalar_neon<const AM: i64, const SM: i64>(
     scalar: i64,
     dst: *mut BitStore,
 ) {
-    let scalar = scalar * SM;
-    timestamp_cmp_scalar_neon::<AM, false>(array, scalar, dst, vcltq_s64)
+    unsafe {
+        let scalar = scalar * SM;
+        timestamp_cmp_scalar_neon::<AM, false>(array, scalar, dst, vcltq_s64)
+    }
 }
 
 #[target_feature(enable = "neon")]
@@ -761,8 +786,10 @@ pub(super) unsafe fn timestamp_le_scalar_neon<const AM: i64, const SM: i64>(
     scalar: i64,
     dst: *mut BitStore,
 ) {
-    let scalar = scalar * SM;
-    timestamp_cmp_scalar_neon::<AM, false>(array, scalar, dst, vcleq_s64)
+    unsafe {
+        let scalar = scalar * SM;
+        timestamp_cmp_scalar_neon::<AM, false>(array, scalar, dst, vcleq_s64)
+    }
 }
 
 /// Multiply the elements in the array than compare with the scalar
@@ -774,49 +801,51 @@ unsafe fn timestamp_cmp_neon<const LM: i64, const RM: i64, const NOT: bool>(
     dst: *mut BitStore,
     cmp_func: unsafe fn(int64x2_t, int64x2_t) -> uint64x2_t,
 ) {
-    #[cfg(feature = "verify")]
-    assert_eq!(lhs.len(), rhs.len());
-    if lhs.is_empty() {
-        return;
-    }
+    unsafe {
+        #[cfg(feature = "verify")]
+        assert_eq!(lhs.len(), rhs.len());
+        if lhs.is_empty() {
+            return;
+        }
 
-    let num_loops = roundup_loops(lhs.len(), 8);
-    let mask_low = vld1q_u16(MASK_16_LOW.as_ptr());
-    let mut lhs_ptr = lhs.ptr.as_ptr();
-    let mut rhs_ptr = rhs.ptr.as_ptr();
-    let dst = dst as *mut u8;
+        let num_loops = roundup_loops(lhs.len(), 8);
+        let mask_low = vld1q_u16(MASK_16_LOW.as_ptr());
+        let mut lhs_ptr = lhs.ptr.as_ptr();
+        let mut rhs_ptr = rhs.ptr.as_ptr();
+        let dst = dst as *mut u8;
 
-    for simd_index in 0..num_loops {
-        // neon does not support multiply s64. Using non-simd version for multiply
-        // if `AM == 1`, compiler will optimize the following code to load!
-        let lhs_0 = vld1q_s64(AlignedArray([(*lhs_ptr) * LM, (*lhs_ptr.add(1)) * LM]).as_ptr());
-        let lhs_1 =
-            vld1q_s64(AlignedArray([(*lhs_ptr.add(2)) * LM, (*lhs_ptr.add(3)) * LM]).as_ptr());
-        let lhs_2 =
-            vld1q_s64(AlignedArray([(*lhs_ptr.add(4)) * LM, (*lhs_ptr.add(5)) * LM]).as_ptr());
-        let lhs_3 =
-            vld1q_s64(AlignedArray([(*lhs_ptr.add(6)) * LM, (*lhs_ptr.add(7)) * LM]).as_ptr());
+        for simd_index in 0..num_loops {
+            // neon does not support multiply s64. Using non-simd version for multiply
+            // if `AM == 1`, compiler will optimize the following code to load!
+            let lhs_0 = vld1q_s64(AlignedArray([(*lhs_ptr) * LM, (*lhs_ptr.add(1)) * LM]).as_ptr());
+            let lhs_1 =
+                vld1q_s64(AlignedArray([(*lhs_ptr.add(2)) * LM, (*lhs_ptr.add(3)) * LM]).as_ptr());
+            let lhs_2 =
+                vld1q_s64(AlignedArray([(*lhs_ptr.add(4)) * LM, (*lhs_ptr.add(5)) * LM]).as_ptr());
+            let lhs_3 =
+                vld1q_s64(AlignedArray([(*lhs_ptr.add(6)) * LM, (*lhs_ptr.add(7)) * LM]).as_ptr());
 
-        // neon does not support multiply s64. Using non-simd version for multiply
-        let rhs_0 = vld1q_s64(AlignedArray([(*rhs_ptr) * RM, (*rhs_ptr.add(1)) * RM]).as_ptr());
-        let rhs_1 =
-            vld1q_s64(AlignedArray([(*rhs_ptr.add(2)) * RM, (*rhs_ptr.add(3)) * RM]).as_ptr());
-        let rhs_2 =
-            vld1q_s64(AlignedArray([(*rhs_ptr.add(4)) * RM, (*rhs_ptr.add(5)) * RM]).as_ptr());
-        let rhs_3 =
-            vld1q_s64(AlignedArray([(*rhs_ptr.add(6)) * RM, (*rhs_ptr.add(7)) * RM]).as_ptr());
+            // neon does not support multiply s64. Using non-simd version for multiply
+            let rhs_0 = vld1q_s64(AlignedArray([(*rhs_ptr) * RM, (*rhs_ptr.add(1)) * RM]).as_ptr());
+            let rhs_1 =
+                vld1q_s64(AlignedArray([(*rhs_ptr.add(2)) * RM, (*rhs_ptr.add(3)) * RM]).as_ptr());
+            let rhs_2 =
+                vld1q_s64(AlignedArray([(*rhs_ptr.add(4)) * RM, (*rhs_ptr.add(5)) * RM]).as_ptr());
+            let rhs_3 =
+                vld1q_s64(AlignedArray([(*rhs_ptr.add(6)) * RM, (*rhs_ptr.add(7)) * RM]).as_ptr());
 
-        // Compare with simd
-        let cmp_0 = cmp_func(lhs_0, rhs_0);
-        let cmp_1 = cmp_func(lhs_1, rhs_1);
-        let cmp_2 = cmp_func(lhs_2, rhs_2);
-        let cmp_3 = cmp_func(lhs_3, rhs_3);
+            // Compare with simd
+            let cmp_0 = cmp_func(lhs_0, rhs_0);
+            let cmp_1 = cmp_func(lhs_1, rhs_1);
+            let cmp_2 = cmp_func(lhs_2, rhs_2);
+            let cmp_3 = cmp_func(lhs_3, rhs_3);
 
-        let mask = pack_double_word_cmp::<NOT>(cmp_0, cmp_1, cmp_2, cmp_3, mask_low);
+            let mask = pack_double_word_cmp::<NOT>(cmp_0, cmp_1, cmp_2, cmp_3, mask_low);
 
-        *dst.add(simd_index) = mask;
-        lhs_ptr = lhs_ptr.add(8);
-        rhs_ptr = rhs_ptr.add(8);
+            *dst.add(simd_index) = mask;
+            lhs_ptr = lhs_ptr.add(8);
+            rhs_ptr = rhs_ptr.add(8);
+        }
     }
 }
 
@@ -826,7 +855,9 @@ pub(super) unsafe fn timestamp_eq_neon<const LM: i64, const RM: i64>(
     rhs: &AlignedVec<i64>,
     dst: *mut BitStore,
 ) {
-    timestamp_cmp_neon::<LM, RM, false>(lhs, rhs, dst, vceqq_s64);
+    unsafe {
+        timestamp_cmp_neon::<LM, RM, false>(lhs, rhs, dst, vceqq_s64);
+    }
 }
 
 #[target_feature(enable = "neon")]
@@ -835,7 +866,9 @@ pub(super) unsafe fn timestamp_ne_neon<const LM: i64, const RM: i64>(
     rhs: &AlignedVec<i64>,
     dst: *mut BitStore,
 ) {
-    timestamp_cmp_neon::<LM, RM, true>(lhs, rhs, dst, vceqq_s64);
+    unsafe {
+        timestamp_cmp_neon::<LM, RM, true>(lhs, rhs, dst, vceqq_s64);
+    }
 }
 
 #[target_feature(enable = "neon")]
@@ -844,7 +877,9 @@ pub(super) unsafe fn timestamp_gt_neon<const LM: i64, const RM: i64>(
     rhs: &AlignedVec<i64>,
     dst: *mut BitStore,
 ) {
-    timestamp_cmp_neon::<LM, RM, false>(lhs, rhs, dst, vcgtq_s64);
+    unsafe {
+        timestamp_cmp_neon::<LM, RM, false>(lhs, rhs, dst, vcgtq_s64);
+    }
 }
 
 #[target_feature(enable = "neon")]
@@ -853,7 +888,9 @@ pub(super) unsafe fn timestamp_ge_neon<const LM: i64, const RM: i64>(
     rhs: &AlignedVec<i64>,
     dst: *mut BitStore,
 ) {
-    timestamp_cmp_neon::<LM, RM, false>(lhs, rhs, dst, vcgeq_s64);
+    unsafe {
+        timestamp_cmp_neon::<LM, RM, false>(lhs, rhs, dst, vcgeq_s64);
+    }
 }
 
 #[target_feature(enable = "neon")]
@@ -862,7 +899,9 @@ pub(super) unsafe fn timestamp_lt_neon<const LM: i64, const RM: i64>(
     rhs: &AlignedVec<i64>,
     dst: *mut BitStore,
 ) {
-    timestamp_cmp_neon::<LM, RM, false>(lhs, rhs, dst, vcltq_s64);
+    unsafe {
+        timestamp_cmp_neon::<LM, RM, false>(lhs, rhs, dst, vcltq_s64);
+    }
 }
 
 #[target_feature(enable = "neon")]
@@ -871,7 +910,9 @@ pub(super) unsafe fn timestamp_le_neon<const LM: i64, const RM: i64>(
     rhs: &AlignedVec<i64>,
     dst: *mut BitStore,
 ) {
-    timestamp_cmp_neon::<LM, RM, false>(lhs, rhs, dst, vcleq_s64);
+    unsafe {
+        timestamp_cmp_neon::<LM, RM, false>(lhs, rhs, dst, vcleq_s64);
+    }
 }
 
 #[cfg(test)]

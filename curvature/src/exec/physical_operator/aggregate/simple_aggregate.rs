@@ -8,7 +8,7 @@ use data_block::array::ArrayImpl;
 use data_block::block::{DataBlock, MutateArrayError};
 use data_block::types::LogicalType;
 use parking_lot::Mutex;
-use snafu::{ensure, ResultExt, Snafu};
+use snafu::{ResultExt, Snafu, ensure};
 
 use crate::common::client_context::ClientContext;
 use crate::common::profiler::ScopedTimerGuard;
@@ -31,7 +31,9 @@ use_types_for_impl_regular_for_non_regular!();
 #[allow(missing_docs)]
 #[derive(Debug, Snafu)]
 pub enum SimpleAggregateError {
-    #[snafu(display("`FieldRef` with index `{ref_index}` is out or range, the input only has `{input_size}` fields"))]
+    #[snafu(display(
+        "`FieldRef` with index `{ref_index}` is out or range, the input only has `{input_size}` fields"
+    ))]
     FieldRefOutOfRange { ref_index: usize, input_size: usize },
     #[snafu(display(
         "TypeMismatch: `FieldRef` with index `{ref_index}` has logical type `{:?}`, however the field in the input has logical type `{:?}`",
@@ -43,7 +45,9 @@ pub enum SimpleAggregateError {
         ref_type: LogicalType,
         input_type: LogicalType,
     },
-    #[snafu(display("Aggregation functions passed to SimpleAggregate is empty. SimpleAggregate needs at least one aggregation function"))]
+    #[snafu(display(
+        "Aggregation functions passed to SimpleAggregate is empty. SimpleAggregate needs at least one aggregation function"
+    ))]
     EmptyAggregationFuncs,
 }
 
@@ -338,12 +342,14 @@ impl PhysicalOperator for SimpleAggregate {
         local_state: &mut dyn LocalSinkState,
     ) -> OperatorResult<SinkExecStatus> {
         debug_assert_eq!(input.num_arrays(), self.children[0].output_types().len());
-        debug_assert!(input
-            .arrays()
-            .iter()
-            .map(|array| array.logical_type())
-            .zip(self.children[0].output_types())
-            .all(|(input, output)| input == output));
+        debug_assert!(
+            input
+                .arrays()
+                .iter()
+                .map(|array| array.logical_type())
+                .zip(self.children[0].output_types())
+                .all(|(input, output)| input == output)
+        );
 
         let local_state =
             downcast_mut_local_state!(self, local_state, SimpleAggregateLocalSinkState, SINK);

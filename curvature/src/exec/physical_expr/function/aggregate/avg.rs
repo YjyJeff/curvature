@@ -8,11 +8,11 @@ use std::marker::PhantomData;
 use data_block::array::{Array, ArrayError, ArrayImpl, Float64Array};
 use data_block::element::Element;
 use data_block::types::LogicalType;
-use snafu::{ensure, Snafu};
+use snafu::{Snafu, ensure};
 
 use crate::common::utils::bytemuck::TransparentWrapper;
-use crate::exec::physical_expr::function::aggregate::ArgTypeMismatchSnafu;
 use crate::exec::physical_expr::function::Function;
+use crate::exec::physical_expr::function::aggregate::ArgTypeMismatchSnafu;
 
 use super::{
     AggregationError, SpecialOptionalUAFWrapper, SpecialOptionalUnaryAggregationFunction,

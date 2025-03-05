@@ -195,7 +195,7 @@ pub trait PhysicalOperator: Send + Sync + Stringify + 'static {
     ///
     /// [`PipelineExecutor`]: crate::exec::pipeline::PipelineExecutor
     fn local_source_state(&self, global_state: &dyn GlobalSourceState)
-        -> Box<dyn LocalSourceState>;
+    -> Box<dyn LocalSourceState>;
 
     /// Merge the local source metrics into the global metrics in self. This function
     /// should be called when the pipeline executor has finished the execution

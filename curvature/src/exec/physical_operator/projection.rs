@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use crate::common::client_context::ClientContext;
 use crate::exec::physical_expr::executor::ExprsExecutor;
-use crate::exec::physical_expr::utils::{compact_display_expressions, CompactExprDisplayWrapper};
+use crate::exec::physical_expr::utils::{CompactExprDisplayWrapper, compact_display_expressions};
 use crate::exec::physical_expr::{ExprError, PhysicalExpr};
 use crate::exec::physical_operator::metric::MetricsSet;
 
@@ -18,10 +18,10 @@ use super::ext_traits::RegularOperatorExt;
 use super::metric::{MetricValue, Time};
 use super::utils::downcast_mut_local_state;
 use super::{
+    DummyGlobalOperatorState, GlobalOperatorState, LocalOperatorState, OperatorError,
+    OperatorExecStatus, OperatorResult, PhysicalOperator, StateStringify, Stringify,
     impl_sink_for_non_sink, impl_source_for_non_source, use_types_for_impl_sink_for_non_sink,
-    use_types_for_impl_source_for_non_source, DummyGlobalOperatorState, GlobalOperatorState,
-    LocalOperatorState, OperatorError, OperatorExecStatus, OperatorResult, PhysicalOperator,
-    StateStringify, Stringify,
+    use_types_for_impl_source_for_non_source,
 };
 
 use_types_for_impl_sink_for_non_sink!();

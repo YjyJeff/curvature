@@ -3,7 +3,7 @@
 use std::fmt::{Debug, Display};
 use std::sync::Arc;
 
-use super::{function::aggregate::AggregationFunction, PhysicalExpr};
+use super::{PhysicalExpr, function::aggregate::AggregationFunction};
 
 /// Wrapper should to display the [`PhysicalExpr`] in compact form
 pub struct CompactExprDisplayWrapper<'a>(&'a dyn PhysicalExpr);

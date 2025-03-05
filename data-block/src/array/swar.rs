@@ -89,8 +89,10 @@ impl<T> SwarPtr<T> {
     /// any other pointer.
     #[inline]
     pub unsafe fn as_mut(&mut self) -> &mut T {
-        self.reference = None;
-        self.owned.as_mut()
+        unsafe {
+            self.reference = None;
+            self.owned.as_mut()
+        }
     }
 }
 

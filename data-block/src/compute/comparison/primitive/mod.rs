@@ -72,23 +72,25 @@ unsafe fn cmp_scalar_default<T>(
     PrimitiveArray<T>: Array<Element = T>,
     T: PrimitiveType,
 {
-    #[cfg(feature = "verify")]
-    assert_selection_is_valid!(selection, array);
+    unsafe {
+        #[cfg(feature = "verify")]
+        assert_selection_is_valid!(selection, array);
 
-    and_inplace(selection, array.validity());
-    if selection.ones_ratio() < partial_cmp_threshold {
-        selection
-            .mutate()
-            .mutate_ones(|index| cmp_scalars_func(array.get_value_unchecked(index), scalar))
-    } else {
-        // It may still faster 😊
-        temp.data_mut().mutate().reset(
-            array.len(),
-            array
-                .values_iter()
-                .map(|element| cmp_scalars_func(element, scalar)),
-        );
-        and_inplace(selection, temp.data());
+        and_inplace(selection, array.validity());
+        if selection.ones_ratio() < partial_cmp_threshold {
+            selection
+                .mutate()
+                .mutate_ones(|index| cmp_scalars_func(array.get_value_unchecked(index), scalar))
+        } else {
+            // It may still faster 😊
+            temp.data_mut().mutate().reset(
+                array.len(),
+                array
+                    .values_iter()
+                    .map(|element| cmp_scalars_func(element, scalar)),
+            );
+            and_inplace(selection, temp.data());
+        }
     }
 }
 
@@ -104,30 +106,32 @@ unsafe fn cmp_default<T>(
     PrimitiveArray<T>: Array<Element = T>,
     T: PrimitiveType,
 {
-    #[cfg(feature = "verify")]
-    {
-        assert_selection_is_valid!(selection, lhs);
-        assert_eq!(lhs.len(), rhs.len());
-    }
+    unsafe {
+        #[cfg(feature = "verify")]
+        {
+            assert_selection_is_valid!(selection, lhs);
+            assert_eq!(lhs.len(), rhs.len());
+        }
 
-    and_inplace(selection, lhs.validity());
-    and_inplace(selection, rhs.validity());
-    if selection.ones_ratio() < partial_cmp_threshold {
-        selection.mutate().mutate_ones(|index| {
-            cmp_scalars_func(
-                lhs.get_value_unchecked(index),
-                rhs.get_value_unchecked(index),
-            )
-        })
-    } else {
-        // It may still faster 😊
-        temp.data_mut().mutate().reset(
-            lhs.len(),
-            lhs.values_iter()
-                .zip(rhs.values_iter())
-                .map(|(lhs, rhs)| cmp_scalars_func(lhs, rhs)),
-        );
-        and_inplace(selection, temp.data());
+        and_inplace(selection, lhs.validity());
+        and_inplace(selection, rhs.validity());
+        if selection.ones_ratio() < partial_cmp_threshold {
+            selection.mutate().mutate_ones(|index| {
+                cmp_scalars_func(
+                    lhs.get_value_unchecked(index),
+                    rhs.get_value_unchecked(index),
+                )
+            })
+        } else {
+            // It may still faster 😊
+            temp.data_mut().mutate().reset(
+                lhs.len(),
+                lhs.values_iter()
+                    .zip(rhs.values_iter())
+                    .map(|(lhs, rhs)| cmp_scalars_func(lhs, rhs)),
+            );
+            and_inplace(selection, temp.data());
+        }
     }
 }
 
@@ -165,14 +169,16 @@ pub unsafe fn eq_scalar<T>(
     PrimitiveArray<T>: Array<Element = T>,
     T: NonIntrinsicPrimitiveType,
 {
-    cmp_scalar_default(
-        selection,
-        array,
-        scalar,
-        dst,
-        T::PARTIAL_CMP_THRESHOLD,
-        private::eq,
-    )
+    unsafe {
+        cmp_scalar_default(
+            selection,
+            array,
+            scalar,
+            dst,
+            T::PARTIAL_CMP_THRESHOLD,
+            private::eq,
+        )
+    }
 }
 
 /// Perform `array != scalar` between `PrimitiveArray<T>` and `T`
@@ -198,14 +204,16 @@ pub unsafe fn ne_scalar<T>(
     PrimitiveArray<T>: Array<Element = T>,
     T: NonIntrinsicPrimitiveType,
 {
-    cmp_scalar_default(
-        selection,
-        array,
-        scalar,
-        dst,
-        T::PARTIAL_CMP_THRESHOLD,
-        private::ne,
-    )
+    unsafe {
+        cmp_scalar_default(
+            selection,
+            array,
+            scalar,
+            dst,
+            T::PARTIAL_CMP_THRESHOLD,
+            private::ne,
+        )
+    }
 }
 
 /// Perform `array > scalar` between `PrimitiveArray<T>` and `T`
@@ -231,14 +239,16 @@ pub unsafe fn gt_scalar<T>(
     PrimitiveArray<T>: Array<Element = T>,
     T: NonIntrinsicPrimitiveType,
 {
-    cmp_scalar_default(
-        selection,
-        array,
-        scalar,
-        dst,
-        T::PARTIAL_CMP_THRESHOLD,
-        private::gt,
-    )
+    unsafe {
+        cmp_scalar_default(
+            selection,
+            array,
+            scalar,
+            dst,
+            T::PARTIAL_CMP_THRESHOLD,
+            private::gt,
+        )
+    }
 }
 
 /// Perform `array >= scalar` between `PrimitiveArray<T>` and `T`
@@ -264,14 +274,16 @@ pub unsafe fn ge_scalar<T>(
     PrimitiveArray<T>: Array<Element = T>,
     T: NonIntrinsicPrimitiveType,
 {
-    cmp_scalar_default(
-        selection,
-        array,
-        scalar,
-        dst,
-        T::PARTIAL_CMP_THRESHOLD,
-        private::ge,
-    )
+    unsafe {
+        cmp_scalar_default(
+            selection,
+            array,
+            scalar,
+            dst,
+            T::PARTIAL_CMP_THRESHOLD,
+            private::ge,
+        )
+    }
 }
 
 /// Perform `array < scalar` between `PrimitiveArray<T>` and `T`
@@ -297,14 +309,16 @@ pub unsafe fn lt_scalar<T>(
     PrimitiveArray<T>: Array<Element = T>,
     T: NonIntrinsicPrimitiveType,
 {
-    cmp_scalar_default(
-        selection,
-        array,
-        scalar,
-        dst,
-        T::PARTIAL_CMP_THRESHOLD,
-        private::lt,
-    )
+    unsafe {
+        cmp_scalar_default(
+            selection,
+            array,
+            scalar,
+            dst,
+            T::PARTIAL_CMP_THRESHOLD,
+            private::lt,
+        )
+    }
 }
 
 /// Perform `array <= scalar` between `PrimitiveArray<T>` and `T`
@@ -330,14 +344,16 @@ pub unsafe fn le_scalar<T>(
     PrimitiveArray<T>: Array<Element = T>,
     T: NonIntrinsicPrimitiveType,
 {
-    cmp_scalar_default(
-        selection,
-        array,
-        scalar,
-        dst,
-        T::PARTIAL_CMP_THRESHOLD,
-        private::le,
-    )
+    unsafe {
+        cmp_scalar_default(
+            selection,
+            array,
+            scalar,
+            dst,
+            T::PARTIAL_CMP_THRESHOLD,
+            private::le,
+        )
+    }
 }
 
 /// Perform `PrimitiveArray<T> == PrimitiveArray<T>`
@@ -363,14 +379,16 @@ pub unsafe fn eq<T>(
     PrimitiveArray<T>: Array<Element = T>,
     T: NonIntrinsicPrimitiveType,
 {
-    cmp_default(
-        selection,
-        lhs,
-        rhs,
-        dst,
-        T::PARTIAL_CMP_THRESHOLD,
-        private::eq,
-    )
+    unsafe {
+        cmp_default(
+            selection,
+            lhs,
+            rhs,
+            dst,
+            T::PARTIAL_CMP_THRESHOLD,
+            private::eq,
+        )
+    }
 }
 
 /// Perform `PrimitiveArray<T> != PrimitiveArray<T>`
@@ -396,14 +414,16 @@ pub unsafe fn ne<T>(
     PrimitiveArray<T>: Array<Element = T>,
     T: NonIntrinsicPrimitiveType,
 {
-    cmp_default(
-        selection,
-        lhs,
-        rhs,
-        dst,
-        T::PARTIAL_CMP_THRESHOLD,
-        private::ne,
-    )
+    unsafe {
+        cmp_default(
+            selection,
+            lhs,
+            rhs,
+            dst,
+            T::PARTIAL_CMP_THRESHOLD,
+            private::ne,
+        )
+    }
 }
 
 /// Perform `PrimitiveArray<T> > PrimitiveArray<T>`
@@ -429,14 +449,16 @@ pub unsafe fn gt<T>(
     PrimitiveArray<T>: Array<Element = T>,
     T: NonIntrinsicPrimitiveType,
 {
-    cmp_default(
-        selection,
-        lhs,
-        rhs,
-        dst,
-        T::PARTIAL_CMP_THRESHOLD,
-        private::gt,
-    )
+    unsafe {
+        cmp_default(
+            selection,
+            lhs,
+            rhs,
+            dst,
+            T::PARTIAL_CMP_THRESHOLD,
+            private::gt,
+        )
+    }
 }
 
 /// Perform `PrimitiveArray<T> >= PrimitiveArray<T>`
@@ -462,14 +484,16 @@ pub unsafe fn ge<T>(
     PrimitiveArray<T>: Array<Element = T>,
     T: NonIntrinsicPrimitiveType,
 {
-    cmp_default(
-        selection,
-        lhs,
-        rhs,
-        dst,
-        T::PARTIAL_CMP_THRESHOLD,
-        private::ge,
-    )
+    unsafe {
+        cmp_default(
+            selection,
+            lhs,
+            rhs,
+            dst,
+            T::PARTIAL_CMP_THRESHOLD,
+            private::ge,
+        )
+    }
 }
 
 /// Perform `PrimitiveArray<T> < PrimitiveArray<T>`
@@ -495,14 +519,16 @@ pub unsafe fn lt<T>(
     PrimitiveArray<T>: Array<Element = T>,
     T: NonIntrinsicPrimitiveType,
 {
-    cmp_default(
-        selection,
-        lhs,
-        rhs,
-        dst,
-        T::PARTIAL_CMP_THRESHOLD,
-        private::lt,
-    )
+    unsafe {
+        cmp_default(
+            selection,
+            lhs,
+            rhs,
+            dst,
+            T::PARTIAL_CMP_THRESHOLD,
+            private::lt,
+        )
+    }
 }
 
 /// Perform `PrimitiveArray<T> <= PrimitiveArray<T>`
@@ -528,12 +554,14 @@ pub unsafe fn le<T>(
     PrimitiveArray<T>: Array<Element = T>,
     T: NonIntrinsicPrimitiveType,
 {
-    cmp_default(
-        selection,
-        lhs,
-        rhs,
-        dst,
-        T::PARTIAL_CMP_THRESHOLD,
-        private::le,
-    )
+    unsafe {
+        cmp_default(
+            selection,
+            lhs,
+            rhs,
+            dst,
+            T::PARTIAL_CMP_THRESHOLD,
+            private::le,
+        )
+    }
 }

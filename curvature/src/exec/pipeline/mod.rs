@@ -180,7 +180,7 @@ impl<S> Pipeline<S> {
 impl Pipeline<Sink> {
     /// Finalize the sink, called by the query executor
     pub(super) unsafe fn finalize_sink(&self) -> Result<(), OperatorError> {
-        self.sink.op.finalize_sink(&*self.sink.global_state)
+        unsafe { self.sink.op.finalize_sink(&*self.sink.global_state) }
     }
 }
 

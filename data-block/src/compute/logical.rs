@@ -135,36 +135,38 @@ crate::dynamic_func!(
 /// - No other arrays that reference the `dst`'s data and validity are accessed! In the
 ///   computation graph, it will never happens
 pub unsafe fn and(lhs: &BooleanArray, rhs: &BooleanArray, dst: &mut BooleanArray) {
-    #[cfg(feature = "verify")]
-    assert_eq!(lhs.len(), rhs.len());
+    unsafe {
+        #[cfg(feature = "verify")]
+        assert_eq!(lhs.len(), rhs.len());
 
-    if lhs.validity.count_zeros() == 0 && rhs.validity.count_zeros() == 0 {
-        match (lhs.data.count_zeros(), rhs.data.count_zeros()) {
-            (0, 0) => {
-                // all values are true on both side
-                dst.reference(lhs);
-                return;
+        if lhs.validity.count_zeros() == 0 && rhs.validity.count_zeros() == 0 {
+            match (lhs.data.count_zeros(), rhs.data.count_zeros()) {
+                (0, 0) => {
+                    // all values are true on both side
+                    dst.reference(lhs);
+                    return;
+                }
+                (l, _) if l == lhs.len() => {
+                    // all values are `false` on left side
+                    dst.reference(lhs);
+                    return;
+                }
+                (_, r) if r == rhs.len() => {
+                    // all values are `false` on right side
+                    dst.reference(rhs);
+                    return;
+                }
+                (_, _) => (),
             }
-            (l, _) if l == lhs.len() => {
-                // all values are `false` on left side
-                dst.reference(lhs);
-                return;
-            }
-            (_, r) if r == rhs.len() => {
-                // all values are `false` on right side
-                dst.reference(rhs);
-                return;
-            }
-            (_, _) => (),
         }
-    }
 
-    combine_validities(&lhs.validity, &rhs.validity, &mut dst.validity);
-    and_bitmaps_dynamic(
-        lhs.data.as_raw_slice(),
-        rhs.data.as_raw_slice(),
-        dst.data.as_mut().mutate().clear_and_resize(lhs.len()),
-    )
+        combine_validities(&lhs.validity, &rhs.validity, &mut dst.validity);
+        and_bitmaps_dynamic(
+            lhs.data.as_raw_slice(),
+            rhs.data.as_raw_slice(),
+            dst.data.as_mut().mutate().clear_and_resize(lhs.len()),
+        )
+    }
 }
 
 /// Perform `||` operation on two [`BooleanArray`]s, combine the validity
@@ -179,40 +181,42 @@ pub unsafe fn and(lhs: &BooleanArray, rhs: &BooleanArray, dst: &mut BooleanArray
 /// - No other arrays that reference the `dst`'s data and validity are accessed! In the
 ///   computation graph, it will never happens
 pub unsafe fn or(lhs: &BooleanArray, rhs: &BooleanArray, dst: &mut BooleanArray) {
-    #[cfg(feature = "verify")]
-    assert_eq!(lhs.len(), rhs.len());
+    unsafe {
+        #[cfg(feature = "verify")]
+        assert_eq!(lhs.len(), rhs.len());
 
-    if lhs.validity.count_zeros() == 0 && rhs.validity.count_zeros() == 0 {
-        match (lhs.data.count_zeros(), rhs.data.count_zeros()) {
-            (0, _) => {
-                // all values are true on left side
-                dst.data.reference(&lhs.data);
-                dst.validity.reference(&lhs.validity);
-                return;
+        if lhs.validity.count_zeros() == 0 && rhs.validity.count_zeros() == 0 {
+            match (lhs.data.count_zeros(), rhs.data.count_zeros()) {
+                (0, _) => {
+                    // all values are true on left side
+                    dst.data.reference(&lhs.data);
+                    dst.validity.reference(&lhs.validity);
+                    return;
+                }
+                (_, 0) => {
+                    // all values are `true` on right side
+                    dst.data.reference(&rhs.data);
+                    dst.validity.reference(&rhs.validity);
+                    return;
+                }
+                (l, r) if l == lhs.len() && r == rhs.len() => {
+                    // all values are `false` on both sides
+                    dst.data.reference(&rhs.data);
+                    dst.validity.reference(&rhs.validity);
+                    return;
+                }
+                (_, _) => (),
             }
-            (_, 0) => {
-                // all values are `true` on right side
-                dst.data.reference(&rhs.data);
-                dst.validity.reference(&rhs.validity);
-                return;
-            }
-            (l, r) if l == lhs.len() && r == rhs.len() => {
-                // all values are `false` on both sides
-                dst.data.reference(&rhs.data);
-                dst.validity.reference(&rhs.validity);
-                return;
-            }
-            (_, _) => (),
         }
-    }
 
-    // SAFETY: dst is the unique owner
-    combine_validities(&lhs.validity, &rhs.validity, &mut dst.validity);
-    or_bitmaps_dynamic(
-        lhs.data.as_raw_slice(),
-        rhs.data.as_raw_slice(),
-        dst.data.as_mut().mutate().clear_and_resize(lhs.len()),
-    )
+        // SAFETY: dst is the unique owner
+        combine_validities(&lhs.validity, &rhs.validity, &mut dst.validity);
+        or_bitmaps_dynamic(
+            lhs.data.as_raw_slice(),
+            rhs.data.as_raw_slice(),
+            dst.data.as_mut().mutate().clear_and_resize(lhs.len()),
+        )
+    }
 }
 
 /// Perform `^` operation on two [`BooleanArray`]s, combine the validity
@@ -227,15 +231,17 @@ pub unsafe fn or(lhs: &BooleanArray, rhs: &BooleanArray, dst: &mut BooleanArray)
 /// - No other arrays that reference the `dst`'s data and validity are accessed! In the
 ///   computation graph, it will never happens
 pub unsafe fn xor(lhs: &BooleanArray, rhs: &BooleanArray, dst: &mut BooleanArray) {
-    #[cfg(feature = "verify")]
-    assert_eq!(lhs.len(), rhs.len());
+    unsafe {
+        #[cfg(feature = "verify")]
+        assert_eq!(lhs.len(), rhs.len());
 
-    combine_validities(&lhs.validity, &rhs.validity, &mut dst.validity);
-    xor_bitmaps_dynamic(
-        lhs.data.as_raw_slice(),
-        rhs.data.as_raw_slice(),
-        dst.data.as_mut().mutate().clear_and_resize(lhs.len()),
-    );
+        combine_validities(&lhs.validity, &rhs.validity, &mut dst.validity);
+        xor_bitmaps_dynamic(
+            lhs.data.as_raw_slice(),
+            rhs.data.as_raw_slice(),
+            dst.data.as_mut().mutate().clear_and_resize(lhs.len()),
+        );
+    }
 }
 
 /// Perform `and` operation on [`BooleanArray`] and scalar
@@ -248,17 +254,19 @@ pub unsafe fn xor(lhs: &BooleanArray, rhs: &BooleanArray, dst: &mut BooleanArray
 /// - No other arrays that reference the `dst`'s data and validity are accessed! In the
 ///   computation graph, it will never happens
 pub unsafe fn and_scalar(lhs: &BooleanArray, rhs: bool, dst: &mut BooleanArray) {
-    if rhs {
-        dst.reference(lhs)
-    } else {
-        dst.validity.reference(&lhs.validity);
-        // Compiler will optimize set zero to memset
-        dst.data
-            .as_mut()
-            .mutate()
-            .clear_and_resize(lhs.len())
-            .iter_mut()
-            .for_each(|v| *v = 0);
+    unsafe {
+        if rhs {
+            dst.reference(lhs)
+        } else {
+            dst.validity.reference(&lhs.validity);
+            // Compiler will optimize set zero to memset
+            dst.data
+                .as_mut()
+                .mutate()
+                .clear_and_resize(lhs.len())
+                .iter_mut()
+                .for_each(|v| *v = 0);
+        }
     }
 }
 
@@ -272,17 +280,19 @@ pub unsafe fn and_scalar(lhs: &BooleanArray, rhs: bool, dst: &mut BooleanArray) 
 /// - No other arrays that reference the `dst`'s data and validity are accessed! In the
 ///   computation graph, it will never happens
 pub unsafe fn or_scalar(lhs: &BooleanArray, rhs: bool, dst: &mut BooleanArray) {
-    if rhs {
-        dst.validity.reference(&lhs.validity);
-        // Compiler will optimize set u64::MAX to memset
-        dst.data
-            .as_mut()
-            .mutate()
-            .clear_and_resize(lhs.len())
-            .iter_mut()
-            .for_each(|v| *v = u64::MAX);
-    } else {
-        dst.reference(lhs);
+    unsafe {
+        if rhs {
+            dst.validity.reference(&lhs.validity);
+            // Compiler will optimize set u64::MAX to memset
+            dst.data
+                .as_mut()
+                .mutate()
+                .clear_and_resize(lhs.len())
+                .iter_mut()
+                .for_each(|v| *v = u64::MAX);
+        } else {
+            dst.reference(lhs);
+        }
     }
 }
 
@@ -312,11 +322,13 @@ crate::dynamic_func!(
 /// - No other arrays that reference the `dst`'s data and validity are accessed! In the
 ///   computation graph, it will never happens
 pub unsafe fn not(array: &BooleanArray, dst: &mut BooleanArray) {
-    dst.validity.reference(&array.validity);
-    not_bitmap_dynamic(
-        array.data.as_raw_slice(),
-        dst.data.as_mut().mutate().clear_and_resize(array.len()),
-    )
+    unsafe {
+        dst.validity.reference(&array.validity);
+        not_bitmap_dynamic(
+            array.data.as_raw_slice(),
+            dst.data.as_mut().mutate().clear_and_resize(array.len()),
+        )
+    }
 }
 
 /// This will be optimized for different target feature

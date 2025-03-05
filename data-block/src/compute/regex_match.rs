@@ -7,11 +7,7 @@ use regex::Regex;
 
 macro_rules! return_with_negated {
     ($negated:ident, $matched:ident) => {
-        if $negated {
-            !$matched
-        } else {
-            $matched
-        }
+        if $negated { !$matched } else { $matched }
     };
 }
 
@@ -32,25 +28,27 @@ pub unsafe fn regex_match_scalar<const NEGATED: bool>(
     array: &StringArray,
     regex: &Regex,
 ) {
-    #[cfg(feature = "verify")]
-    assert_selection_is_valid!(selection, array);
+    unsafe {
+        #[cfg(feature = "verify")]
+        assert_selection_is_valid!(selection, array);
 
-    let validity = array.validity();
+        let validity = array.validity();
 
-    if validity.all_valid() && selection.all_valid() {
-        selection.mutate().reset(
-            array.len(),
-            array.values_iter().map(|view| {
-                let matched = regex.is_match(view.as_str());
+        if validity.all_valid() && selection.all_valid() {
+            selection.mutate().reset(
+                array.len(),
+                array.values_iter().map(|view| {
+                    let matched = regex.is_match(view.as_str());
+                    return_with_negated!(NEGATED, matched)
+                }),
+            );
+        } else {
+            and_inplace(selection, validity);
+            selection.mutate().mutate_ones(|index| {
+                let matched = regex.is_match(array.get_value_unchecked(index).as_str());
                 return_with_negated!(NEGATED, matched)
-            }),
-        );
-    } else {
-        and_inplace(selection, validity);
-        selection.mutate().mutate_ones(|index| {
-            let matched = regex.is_match(array.get_value_unchecked(index).as_str());
-            return_with_negated!(NEGATED, matched)
-        });
+            });
+        }
     }
 }
 

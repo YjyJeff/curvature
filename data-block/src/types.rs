@@ -19,8 +19,8 @@ pub use crate::compute::IntrinsicType;
 pub use crate::compute::IntrinsicSimdType;
 
 pub use crate::array::Array;
-use crate::element::interval::Interval;
 use crate::element::ElementImpl;
+use crate::element::interval::Interval;
 pub use crate::element::{Element, ElementRef};
 
 /// Physical type has a one-to-one mapping to each struct that implements [`Element`]

@@ -2,7 +2,7 @@
 
 use std::fmt::Display;
 
-use snafu::{ensure, AsErrorSource, ResultExt, Snafu};
+use snafu::{AsErrorSource, ResultExt, Snafu, ensure};
 
 use crate::array::{ArrayError, ArrayImpl};
 use crate::bitmap::Bitmap;
@@ -11,7 +11,9 @@ use tabled::builder::Builder as TableBuilder;
 
 /// The length of array does not equal to the length of the data block
 #[derive(Debug, Snafu)]
-#[snafu(display("The `{index}`th FlatArray has length: `{array_len}`, it does not equal to the specified length: `{length}`"))]
+#[snafu(display(
+    "The `{index}`th FlatArray has length: `{array_len}`, it does not equal to the specified length: `{length}`"
+))]
 pub struct InconsistentLengthError {
     /// Index of the array in data block
     pub index: usize,
@@ -138,10 +140,12 @@ impl DataBlock {
     /// index should be valid
     #[inline]
     pub unsafe fn get_array_unchecked(&self, index: usize) -> &ArrayImpl {
-        #[cfg(feature = "verify")]
-        assert!(index < self.arrays.len());
+        unsafe {
+            #[cfg(feature = "verify")]
+            assert!(index < self.arrays.len());
 
-        self.arrays.get_unchecked(index)
+            self.arrays.get_unchecked(index)
+        }
     }
 
     /// Get arrays
@@ -243,17 +247,19 @@ impl DataBlock {
         source: &Self,
         length: usize,
     ) -> Result<(), ArrayError> {
-        #[cfg(feature = "verify")]
-        assert!(
-            selection.is_empty()
-                || (selection.count_ones() == Some(length) && selection.len() == source.len())
-        );
+        unsafe {
+            #[cfg(feature = "verify")]
+            assert!(
+                selection.is_empty()
+                    || (selection.count_ones() == Some(length) && selection.len() == source.len())
+            );
 
-        self.length = length;
-        self.arrays
-            .iter_mut()
-            .zip(&source.arrays)
-            .try_for_each(|(lhs, rhs)| lhs.filter(selection, rhs))
+            self.length = length;
+            self.arrays
+                .iter_mut()
+                .zip(&source.arrays)
+                .try_for_each(|(lhs, rhs)| lhs.filter(selection, rhs))
+        }
     }
 
     /// Copy the `source[start..start+len]` into self
@@ -269,14 +275,16 @@ impl DataBlock {
         start: usize,
         len: usize,
     ) -> Result<(), ArrayError> {
-        #[cfg(feature = "verify")]
-        assert!(start + len <= source.len());
+        unsafe {
+            #[cfg(feature = "verify")]
+            assert!(start + len <= source.len());
 
-        self.length = len;
-        self.arrays
-            .iter_mut()
-            .zip(&source.arrays)
-            .try_for_each(|(lhs, rhs)| lhs.copy(rhs, start, len))
+            self.length = len;
+            self.arrays
+                .iter_mut()
+                .zip(&source.arrays)
+                .try_for_each(|(lhs, rhs)| lhs.copy(rhs, start, len))
+        }
     }
 
     /// Reference self to other data block
@@ -303,8 +311,10 @@ impl DataBlock {
     ///
     /// Satisfy the mutate condition
     pub unsafe fn clear(&mut self) {
-        self.length = 0;
-        self.arrays.iter_mut().for_each(|array| array.clear());
+        unsafe {
+            self.length = 0;
+            self.arrays.iter_mut().for_each(|array| array.clear());
+        }
     }
 
     /// Format the data block with given table builder

@@ -5,10 +5,10 @@
 pub mod alignment;
 use alignment::ALIGNMENT;
 
-use std::alloc::{alloc, dealloc, handle_alloc_error, realloc, Layout};
+use std::alloc::{Layout, alloc, dealloc, handle_alloc_error, realloc};
 use std::fmt::{Debug, Display};
 use std::mem::size_of;
-use std::ptr::{copy_nonoverlapping, NonNull};
+use std::ptr::{NonNull, copy_nonoverlapping};
 
 use crate::element::interval::Interval;
 use crate::private::Sealed;
@@ -43,7 +43,9 @@ macro_rules! impl_alloc_types {
     };
 }
 
-impl_alloc_types!(i8, u8, i16, u16, i32, u32, i64, u64, i128, u128, f32, f64, Interval);
+impl_alloc_types!(
+    i8, u8, i16, u16, i32, u32, i64, u64, i128, u128, f32, f64, Interval
+);
 
 /// [`AlignedVec`] is a continuous memory region that allocated from memory
 /// allocator. The memory is **cache line aligned** and its **capacity in bytes**
@@ -229,10 +231,12 @@ impl<T: AllocType> AlignedVec<T> {
     /// [undefined behavior]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html
     #[inline]
     pub unsafe fn get_unchecked(&self, index: usize) -> &T {
-        #[cfg(feature = "verify")]
-        assert!(index < self.len);
+        unsafe {
+            #[cfg(feature = "verify")]
+            assert!(index < self.len);
 
-        &*self.ptr.as_ptr().add(index)
+            &*self.ptr.as_ptr().add(index)
+        }
     }
 
     /// Returns a T at the given index without bound check
@@ -243,10 +247,12 @@ impl<T: AllocType> AlignedVec<T> {
     /// [undefined behavior]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html
     #[inline]
     pub unsafe fn get_unchecked_mut(&mut self, index: usize) -> &mut T {
-        #[cfg(feature = "verify")]
-        assert!(index < self.len);
+        unsafe {
+            #[cfg(feature = "verify")]
+            assert!(index < self.len);
 
-        &mut *self.ptr.as_ptr().add(index)
+            &mut *self.ptr.as_ptr().add(index)
+        }
     }
 
     /// Returns a `&[T]` start from the given index with given length without bound check
@@ -257,10 +263,12 @@ impl<T: AllocType> AlignedVec<T> {
     /// [undefined behavior]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html
     #[inline]
     pub unsafe fn get_slice_unchecked(&self, index: usize, len: usize) -> &[T] {
-        #[cfg(feature = "verify")]
-        assert!(index + len <= self.len);
+        unsafe {
+            #[cfg(feature = "verify")]
+            assert!(index + len <= self.len);
 
-        std::slice::from_raw_parts(self.ptr.as_ptr().add(index), len)
+            std::slice::from_raw_parts(self.ptr.as_ptr().add(index), len)
+        }
     }
 }
 

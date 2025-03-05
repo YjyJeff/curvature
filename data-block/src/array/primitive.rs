@@ -10,8 +10,8 @@ use std::slice::Iter;
 
 use crate::aligned_vec::{AlignedVec, AllocType};
 use crate::bitmap::Bitmap;
-use crate::element::interval::Interval;
 use crate::element::Element;
+use crate::element::interval::Interval;
 use crate::macros::for_all_primitive_types;
 use crate::private::Sealed;
 use crate::types::{LogicalType, PhysicalType};
@@ -78,7 +78,7 @@ impl<T: PrimitiveType> PrimitiveArray<T> {
     /// physical type of the logical type should be `T::PHYSICAL_TYPE`
     #[inline]
     pub unsafe fn new_unchecked(logical_type: LogicalType) -> Self {
-        Self::with_capacity_unchecked(logical_type, 0)
+        unsafe { Self::with_capacity_unchecked(logical_type, 0) }
     }
 
     /// Create a new empty [`PrimitiveArray`] with given capacity
@@ -198,7 +198,7 @@ where
 
     #[inline]
     unsafe fn validity_mut(&mut self) -> &mut Bitmap {
-        self.validity.as_mut()
+        unsafe { self.validity.as_mut() }
     }
 
     #[inline]
@@ -208,10 +208,12 @@ where
 
     #[inline]
     unsafe fn get_value_unchecked(&self, index: usize) -> T {
-        #[cfg(feature = "verify")]
-        assert!(index < self.len());
+        unsafe {
+            #[cfg(feature = "verify")]
+            assert!(index < self.len());
 
-        *self.data.get_unchecked(index)
+            *self.data.get_unchecked(index)
+        }
     }
 
     #[inline]
@@ -227,9 +229,11 @@ where
 
     #[inline]
     unsafe fn set_all_invalid(&mut self, len: usize) {
-        // Just resize and leave the memory uninitialized
-        let _ = self.data.as_mut().clear_and_resize(len);
-        self.validity.as_mut().mutate().set_all_invalid(len);
+        unsafe {
+            // Just resize and leave the memory uninitialized
+            let _ = self.data.as_mut().clear_and_resize(len);
+            self.validity.as_mut().mutate().set_all_invalid(len);
+        }
     }
 
     #[inline]
@@ -240,16 +244,18 @@ where
     ) where
         I: Iterator<Item = T>,
     {
-        self.validity.as_mut().mutate().clear();
+        unsafe {
+            self.validity.as_mut().mutate().clear();
 
-        let uninitiated = self.data.as_mut();
-        uninitiated
-            .clear_and_resize(len)
-            .iter_mut()
-            .zip(trusted_len_iterator)
-            .for_each(|(uninitiated, item)| {
-                *uninitiated = item;
-            });
+            let uninitiated = self.data.as_mut();
+            uninitiated
+                .clear_and_resize(len)
+                .iter_mut()
+                .zip(trusted_len_iterator)
+                .for_each(|(uninitiated, item)| {
+                    *uninitiated = item;
+                });
+        }
     }
 
     #[inline]
@@ -257,22 +263,24 @@ where
     where
         I: Iterator<Item = Option<T>>,
     {
-        let uninitiated_vec = self.data.as_mut();
-        let uninitiated_slice = uninitiated_vec.clear_and_resize(len);
-        let mut uninitiated_validity = self.validity.as_mut().mutate();
+        unsafe {
+            let uninitiated_vec = self.data.as_mut();
+            let uninitiated_slice = uninitiated_vec.clear_and_resize(len);
+            let mut uninitiated_validity = self.validity.as_mut().mutate();
 
-        uninitiated_validity.reset(
-            len,
-            trusted_len_iterator.enumerate().map(|(i, val)| {
-                if let Some(val) = val {
-                    *uninitiated_slice.get_unchecked_mut(i) = val;
-                    true
-                } else {
-                    *uninitiated_slice.get_unchecked_mut(i) = T::default();
-                    false
-                }
-            }),
-        );
+            uninitiated_validity.reset(
+                len,
+                trusted_len_iterator.enumerate().map(|(i, val)| {
+                    if let Some(val) = val {
+                        *uninitiated_slice.get_unchecked_mut(i) = val;
+                        true
+                    } else {
+                        *uninitiated_slice.get_unchecked_mut(i) = T::default();
+                        false
+                    }
+                }),
+            );
+        }
     }
 
     unsafe fn replace_with_trusted_len_values_ref_iterator<'a, I>(
@@ -282,7 +290,9 @@ where
     ) where
         I: Iterator<Item = T> + 'a,
     {
-        self.replace_with_trusted_len_values_iterator(len, trusted_len_iterator);
+        unsafe {
+            self.replace_with_trusted_len_values_iterator(len, trusted_len_iterator);
+        }
     }
 
     unsafe fn replace_with_trusted_len_ref_iterator<'a, I>(
@@ -292,26 +302,32 @@ where
     ) where
         I: Iterator<Item = Option<T>> + 'a,
     {
-        self.replace_with_trusted_len_iterator(len, trusted_len_iterator);
+        unsafe {
+            self.replace_with_trusted_len_iterator(len, trusted_len_iterator);
+        }
     }
 
     #[inline]
     unsafe fn clear(&mut self) {
-        self.data.as_mut().clear();
-        self.validity.as_mut().mutate().clear();
+        unsafe {
+            self.data.as_mut().clear();
+            self.validity.as_mut().mutate().clear();
+        }
     }
 
     unsafe fn copy(&mut self, source: &Self, start: usize, len: usize) {
-        #[cfg(feature = "verify")]
-        assert!(start + len <= source.len());
+        unsafe {
+            #[cfg(feature = "verify")]
+            assert!(start + len <= source.len());
 
-        self.validity
-            .as_mut()
-            .mutate()
-            .copy(&source.validity, start, len);
+            self.validity
+                .as_mut()
+                .mutate()
+                .copy(&source.validity, start, len);
 
-        let dst = self.data.as_mut().clear_and_resize(len);
-        std::ptr::copy_nonoverlapping(source.data.as_ptr().add(start), dst.as_mut_ptr(), len);
+            let dst = self.data.as_mut().clear_and_resize(len);
+            std::ptr::copy_nonoverlapping(source.data.as_ptr().add(start), dst.as_mut_ptr(), len);
+        }
     }
 }
 

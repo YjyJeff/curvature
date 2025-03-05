@@ -1,6 +1,6 @@
 #![cfg_attr(feature = "avx512", feature(avx512_target_feature))]
 
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use data_block::aligned_vec::AlignedVec;
 use data_block_benches::dynamic_auto_vectorization_func;
 

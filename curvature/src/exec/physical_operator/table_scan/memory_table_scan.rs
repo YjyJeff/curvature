@@ -6,19 +6,19 @@ use data_block::types::LogicalType;
 use std::collections::{HashMap, VecDeque};
 use std::fmt::Debug;
 use std::mem::take;
-use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicIsize, Ordering};
 
 use crate::common::client_context::ClientContext;
 use crate::exec::physical_operator::metric::MetricsSet;
 use crate::exec::physical_operator::{
+    GlobalSourceState, LocalSourceState, MAX_PARALLELISM_DEGREE, OperatorResult, ParallelismDegree,
+    PhysicalOperator, SourceExecStatus, SourceOperatorExt, StateStringify, Stringify,
     impl_regular_for_non_regular, impl_sink_for_non_sink,
     use_types_for_impl_regular_for_non_regular, use_types_for_impl_sink_for_non_sink,
-    GlobalSourceState, LocalSourceState, OperatorResult, ParallelismDegree, PhysicalOperator,
-    SourceExecStatus, SourceOperatorExt, StateStringify, Stringify, MAX_PARALLELISM_DEGREE,
 };
 
-use snafu::{ensure, Snafu};
+use snafu::{Snafu, ensure};
 
 use_types_for_impl_regular_for_non_regular!();
 use_types_for_impl_sink_for_non_sink!();
@@ -28,7 +28,9 @@ const MORSEL_SIZE: usize = 8;
 #[allow(missing_docs)]
 #[derive(Debug, Snafu)]
 pub enum MemoryTableScanError {
-    #[snafu(display("The `SendableDataBlock` passed to `MemoryTableScan` is empty, used `EmptyTableScan` instead"))]
+    #[snafu(display(
+        "The `SendableDataBlock` passed to `MemoryTableScan` is empty, used `EmptyTableScan` instead"
+    ))]
     EmptyDataBlock,
     #[snafu(display(
         "`SendableDataBlock`s have different logical types: {:?}",

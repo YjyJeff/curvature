@@ -6,7 +6,7 @@ use crate::bitmap::Bitmap;
 use crate::types::IntrinsicType;
 
 use strength_reduce::{
-    StrengthReducedU16, StrengthReducedU32, StrengthReducedU64, StrengthReducedU8,
+    StrengthReducedU8, StrengthReducedU16, StrengthReducedU32, StrengthReducedU64,
 };
 
 /// Trait for casting used in rem
@@ -208,41 +208,43 @@ pub unsafe fn rem_scalar<T, U>(
     T: RemExt,
     U: RemCast<T>,
 {
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    {
-        // Note that this `unsafe` block is safe because we're testing
-        // that the `avx512` feature is indeed available on our CPU.
-        #[cfg(feature = "avx512")]
-        if std::arch::is_x86_feature_detected!("avx512f") {
-            return rem_scalar_avx512(selection, array, scalar, dst);
+    unsafe {
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        {
+            // Note that this `unsafe` block is safe because we're testing
+            // that the `avx512` feature is indeed available on our CPU.
+            #[cfg(feature = "avx512")]
+            if std::arch::is_x86_feature_detected!("avx512f") {
+                return rem_scalar_avx512(selection, array, scalar, dst);
+            }
+
+            // Note that this `unsafe` block is safe because we're testing
+            // that the `avx2` feature is indeed available on our CPU.
+            if std::arch::is_x86_feature_detected!("avx2") {
+                return rem_scalar_avx2(selection, array, scalar, dst);
+            }
         }
 
-        // Note that this `unsafe` block is safe because we're testing
-        // that the `avx2` feature is indeed available on our CPU.
-        if std::arch::is_x86_feature_detected!("avx2") {
-            return rem_scalar_avx2(selection, array, scalar, dst);
+        #[cfg(target_arch = "aarch64")]
+        {
+            // Note that this `unsafe` block is safe because we're testing
+            // that the `neon` feature is indeed available on our CPU.
+            if std::arch::is_aarch64_feature_detected!("neon") {
+                return rem_scalar_neon(selection, array, scalar, dst);
+            }
         }
+
+        let scalar = scalar.cast();
+        arith_scalar(
+            selection,
+            array,
+            scalar,
+            dst,
+            T::PARTIAL_ARITH_THRESHOLD,
+            rem_scalar_func,
+            T::new_remainder,
+        )
     }
-
-    #[cfg(target_arch = "aarch64")]
-    {
-        // Note that this `unsafe` block is safe because we're testing
-        // that the `neon` feature is indeed available on our CPU.
-        if std::arch::is_aarch64_feature_detected!("neon") {
-            return rem_scalar_neon(selection, array, scalar, dst);
-        }
-    }
-
-    let scalar = scalar.cast();
-    arith_scalar(
-        selection,
-        array,
-        scalar,
-        dst,
-        T::PARTIAL_ARITH_THRESHOLD,
-        rem_scalar_func,
-        T::new_remainder,
-    )
 }
 
 #[cfg(feature = "avx512")]
@@ -309,16 +311,18 @@ unsafe fn rem_scalar_neon<T, U>(
     T: RemExt,
     U: RemCast<T>,
 {
-    let scalar = scalar.cast();
-    arith_scalar(
-        selection,
-        array,
-        scalar,
-        dst,
-        T::NEON_PARTIAL_ARITH_THRESHOLD,
-        rem_scalar_func,
-        T::new_remainder,
-    )
+    unsafe {
+        let scalar = scalar.cast();
+        arith_scalar(
+            selection,
+            array,
+            scalar,
+            dst,
+            T::NEON_PARTIAL_ARITH_THRESHOLD,
+            rem_scalar_func,
+            T::new_remainder,
+        )
+    }
 }
 
 /// We do not construct divisor here, because the [`strength_reduce`] shows
@@ -355,39 +359,41 @@ pub unsafe fn rem<T, U>(
     T: RemExt,
     U: RemCast<T>,
 {
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    {
-        // Note that this `unsafe` block is safe because we're testing
-        // that the `avx512` feature is indeed available on our CPU.
-        #[cfg(feature = "avx512")]
-        if std::arch::is_x86_feature_detected!("avx512f") {
-            return rem_avx512(selection, lhs, rhs, dst);
+    unsafe {
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        {
+            // Note that this `unsafe` block is safe because we're testing
+            // that the `avx512` feature is indeed available on our CPU.
+            #[cfg(feature = "avx512")]
+            if std::arch::is_x86_feature_detected!("avx512f") {
+                return rem_avx512(selection, lhs, rhs, dst);
+            }
+
+            // Note that this `unsafe` block is safe because we're testing
+            // that the `avx2` feature is indeed available on our CPU.
+            if std::arch::is_x86_feature_detected!("avx2") {
+                return rem_avx2(selection, lhs, rhs, dst);
+            }
         }
 
-        // Note that this `unsafe` block is safe because we're testing
-        // that the `avx2` feature is indeed available on our CPU.
-        if std::arch::is_x86_feature_detected!("avx2") {
-            return rem_avx2(selection, lhs, rhs, dst);
+        #[cfg(target_arch = "aarch64")]
+        {
+            // Note that this `unsafe` block is safe because we're testing
+            // that the `neon` feature is indeed available on our CPU.
+            if std::arch::is_aarch64_feature_detected!("neon") {
+                return rem_neon(selection, lhs, rhs, dst);
+            }
         }
+
+        arith_arrays(
+            selection,
+            lhs,
+            rhs,
+            dst,
+            T::PARTIAL_ARITH_THRESHOLD,
+            rem_func,
+        )
     }
-
-    #[cfg(target_arch = "aarch64")]
-    {
-        // Note that this `unsafe` block is safe because we're testing
-        // that the `neon` feature is indeed available on our CPU.
-        if std::arch::is_aarch64_feature_detected!("neon") {
-            return rem_neon(selection, lhs, rhs, dst);
-        }
-    }
-
-    arith_arrays(
-        selection,
-        lhs,
-        rhs,
-        dst,
-        T::PARTIAL_ARITH_THRESHOLD,
-        rem_func,
-    )
 }
 
 #[cfg(feature = "avx512")]
@@ -450,14 +456,16 @@ unsafe fn rem_neon<T, U>(
     T: RemExt,
     U: RemCast<T>,
 {
-    arith_arrays(
-        selection,
-        lhs,
-        rhs,
-        dst,
-        T::NEON_PARTIAL_ARITH_THRESHOLD,
-        rem_func,
-    )
+    unsafe {
+        arith_arrays(
+            selection,
+            lhs,
+            rhs,
+            dst,
+            T::NEON_PARTIAL_ARITH_THRESHOLD,
+            rem_func,
+        )
+    }
 }
 
 #[cfg(test)]

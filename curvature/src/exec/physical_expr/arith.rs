@@ -4,19 +4,19 @@ use data_block::array::ArrayImpl;
 use data_block::bitmap::Bitmap;
 use data_block::block::DataBlock;
 use data_block::types::LogicalType;
-use snafu::{ensure, Snafu};
+use snafu::{Snafu, ensure};
 use std::fmt::Debug;
 use std::sync::Arc;
 
 use crate::common::expr_operator::arith::{
-    infer_arithmetic_func_set, ArithFunctionSet, ArithOperator,
+    ArithFunctionSet, ArithOperator, infer_arithmetic_func_set,
 };
 use crate::common::profiler::ScopedTimerGuard;
 use crate::exec::physical_expr::constant::Constant;
 
 use super::executor::ExprExecCtx;
 use super::utils::CompactExprDisplayWrapper;
-use super::{execute_binary_children, ExprResult, PhysicalExpr, Stringify};
+use super::{ExprResult, PhysicalExpr, Stringify, execute_binary_children};
 
 #[allow(missing_docs)]
 #[derive(Debug, Snafu)]
@@ -33,7 +33,7 @@ pub enum ArithError {
         op: ArithOperator,
     },
     #[snafu(display(
-        "Perform `{}` arithmetic between two constants(left: `{}`, right: `{}`) makes no sense. Planner/Optimizer should handle it in advance", 
+        "Perform `{}` arithmetic between two constants(left: `{}`, right: `{}`) makes no sense. Planner/Optimizer should handle it in advance",
         op,
         left,
         right

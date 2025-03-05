@@ -130,58 +130,60 @@ impl<S: Serde> HashTable<S> {
         len: usize,
         agg_func_list: &AggregationFunctionList,
     ) -> AggregationResult<()> {
-        self.metrics.num_rows += len as u64;
+        unsafe {
+            self.metrics.num_rows += len as u64;
 
-        self.keys.resize(len, S::SerdeKey::default());
-        self.hashes.resize(len, HashValue::default());
-        self.state_ptrs
-            .resize(len, AggregationStatesPtr::dangling());
+            self.keys.resize(len, S::SerdeKey::default());
+            self.hashes.resize(len, HashValue::default());
+            self.state_ptrs
+                .resize(len, AggregationStatesPtr::dangling());
 
-        // 1. Serialize the group by keys into the serde key in elements
-        // SAFETY:
-        // - `group_by_keys` fit into `S::SerdeKey` is guaranteed by the safety of the function
-        // - elements have same length with the keys is guaranteed by above resize
-        {
-            let _guard = ScopedTimerGuard::new(&mut self.metrics.serialize_time);
-            S::serialize(group_by_keys, &mut self.keys);
+            // 1. Serialize the group by keys into the serde key in elements
+            // SAFETY:
+            // - `group_by_keys` fit into `S::SerdeKey` is guaranteed by the safety of the function
+            // - elements have same length with the keys is guaranteed by above resize
+            {
+                let _guard = ScopedTimerGuard::new(&mut self.metrics.serialize_time);
+                S::serialize(group_by_keys, &mut self.keys);
+            }
+
+            // 2. Hash the serde key
+            {
+                let _guard = ScopedTimerGuard::new(&mut self.metrics.hash_time);
+                self.keys
+                    .iter()
+                    .zip(&mut self.hashes)
+                    .for_each(|(key, hash)| {
+                        *hash = crate::common::utils::hash::BUILD_HASHER_DEFAULT.hash_one(key);
+                    });
+            }
+
+            // 3. Probe the hash table, update the ptr in the elements
+            {
+                let _guard = ScopedTimerGuard::new(&mut self.metrics.probing_time);
+                self.keys
+                    .iter_mut()
+                    .zip(self.hashes.iter())
+                    .zip(self.state_ptrs.iter_mut())
+                    .for_each(|((key, &hash_value), state_ptr)| {
+                        probing_swiss_table(
+                            &mut self.swiss_table,
+                            &self.arena,
+                            key,
+                            hash_value,
+                            state_ptr,
+                            agg_func_list,
+                        )
+                    });
+            }
+
+            // 4. Update the states based on the payloads
+            // SAFETY: ptrs are valid is guaranteed by the probing step.
+            // Payloads match the agg_func_list's signature is guaranteed by the safety of
+            // this function
+            let _guard = ScopedTimerGuard::new(&mut self.metrics.update_states_time);
+            agg_func_list.update_states(payloads, &self.state_ptrs)
         }
-
-        // 2. Hash the serde key
-        {
-            let _guard = ScopedTimerGuard::new(&mut self.metrics.hash_time);
-            self.keys
-                .iter()
-                .zip(&mut self.hashes)
-                .for_each(|(key, hash)| {
-                    *hash = crate::common::utils::hash::BUILD_HASHER_DEFAULT.hash_one(key);
-                });
-        }
-
-        // 3. Probe the hash table, update the ptr in the elements
-        {
-            let _guard = ScopedTimerGuard::new(&mut self.metrics.probing_time);
-            self.keys
-                .iter_mut()
-                .zip(self.hashes.iter())
-                .zip(self.state_ptrs.iter_mut())
-                .for_each(|((key, &hash_value), state_ptr)| {
-                    probing_swiss_table(
-                        &mut self.swiss_table,
-                        &self.arena,
-                        key,
-                        hash_value,
-                        state_ptr,
-                        agg_func_list,
-                    )
-                });
-        }
-
-        // 4. Update the states based on the payloads
-        // SAFETY: ptrs are valid is guaranteed by the probing step.
-        // Payloads match the agg_func_list's signature is guaranteed by the safety of
-        // this function
-        let _guard = ScopedTimerGuard::new(&mut self.metrics.update_states_time);
-        agg_func_list.update_states(payloads, &self.state_ptrs)
     }
 
     /// Finalize(Drop) the hash table, take the underling swiss_table and arena.
@@ -239,7 +241,7 @@ pub(super) fn probing_swiss_table<K: SerdeKey>(
 
 #[cfg(test)]
 mod tests {
-    use data_block::array::{Int64Array, Int8Array};
+    use data_block::array::{Int8Array, Int64Array};
     use data_block::block::DataBlock;
     use data_block::types::LogicalType;
     use snafu::Report;

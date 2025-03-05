@@ -319,7 +319,7 @@ pub unsafe fn eq_scalar<T>(
     T: PartialOrdExt,
     PrimitiveArray<T>: Array<Element = T>,
 {
-    T::eq_scalar(selection, array, scalar, temp)
+    unsafe { T::eq_scalar(selection, array, scalar, temp) }
 }
 
 /// Perform `array != scalar` between `PrimitiveArray<T>` and `T`
@@ -345,7 +345,7 @@ pub unsafe fn ne_scalar<T>(
     T: PartialOrdExt,
     PrimitiveArray<T>: Array<Element = T>,
 {
-    T::ne_scalar(selection, array, scalar, temp)
+    unsafe { T::ne_scalar(selection, array, scalar, temp) }
 }
 
 /// Perform `array > scalar` between `PrimitiveArray<T>` and `T`
@@ -371,7 +371,7 @@ pub unsafe fn gt_scalar<T>(
     T: PartialOrdExt,
     PrimitiveArray<T>: Array<Element = T>,
 {
-    T::gt_scalar(selection, array, scalar, temp)
+    unsafe { T::gt_scalar(selection, array, scalar, temp) }
 }
 
 /// Perform `array >= scalar` between `PrimitiveArray<T>` and `T`
@@ -397,7 +397,7 @@ pub unsafe fn ge_scalar<T>(
     T: PartialOrdExt,
     PrimitiveArray<T>: Array<Element = T>,
 {
-    T::ge_scalar(selection, array, scalar, temp)
+    unsafe { T::ge_scalar(selection, array, scalar, temp) }
 }
 
 /// Perform `array < scalar` between `PrimitiveArray<T>` and `T`
@@ -423,7 +423,7 @@ pub unsafe fn lt_scalar<T>(
     T: PartialOrdExt,
     PrimitiveArray<T>: Array<Element = T>,
 {
-    T::lt_scalar(selection, array, scalar, temp)
+    unsafe { T::lt_scalar(selection, array, scalar, temp) }
 }
 
 /// Perform `array <= scalar` between `PrimitiveArray<T>` and `T`
@@ -449,7 +449,7 @@ pub unsafe fn le_scalar<T>(
     T: PartialOrdExt,
     PrimitiveArray<T>: Array<Element = T>,
 {
-    T::le_scalar(selection, array, scalar, temp)
+    unsafe { T::le_scalar(selection, array, scalar, temp) }
 }
 
 /// Perform `PrimitiveArray<T> == PrimitiveArray<T>`
@@ -475,7 +475,7 @@ pub unsafe fn eq<T>(
     T: PartialOrdExt,
     PrimitiveArray<T>: Array<Element = T>,
 {
-    <T as PartialOrdExt>::eq(selection, lhs, rhs, temp)
+    unsafe { <T as PartialOrdExt>::eq(selection, lhs, rhs, temp) }
 }
 
 /// Perform `PrimitiveArray<T> != PrimitiveArray<T>`
@@ -501,7 +501,7 @@ pub unsafe fn ne<T>(
     T: PartialOrdExt,
     PrimitiveArray<T>: Array<Element = T>,
 {
-    <T as PartialOrdExt>::ne(selection, lhs, rhs, temp)
+    unsafe { <T as PartialOrdExt>::ne(selection, lhs, rhs, temp) }
 }
 
 /// Perform `PrimitiveArray<T> > PrimitiveArray<T>`
@@ -527,7 +527,7 @@ pub unsafe fn gt<T>(
     T: PartialOrdExt,
     PrimitiveArray<T>: Array<Element = T>,
 {
-    <T as PartialOrdExt>::gt(selection, lhs, rhs, temp)
+    unsafe { <T as PartialOrdExt>::gt(selection, lhs, rhs, temp) }
 }
 
 /// Perform `PrimitiveArray<T> >= PrimitiveArray<T>`
@@ -553,7 +553,7 @@ pub unsafe fn ge<T>(
     T: PartialOrdExt,
     PrimitiveArray<T>: Array<Element = T>,
 {
-    <T as PartialOrdExt>::ge(selection, lhs, rhs, temp)
+    unsafe { <T as PartialOrdExt>::ge(selection, lhs, rhs, temp) }
 }
 
 /// Perform `PrimitiveArray<T> < PrimitiveArray<T>`
@@ -579,7 +579,7 @@ pub unsafe fn lt<T>(
     T: PartialOrdExt,
     PrimitiveArray<T>: Array<Element = T>,
 {
-    <T as PartialOrdExt>::lt(selection, lhs, rhs, temp)
+    unsafe { <T as PartialOrdExt>::lt(selection, lhs, rhs, temp) }
 }
 
 /// Perform `PrimitiveArray<T> <= PrimitiveArray<T>`
@@ -605,43 +605,63 @@ pub unsafe fn le<T>(
     T: PartialOrdExt,
     PrimitiveArray<T>: Array<Element = T>,
 {
-    <T as PartialOrdExt>::le(selection, lhs, rhs, temp)
+    unsafe { <T as PartialOrdExt>::le(selection, lhs, rhs, temp) }
 }
 
 #[cfg(feature = "verify")]
 fn check_timestamp_array_and_multiplier<const MULTIPLIER: i64>(array: &PrimitiveArray<i64>) {
     use crate::types::{LogicalType, TimeUnit};
     match array.logical_type() {
-        LogicalType::Timestamp(unit) => {
-            match unit {
-                TimeUnit::Second => {
-                    if MULTIPLIER != 1 || MULTIPLIER != 1_000 || MULTIPLIER != 1_000_000 || MULTIPLIER != 1_000_000_000{
-                        panic!("Timestamp::Second, the multiplier can only be `1`/`1_000`/`1_000_000`/`1_000_000_000`. However, the passed multiplier is `{}`", MULTIPLIER)
-                    }
-                }
-                TimeUnit::Millisecond => {
-                    if MULTIPLIER != 1 || MULTIPLIER != 1_000 || MULTIPLIER != 1_000_000{
-                        panic!("Timestamp::Millisecond, the multiplier can only be `1`/`1_000`/`1_000_000`. However, the passed multiplier is `{}`", MULTIPLIER)
-                    }
-                }
-                TimeUnit::Microsecond => {
-                    if MULTIPLIER != 1 || MULTIPLIER != 1_000{
-                        panic!("Timestamp::Microsecond, the multiplier can only be `1`/`1_000`. However, the passed multiplier is `{}`", MULTIPLIER)
-                    }
-                }
-                TimeUnit::Nanosecond => {
-                    if MULTIPLIER != 1{
-                        panic!("Timestamp::Nanosecond, the multiplier can only be `1`. However, the passed multiplier is `{}`", MULTIPLIER)
-                    }
+        LogicalType::Timestamp(unit) => match unit {
+            TimeUnit::Second => {
+                if MULTIPLIER != 1
+                    || MULTIPLIER != 1_000
+                    || MULTIPLIER != 1_000_000
+                    || MULTIPLIER != 1_000_000_000
+                {
+                    panic!(
+                        "Timestamp::Second, the multiplier can only be `1`/`1_000`/`1_000_000`/`1_000_000_000`. However, the passed multiplier is `{}`",
+                        MULTIPLIER
+                    )
                 }
             }
-        }
+            TimeUnit::Millisecond => {
+                if MULTIPLIER != 1 || MULTIPLIER != 1_000 || MULTIPLIER != 1_000_000 {
+                    panic!(
+                        "Timestamp::Millisecond, the multiplier can only be `1`/`1_000`/`1_000_000`. However, the passed multiplier is `{}`",
+                        MULTIPLIER
+                    )
+                }
+            }
+            TimeUnit::Microsecond => {
+                if MULTIPLIER != 1 || MULTIPLIER != 1_000 {
+                    panic!(
+                        "Timestamp::Microsecond, the multiplier can only be `1`/`1_000`. However, the passed multiplier is `{}`",
+                        MULTIPLIER
+                    )
+                }
+            }
+            TimeUnit::Nanosecond => {
+                if MULTIPLIER != 1 {
+                    panic!(
+                        "Timestamp::Nanosecond, the multiplier can only be `1`. However, the passed multiplier is `{}`",
+                        MULTIPLIER
+                    )
+                }
+            }
+        },
         LogicalType::Timestamptz { .. } => {
             if MULTIPLIER != 1 || MULTIPLIER != 1_000 {
-                panic!("Timestamptz is stored in microsecond, the multiplier can only be `1`/`1000`. However, the passed multiplier is `{}`", MULTIPLIER)
+                panic!(
+                    "Timestamptz is stored in microsecond, the multiplier can only be `1`/`1000`. However, the passed multiplier is `{}`",
+                    MULTIPLIER
+                )
             }
         }
-        ty  => panic!("timestamp_cmp_scalar function should only be called on Int64Array that has logical type `Timestamp` or `Timestamptz`, called on array that has logical type: {:?}", ty),
+        ty => panic!(
+            "timestamp_cmp_scalar function should only be called on Int64Array that has logical type `Timestamp` or `Timestamptz`, called on array that has logical type: {:?}",
+            ty
+        ),
     }
 }
 

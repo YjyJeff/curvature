@@ -7,7 +7,7 @@ use curvature_procedural_macro::MetricsSetBuilder;
 use data_block::array::{ArrayImpl, BooleanArray};
 use data_block::block::DataBlock;
 use data_block::types::LogicalType;
-use snafu::{ensure, Snafu};
+use snafu::{Snafu, ensure};
 
 use crate::common::client_context::ClientContext;
 use crate::common::profiler::ScopedTimerGuard;
@@ -21,10 +21,10 @@ use crate::tree_node::display::IndentDisplayWrapper;
 use super::ext_traits::RegularOperatorExt;
 use super::metric::{Count, MetricsSet, Time};
 use super::{
+    DummyGlobalOperatorState, GlobalOperatorState, LocalOperatorState, OperatorError,
+    OperatorExecStatus, OperatorResult, PhysicalOperator, StateStringify, Stringify,
     impl_sink_for_non_sink, impl_source_for_non_source, use_types_for_impl_sink_for_non_sink,
-    use_types_for_impl_source_for_non_source, DummyGlobalOperatorState, GlobalOperatorState,
-    LocalOperatorState, OperatorError, OperatorExecStatus, OperatorResult, PhysicalOperator,
-    StateStringify, Stringify,
+    use_types_for_impl_source_for_non_source,
 };
 
 use_types_for_impl_sink_for_non_sink!();
@@ -42,7 +42,9 @@ pub enum FilterError {
         predicate: String,
         logical_type: LogicalType,
     },
-    #[snafu(display("Filter's predicate can not be constant, it should be optimized by the planner/optimizer, found `{predicate}`"))]
+    #[snafu(display(
+        "Filter's predicate can not be constant, it should be optimized by the planner/optimizer, found `{predicate}`"
+    ))]
     ConstantPredicate { predicate: String },
     #[snafu(display("Failed to execute the `{}` operator", filter))]
     EvaluatePredicate { filter: String, source: ExprError },

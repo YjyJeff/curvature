@@ -54,11 +54,7 @@ pub struct MinMax<const IS_MIN: bool, PayloadArray> {
 
 impl<const IS_MIN: bool, PayloadArray> MinMax<IS_MIN, PayloadArray> {
     fn name_() -> &'static str {
-        if IS_MIN {
-            "Min"
-        } else {
-            "Max"
-        }
+        if IS_MIN { "Min" } else { "Max" }
     }
 }
 

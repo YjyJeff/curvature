@@ -5,12 +5,12 @@ use std::sync::Arc;
 use crate::common::client_context::ClientContext;
 use data_block::block::DataBlock;
 use data_block::types::LogicalType;
-use snafu::{ensure, Snafu};
+use snafu::{Snafu, ensure};
 
 use super::{
-    impl_regular_for_non_regular, impl_sink_for_non_sink, impl_source_for_non_source,
-    use_types_for_impl_regular_for_non_regular, use_types_for_impl_sink_for_non_sink,
-    use_types_for_impl_source_for_non_source, OperatorResult, PhysicalOperator, Stringify,
+    OperatorResult, PhysicalOperator, Stringify, impl_regular_for_non_regular,
+    impl_sink_for_non_sink, impl_source_for_non_source, use_types_for_impl_regular_for_non_regular,
+    use_types_for_impl_sink_for_non_sink, use_types_for_impl_source_for_non_source,
 };
 use_types_for_impl_regular_for_non_regular!();
 use_types_for_impl_source_for_non_source!();

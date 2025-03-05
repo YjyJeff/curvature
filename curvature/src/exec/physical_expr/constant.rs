@@ -6,7 +6,7 @@ use data_block::array::ArrayImpl;
 use data_block::bitmap::Bitmap;
 use data_block::block::DataBlock;
 use data_block::types::LogicalType;
-use snafu::{ensure, ResultExt, Snafu};
+use snafu::{ResultExt, Snafu, ensure};
 
 use super::executor::ExprExecCtx;
 use super::{ExecuteSnafu, ExprResult, PhysicalExpr, Stringify};
@@ -48,7 +48,7 @@ impl Constant {
     /// The `constant` should not reference to other array and should not
     /// referenced by any array. It is the unique owner of the memory
     pub unsafe fn try_new(constant: ArrayImpl) -> Result<Self, ConstantError> {
-        Self::try_new_with_alias(constant, String::new())
+        unsafe { Self::try_new_with_alias(constant, String::new()) }
     }
 
     /// Create a [`Constant expression`] with alias

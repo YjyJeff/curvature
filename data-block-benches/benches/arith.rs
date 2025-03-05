@@ -1,12 +1,12 @@
 use std::ops::{Add, Div};
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 use data_block::array::{Array, PrimitiveArray};
 use data_block::bitmap::Bitmap;
-use data_block::compute::arith::intrinsic::{
-    add_scalar, div_scalar, mul_scalar, sub_scalar, AddExt, DivExt, MulExt, RemExt, SubExt,
-};
 use data_block::compute::IntrinsicType;
+use data_block::compute::arith::intrinsic::{
+    AddExt, DivExt, MulExt, RemExt, SubExt, add_scalar, div_scalar, mul_scalar, sub_scalar,
+};
 use data_block::element::Element;
 use data_block_benches::create_primitive_array_with_seed;
 use rand::distributions::{Distribution, Standard};

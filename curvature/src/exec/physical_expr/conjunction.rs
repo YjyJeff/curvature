@@ -7,14 +7,14 @@ use data_block::bitmap::Bitmap;
 use data_block::block::DataBlock;
 use data_block::compute::logical::{and_inplace, or_inplace};
 use data_block::types::{LogicalType, PhysicalType};
-use snafu::{ensure, ResultExt, Snafu};
+use snafu::{ResultExt, Snafu, ensure};
 
 use crate::common::profiler::ScopedTimerGuard;
 use crate::exec::physical_expr::field_ref::FieldRef;
 
 use super::constant::Constant as ConstantExpr;
 use super::executor::ExprExecCtx;
-use super::utils::{compact_display_expressions, CompactExprDisplayWrapper};
+use super::utils::{CompactExprDisplayWrapper, compact_display_expressions};
 use super::{ExecuteSnafu, ExprResult, PhysicalExpr, Stringify};
 
 /// Conjunct boolean expressions with `And` operation
@@ -25,9 +25,13 @@ pub type OrConjunction = Conjunction<false>;
 #[allow(missing_docs)]
 #[derive(Debug, Snafu)]
 pub enum ConjunctionError {
-    #[snafu(display("Conjunction requires at least two input expressions. However, it accepts `{len}` inputs: `{inputs}`"))]
+    #[snafu(display(
+        "Conjunction requires at least two input expressions. However, it accepts `{len}` inputs: `{inputs}`"
+    ))]
     TooFewInputs { inputs: String, len: usize },
-    #[snafu(display("Conjunction requires the input should be boolean expression. However, the input `{input}` has logical type: `{logical_type:?}`"))]
+    #[snafu(display(
+        "Conjunction requires the input should be boolean expression. However, the input `{input}` has logical type: `{logical_type:?}`"
+    ))]
     NotBooleanExpr {
         input: String,
         logical_type: LogicalType,
@@ -41,7 +45,9 @@ pub enum ConjunctionError {
         conjunction: &'static str,
         input: String,
     },
-    #[snafu(display("Conjunction requires that input should not be constant expression, because it can be optimized away. Planner/Optimizer should handle it in advance"))]
+    #[snafu(display(
+        "Conjunction requires that input should not be constant expression, because it can be optimized away. Planner/Optimizer should handle it in advance"
+    ))]
     ConstantExpr,
 }
 
@@ -133,11 +139,7 @@ impl<const IS_AND: bool> Conjunction<IS_AND> {
 
 impl<const IS_AND: bool> Stringify for Conjunction<IS_AND> {
     fn name(&self) -> &'static str {
-        if IS_AND {
-            "And"
-        } else {
-            "Or"
-        }
+        if IS_AND { "And" } else { "Or" }
     }
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

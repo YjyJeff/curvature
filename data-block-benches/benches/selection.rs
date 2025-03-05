@@ -1,7 +1,7 @@
 #![cfg_attr(feature = "avx512", feature(avx512_target_feature))]
 
 use bitvec::slice::BitSlice;
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use data_block::bitmap::Bitmap;
 use data_block::dynamic_func;
 use rand::rngs::StdRng;
@@ -12,8 +12,8 @@ const LEN: usize = 1024;
 pub fn selection_benchmark(c: &mut Criterion) {
     let indices = (0..LEN).collect::<Vec<usize>>();
     let mut rng = StdRng::seed_from_u64(100);
-    let rhs: i32 = rng.gen();
-    let lhs: Vec<i32> = (0..LEN).map(|_| rng.gen()).collect();
+    let rhs: i32 = rng.r#gen();
+    let lhs: Vec<i32> = (0..LEN).map(|_| rng.r#gen()).collect();
     let mut selected_indices = vec![0; LEN];
     c.bench_function("Selection", |b| {
         b.iter(|| {

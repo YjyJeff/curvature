@@ -130,11 +130,12 @@ pub trait SourceOperatorExt: PhysicalOperator {
         local_state: &mut dyn LocalSourceState,
     ) -> OperatorResult<SourceExecStatus> {
         debug_assert_eq!(self.output_types().len(), output.num_arrays());
-        debug_assert!(self
-            .output_types()
-            .iter()
-            .zip(output.arrays())
-            .all(|(output_type, output_array)| { output_array.logical_type() == output_type }));
+        debug_assert!(
+            self.output_types()
+                .iter()
+                .zip(output.arrays())
+                .all(|(output_type, output_array)| { output_array.logical_type() == output_type })
+        );
 
         let global_state = self.downcast_ref_global_source_state(global_state);
         let local_state =

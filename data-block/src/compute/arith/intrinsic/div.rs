@@ -6,7 +6,7 @@ use crate::bitmap::Bitmap;
 use crate::types::IntrinsicType;
 
 use strength_reduce::{
-    StrengthReducedU16, StrengthReducedU32, StrengthReducedU64, StrengthReducedU8,
+    StrengthReducedU8, StrengthReducedU16, StrengthReducedU32, StrengthReducedU64,
 };
 
 /// Div extension

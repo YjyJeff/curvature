@@ -94,10 +94,12 @@ impl Bitmap {
     /// `index < self.len()`, otherwise undefined behavior happens
     #[inline]
     pub unsafe fn get_unchecked(&self, index: usize) -> bool {
-        #[cfg(feature = "verify")]
-        assert!(index < self.len());
+        unsafe {
+            #[cfg(feature = "verify")]
+            assert!(index < self.len());
 
-        get_bit_unchecked(&self.buffer, index)
+            get_bit_unchecked(&self.buffer, index)
+        }
     }
 
     /// Count the number of zeros in the bitmap
@@ -149,17 +151,19 @@ impl Bitmap {
     /// `bit_store_index < self.buffer.len()`
     #[inline]
     unsafe fn valid_bit_store_unchecked(&self, bit_store_index: usize) -> BitStore {
-        #[cfg(feature = "verify")]
-        assert!(bit_store_index < self.buffer.len());
+        unsafe {
+            #[cfg(feature = "verify")]
+            assert!(bit_store_index < self.buffer.len());
 
-        let mut val = *self.buffer.get_unchecked(bit_store_index);
+            let mut val = *self.buffer.get_unchecked(bit_store_index);
 
-        if ((bit_store_index + 1) * BIT_STORE_BITS) > self.num_bits {
-            // Last BitStore, only remain the valid data
-            val &= (1 << (self.num_bits & (BIT_STORE_BITS - 1))) - 1;
+            if ((bit_store_index + 1) * BIT_STORE_BITS) > self.num_bits {
+                // Last BitStore, only remain the valid data
+                val &= (1 << (self.num_bits & (BIT_STORE_BITS - 1))) - 1;
+            }
+
+            val
         }
-
-        val
     }
 
     /// Get a guard to mutate the bitmap
@@ -223,24 +227,28 @@ pub fn elts(num_bits: usize) -> usize {
 /// Get the given bit value
 #[inline]
 unsafe fn get_bit_unchecked(buffer: &AlignedVec<BitStore>, index: usize) -> bool {
-    #[cfg(feature = "verify")]
-    assert!(index / BIT_STORE_BITS < buffer.len());
+    unsafe {
+        #[cfg(feature = "verify")]
+        assert!(index / BIT_STORE_BITS < buffer.len());
 
-    *buffer.get_unchecked(index / BIT_STORE_BITS) & (1 << (index % BIT_STORE_BITS)) != 0
+        *buffer.get_unchecked(index / BIT_STORE_BITS) & (1 << (index % BIT_STORE_BITS)) != 0
+    }
 }
 
 /// Set the given bit
 #[inline]
 unsafe fn set_bit_unchecked(buffer: &mut AlignedVec<BitStore>, index: usize, val: bool) {
-    #[cfg(feature = "verify")]
-    assert!(index / BIT_STORE_BITS < buffer.len());
+    unsafe {
+        #[cfg(feature = "verify")]
+        assert!(index / BIT_STORE_BITS < buffer.len());
 
-    let bit_store = buffer.get_unchecked_mut(index / BIT_STORE_BITS);
-    let mask = 1 << (index % BIT_STORE_BITS);
-    if val {
-        *bit_store |= mask;
-    } else {
-        *bit_store &= !mask;
+        let bit_store = buffer.get_unchecked_mut(index / BIT_STORE_BITS);
+        let mask = 1 << (index % BIT_STORE_BITS);
+        if val {
+            *bit_store |= mask;
+        } else {
+            *bit_store &= !mask;
+        }
     }
 }
 
@@ -267,7 +275,7 @@ impl MutateBitmapGuard<'_> {
     /// `index < self.len()`, otherwise undefined behavior happens
     #[inline]
     pub unsafe fn set_unchecked(&mut self, index: usize, val: bool) {
-        set_bit_unchecked(&mut self.0.buffer, index, val)
+        unsafe { set_bit_unchecked(&mut self.0.buffer, index, val) }
     }
 
     /// Resize the [`Bitmap`]
@@ -325,8 +333,10 @@ impl MutateBitmapGuard<'_> {
     /// - len should equal to trusted_iter's length
     #[inline]
     pub unsafe fn reset(&mut self, len: usize, trusted_len_iterator: impl Iterator<Item = bool>) {
-        let uninitialized = self.clear_and_resize(len);
-        reset_bitmap_raw(uninitialized.as_mut_ptr(), len, trusted_len_iterator)
+        unsafe {
+            let uninitialized = self.clear_and_resize(len);
+            reset_bitmap_raw(uninitialized.as_mut_ptr(), len, trusted_len_iterator)
+        }
     }
 
     /// Mutate the ones in the bitmap with given function. The function take the index of the
@@ -480,13 +490,62 @@ pub(crate) unsafe fn reset_bitmap_raw(
     len: usize,
     mut trusted_len_iterator: impl Iterator<Item = bool>,
 ) {
-    let num_bit_store = len >> 6;
-    for index in 0..num_bit_store {
-        let mut mask;
-        let mut tmp = BitStore::default();
-        for i in 0..8 {
-            mask = 1 << (i << 3);
-            for _ in 0..8 {
+    unsafe {
+        let num_bit_store = len >> 6;
+        for index in 0..num_bit_store {
+            let mut mask;
+            let mut tmp = BitStore::default();
+            for i in 0..8 {
+                mask = 1 << (i << 3);
+                for _ in 0..8 {
+                    match trusted_len_iterator.next() {
+                        Some(value) => {
+                            tmp |= if value { mask } else { 0 };
+                            mask <<= 1;
+                        }
+                        None => {
+                            #[cfg(feature = "verify")]
+                            unreachable!(
+                                "Trusted len iterator have same length with len. Not enough elements for BitStore"
+                            );
+
+                            #[cfg(not(feature = "verify"))]
+                            std::hint::unreachable_unchecked()
+                        }
+                    };
+                }
+            }
+            *ptr.add(index) = tmp;
+        }
+
+        let remainder = len & 63;
+        if remainder > 0 {
+            let mut tmp = BitStore::default();
+            let num_bytes = remainder / 8;
+            for i in 0..num_bytes {
+                let mut mask = 1 << (i << 3);
+                for _ in 0..8 {
+                    match trusted_len_iterator.next() {
+                        Some(value) => {
+                            tmp |= if value { mask } else { 0 };
+                            mask <<= 1;
+                        }
+                        None => {
+                            #[cfg(feature = "verify")]
+                            unreachable!(
+                                "Trusted len iterator have same length with len. Not enough elements for Bytes"
+                            );
+
+                            #[cfg(not(feature = "verify"))]
+                            std::hint::unreachable_unchecked()
+                        }
+                    };
+                }
+            }
+
+            let remainder = remainder & 7;
+            let mut mask = 1 << (num_bytes << 3);
+            for _ in 0..remainder {
                 match trusted_len_iterator.next() {
                     Some(value) => {
                         tmp |= if value { mask } else { 0 };
@@ -494,59 +553,18 @@ pub(crate) unsafe fn reset_bitmap_raw(
                     }
                     None => {
                         #[cfg(feature = "verify")]
-                        unreachable!("Trusted len iterator have same length with len. Not enough elements for BitStore");
+                        unreachable!(
+                            "Trusted len iterator have same length with len. Not enough elements for remainder bits"
+                        );
 
                         #[cfg(not(feature = "verify"))]
                         std::hint::unreachable_unchecked()
                     }
                 };
             }
+
+            *ptr.add(num_bit_store) = tmp;
         }
-        *ptr.add(index) = tmp;
-    }
-
-    let remainder = len & 63;
-    if remainder > 0 {
-        let mut tmp = BitStore::default();
-        let num_bytes = remainder / 8;
-        for i in 0..num_bytes {
-            let mut mask = 1 << (i << 3);
-            for _ in 0..8 {
-                match trusted_len_iterator.next() {
-                    Some(value) => {
-                        tmp |= if value { mask } else { 0 };
-                        mask <<= 1;
-                    }
-                    None => {
-                        #[cfg(feature = "verify")]
-                        unreachable!("Trusted len iterator have same length with len. Not enough elements for Bytes");
-
-                        #[cfg(not(feature = "verify"))]
-                        std::hint::unreachable_unchecked()
-                    }
-                };
-            }
-        }
-
-        let remainder = remainder & 7;
-        let mut mask = 1 << (num_bytes << 3);
-        for _ in 0..remainder {
-            match trusted_len_iterator.next() {
-                Some(value) => {
-                    tmp |= if value { mask } else { 0 };
-                    mask <<= 1;
-                }
-                None => {
-                    #[cfg(feature = "verify")]
-                    unreachable!("Trusted len iterator have same length with len. Not enough elements for remainder bits");
-
-                    #[cfg(not(feature = "verify"))]
-                    std::hint::unreachable_unchecked()
-                }
-            };
-        }
-
-        *ptr.add(num_bit_store) = tmp;
     }
 }
 
@@ -575,7 +593,7 @@ impl Bitmap {
     /// The len is valid: `slice.len() * BIT_STORE_BITS <= len`
     #[inline]
     pub unsafe fn from_slice_and_len_unchecked(slice: &[BitStore], len: usize) -> Self {
-        Self::from_aligned_vec_and_len_unchecked(AlignedVec::from_slice(slice), len)
+        unsafe { Self::from_aligned_vec_and_len_unchecked(AlignedVec::from_slice(slice), len) }
     }
 
     /// Construct self from [`AlignedVec`] and len. Caller should

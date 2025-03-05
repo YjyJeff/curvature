@@ -5,8 +5,8 @@ use snafu::ensure;
 use crate::aligned_vec::AlignedVec;
 use crate::array::InvalidLogicalTypeSnafu;
 use crate::bitmap::Bitmap;
-use crate::element::list::{ListElement, ListElementRef};
 use crate::element::Element;
+use crate::element::list::{ListElement, ListElementRef};
 use crate::private::Sealed;
 use crate::types::{LogicalType, PhysicalType};
 use std::fmt::Debug;
@@ -56,7 +56,7 @@ impl ListArray {
     /// physical type of the logical type should be `List`
     #[inline]
     pub unsafe fn new_unchecked(logical_type: LogicalType) -> Self {
-        Self::with_capacity_unchecked(logical_type, 0)
+        unsafe { Self::with_capacity_unchecked(logical_type, 0) }
     }
 
     /// Create a new [`ListArray`] with given capacity
@@ -132,7 +132,7 @@ impl Array for ListArray {
 
     #[inline]
     unsafe fn validity_mut(&mut self) -> &mut Bitmap {
-        self.validity.as_mut()
+        unsafe { self.validity.as_mut() }
     }
 
     #[inline]
@@ -140,14 +140,16 @@ impl Array for ListArray {
         &self,
         index: usize,
     ) -> <Self::Element as Element>::ElementRef<'_> {
-        #[cfg(feature = "verify")]
-        assert!(index < self.len());
+        unsafe {
+            #[cfg(feature = "verify")]
+            assert!(index < self.len());
 
-        ListElementRef::new(
-            &self.elements,
-            *self.offsets.get_unchecked(index),
-            *self.lengths.get_unchecked(index),
-        )
+            ListElementRef::new(
+                &self.elements,
+                *self.offsets.get_unchecked(index),
+                *self.lengths.get_unchecked(index),
+            )
+        }
     }
 
     #[inline]

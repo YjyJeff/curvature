@@ -45,26 +45,28 @@ unsafe fn combine_validities(
     rhs: &SwarPtr<Bitmap>,
     dst: &mut SwarPtr<Bitmap>,
 ) {
-    match (lhs.all_valid(), rhs.all_valid()) {
-        (true, true) => {
-            // Both of them are all valid
-            dst.as_mut().mutate().clear();
-        }
-        (true, false) => {
-            // left is all valid, reference right
-            dst.reference(rhs);
-        }
-        (false, true) => {
-            // right is all valid, reference left
-            dst.reference(lhs)
-        }
-        (false, false) => {
-            // Both of them are not empty
-            and_bitmaps_dynamic(
-                lhs.as_raw_slice(),
-                rhs.as_raw_slice(),
-                dst.as_mut().mutate().clear_and_resize(lhs.len()),
-            )
+    unsafe {
+        match (lhs.all_valid(), rhs.all_valid()) {
+            (true, true) => {
+                // Both of them are all valid
+                dst.as_mut().mutate().clear();
+            }
+            (true, false) => {
+                // left is all valid, reference right
+                dst.reference(rhs);
+            }
+            (false, true) => {
+                // right is all valid, reference left
+                dst.reference(lhs)
+            }
+            (false, false) => {
+                // Both of them are not empty
+                and_bitmaps_dynamic(
+                    lhs.as_raw_slice(),
+                    rhs.as_raw_slice(),
+                    dst.as_mut().mutate().clear_and_resize(lhs.len()),
+                )
+            }
         }
     }
 }
@@ -77,7 +79,7 @@ mod portable_simd {
     use super::IntrinsicType;
     use crate::aligned_vec::AlignedVec;
     use crate::utils::roundup_loops;
-    use std::simd::{f32x16, f64x8, i16x32, i32x16, i64x8, i8x64, u16x32, u32x16, u64x8, u8x64};
+    use std::simd::{f32x16, f64x8, i8x64, i16x32, i32x16, i64x8, u8x64, u16x32, u32x16, u64x8};
 
     /// Corresponding Simd type of the intrinsic type
     pub trait IntrinsicSimdType: Copy + 'static {

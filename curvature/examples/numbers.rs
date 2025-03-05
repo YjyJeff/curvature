@@ -8,30 +8,30 @@ use curvature::common::expr_operator::arith::ArithOperator;
 use curvature::common::expr_operator::comparison::CmpOperator;
 use curvature::common::types::ParallelismDegree;
 use curvature::common::uuid::QueryId;
+use curvature::exec::physical_expr::PhysicalExpr;
 use curvature::exec::physical_expr::arith::Arith;
 use curvature::exec::physical_expr::comparison::Comparison;
 use curvature::exec::physical_expr::constant::Constant;
 use curvature::exec::physical_expr::field_ref::FieldRef;
+use curvature::exec::physical_expr::function::aggregate::AggregationFunctionExpr;
 use curvature::exec::physical_expr::function::aggregate::avg::Avg;
 use curvature::exec::physical_expr::function::aggregate::count::Count;
 use curvature::exec::physical_expr::function::aggregate::min_max::{Max, Min};
 use curvature::exec::physical_expr::function::aggregate::sum::Sum;
-use curvature::exec::physical_expr::function::aggregate::AggregationFunctionExpr;
-use curvature::exec::physical_expr::PhysicalExpr;
+use curvature::exec::physical_operator::PhysicalOperator;
+use curvature::exec::physical_operator::aggregate::hash_aggregate::HashAggregate;
 use curvature::exec::physical_operator::aggregate::hash_aggregate::serde::{
     FixedSizedSerdeKeySerializer, NonNullableFixedSizedSerdeKeySerializer,
     NonNullableGeneralSerializer,
 };
-use curvature::exec::physical_operator::aggregate::hash_aggregate::HashAggregate;
 use curvature::exec::physical_operator::aggregate::simple_aggregate::SimpleAggregate;
 use curvature::exec::physical_operator::filter::Filter;
 use curvature::exec::physical_operator::limit::streaming_limit::StreamingLimit;
 use curvature::exec::physical_operator::projection::Projection;
 use curvature::exec::physical_operator::table_scan::numbers::Numbers;
-use curvature::exec::physical_operator::PhysicalOperator;
 use curvature::exec::query_executor::QueryExecutor;
 use curvature::tree_node::display::IndentDisplayWrapper;
-use data_block::array::{ArrayImpl, UInt64Array, UInt8Array};
+use data_block::array::{ArrayImpl, UInt8Array, UInt64Array};
 use data_block::types::LogicalType;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;

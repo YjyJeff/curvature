@@ -35,7 +35,7 @@ pub trait Element: Sealed + Debug + 'static {
     /// Convert long lifetime to short lifetime. Manually covariance
     #[allow(single_use_lifetimes)]
     fn upcast_gat<'short, 'long: 'short>(long: Self::ElementRef<'long>)
-        -> Self::ElementRef<'short>;
+    -> Self::ElementRef<'short>;
 }
 
 /// ElementRef represents a reference to the [`Element`]
@@ -129,11 +129,11 @@ macro_rules! impl_element_for_primitive_types {
                 }
 
                 #[inline]
-                unsafe fn deserialize(ptr: &mut *const u8) -> Self {
+                unsafe fn deserialize(ptr: &mut *const u8) -> Self { unsafe {
                     let v = std::ptr::read_unaligned(*ptr as *const _);
                     *ptr = ptr.add(std::mem::size_of::<$primitive_element_ty>());
                     v
-                }
+                }}
             }
         )*
     };
@@ -185,9 +185,11 @@ impl ElementRefSerdeExt<'_> for bool {
 
     #[inline]
     unsafe fn deserialize(ptr: &mut *const u8) -> Self {
-        let v = **ptr != 0;
-        *ptr = ptr.add(1);
-        v
+        unsafe {
+            let v = **ptr != 0;
+            *ptr = ptr.add(1);
+            v
+        }
     }
 }
 
@@ -243,11 +245,13 @@ impl<'a> ElementRefSerdeExt<'a> for &'a [u8] {
 
     #[inline]
     unsafe fn deserialize(ptr: &'a mut *const u8) -> &'a [u8] {
-        let length = std::ptr::read_unaligned(*ptr as *const u32);
-        let data_ptr = ptr.add(std::mem::size_of::<u32>());
-        let v = std::slice::from_raw_parts(data_ptr, length as usize);
-        *ptr = ptr.add(length as usize + std::mem::size_of::<u32>());
-        v
+        unsafe {
+            let length = std::ptr::read_unaligned(*ptr as *const u32);
+            let data_ptr = ptr.add(std::mem::size_of::<u32>());
+            let v = std::slice::from_raw_parts(data_ptr, length as usize);
+            *ptr = ptr.add(length as usize + std::mem::size_of::<u32>());
+            v
+        }
     }
 }
 

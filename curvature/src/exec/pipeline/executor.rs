@@ -1,7 +1,7 @@
 //! Executor that execute a single pipeline
 
 use data_block::block::DataBlock;
-use snafu::{ensure, ResultExt, Snafu};
+use snafu::{ResultExt, Snafu, ensure};
 
 use super::{Pipeline, Sink, SinkTrait};
 use crate::common::client_context::ClientContext;
@@ -173,7 +173,7 @@ impl<'a, S: SinkTrait> PipelineExecutor<'a, S> {
 
             match exec_status {
                 OperatorExecStatus::Finished => {
-                    return Ok(RegularOperatorsExecutionControl::Finished)
+                    return Ok(RegularOperatorsExecutionControl::Finished);
                 }
                 OperatorExecStatus::HaveMoreOutput => {
                     // Push current operator to in process operator
@@ -356,9 +356,9 @@ mod tests {
 
     use super::*;
     use crate::exec::physical_expr::field_ref::FieldRef;
+    use crate::exec::physical_operator::PhysicalOperator;
     use crate::exec::physical_operator::projection::Projection;
     use crate::exec::physical_operator::table_scan::numbers::Numbers;
-    use crate::exec::physical_operator::PhysicalOperator;
     use crate::exec::pipeline::Pipelines;
     use data_block::array::{Array, ArrayImpl};
     use data_block::types::LogicalType;

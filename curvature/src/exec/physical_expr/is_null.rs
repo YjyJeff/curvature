@@ -7,7 +7,7 @@ use data_block::bitmap::Bitmap;
 use data_block::block::DataBlock;
 use data_block::compute::null::is_null;
 use data_block::types::LogicalType;
-use snafu::{ensure, Snafu};
+use snafu::{Snafu, ensure};
 
 use crate::common::profiler::ScopedTimerGuard;
 use crate::exec::physical_expr::constant::Constant;
@@ -15,14 +15,18 @@ use crate::exec::physical_expr::constant::Constant;
 use super::executor::ExprExecCtx;
 use super::field_ref::FieldRef;
 use super::utils::CompactExprDisplayWrapper;
-use super::{execute_unary_child, ExprResult, PhysicalExpr, Stringify};
+use super::{ExprResult, PhysicalExpr, Stringify, execute_unary_child};
 
 #[allow(missing_docs)]
 #[derive(Debug, Snafu)]
 pub enum IsNullError {
-    #[snafu(display("Input of the `is_null` expression is a boolean expression: `{expr}`, it makes no sense. Handle it in the planner/optimizer"))]
+    #[snafu(display(
+        "Input of the `is_null` expression is a boolean expression: `{expr}`, it makes no sense. Handle it in the planner/optimizer"
+    ))]
     BooleanExpr { expr: String },
-    #[snafu(display("Input of the `is_null` expression is a constant expression: `{expr}`, it makes no sense. Handle it in the planner/optimizer"))]
+    #[snafu(display(
+        "Input of the `is_null` expression is a constant expression: `{expr}`, it makes no sense. Handle it in the planner/optimizer"
+    ))]
     ConstantExpr { expr: String },
 }
 
@@ -70,11 +74,7 @@ impl<const NOT: bool> IsNull<NOT> {
 
 impl<const NOT: bool> Stringify for IsNull<NOT> {
     fn name(&self) -> &'static str {
-        if NOT {
-            "IS NOT NULL"
-        } else {
-            "IS NULL"
-        }
+        if NOT { "IS NOT NULL" } else { "IS NULL" }
     }
 
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

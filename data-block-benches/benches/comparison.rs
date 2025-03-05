@@ -1,11 +1,11 @@
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 use data_block::array::{Array, BooleanArray, PrimitiveArray};
 use data_block::bitmap::Bitmap;
 use data_block::compute::comparison;
 use data_block::compute::comparison::primitive::intrinsic::PartialOrdExt;
 #[cfg(feature = "portable_simd")]
 use data_block::compute::{
-    comparison::primitive::intrinsic::IntrinsicSimdOrd, IntrinsicSimdType, IntrinsicType,
+    IntrinsicSimdType, IntrinsicType, comparison::primitive::intrinsic::IntrinsicSimdOrd,
 };
 use data_block::element::string::StringView;
 use pprof::criterion::{Output, PProfProfiler};
