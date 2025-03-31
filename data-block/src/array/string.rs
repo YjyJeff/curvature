@@ -236,7 +236,7 @@ impl Array for StringArray {
                 .enumerate()
                 .for_each(|(index, element)| {
                     assign_string_view(
-                        element.view,
+                        element.view(),
                         uninitiated_bytes,
                         uninitiated_views,
                         index,
@@ -269,7 +269,7 @@ impl Array for StringArray {
                 trusted_len_iterator.enumerate().map(|(index, element)| {
                     if let Some(element) = element {
                         assign_string_view(
-                            element.view,
+                            element.view(),
                             uninitiated_bytes,
                             uninitiated_views,
                             index,

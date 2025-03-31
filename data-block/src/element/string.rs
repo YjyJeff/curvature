@@ -5,6 +5,7 @@
 use crate::aligned_vec::AllocType;
 use crate::private::Sealed;
 use crate::types::PhysicalType;
+use std::alloc::Layout;
 use std::fmt::{Debug, Display};
 use std::marker::PhantomData;
 use std::slice::from_raw_parts;
@@ -47,7 +48,7 @@ union StringViewContent<'a> {
     indirect: PrefixAndPointer<'a>,
 }
 
-#[repr(packed)]
+#[repr(C, packed)]
 #[derive(Clone, Copy)]
 struct PrefixAndPointer<'a> {
     _prefix: [u8; PREFIX_LEN],
@@ -96,7 +97,6 @@ impl<'a> StringView<'a> {
         unsafe {
             // Compiler will optimize it to load instruction
             let prefix = from_raw_parts(ptr, PREFIX_LEN)
-                .get_unchecked(0..PREFIX_LEN)
                 .try_into()
                 .unwrap_unchecked();
             StringView {
@@ -320,29 +320,18 @@ impl Sealed for StringView<'_> {}
 impl AllocType for StringView<'static> {}
 
 /// Scala of the String with the StringView, it owns the StringData
+/// It is an optimization of the String representation
+#[derive(Default)]
 pub struct StringElement {
-    /// The 'static lifetime is fake !!! If the view is indirect, it will points to
-    /// [`Self::_data`]
-    pub(crate) view: StringView<'static>,
-    pub(crate) _data: Option<String>,
+    /// The 'static lifetime is fake !!! If the view is indirect, it will points to the data allocated in the
+    /// heap. View's indirect_ptr always points to the start address of the heap and cap is the allocated size
+    /// in the heap
+    view: StringView<'static>,
+    /// If it is not zero, it means this struct holds the data on the heap
+    cap: u32,
 }
 
 impl StringElement {
-    /// Create a new StringElement from the String
-    pub fn new(string: String) -> Self {
-        if string.len() <= INLINE_LEN {
-            Self {
-                view: StringView::new_inline(&string),
-                _data: None,
-            }
-        } else {
-            Self {
-                view: unsafe { StringView::new_indirect(string.as_ptr(), string.len() as _) },
-                _data: Some(string),
-            }
-        }
-    }
-
     /// Get view
     #[inline]
     pub fn view(&self) -> StringView<'_> {
@@ -353,6 +342,48 @@ impl StringElement {
     #[inline]
     pub fn as_str(&self) -> &str {
         self.view.as_str()
+    }
+
+    /// Drop the allocated data
+    #[inline]
+    fn drop_alloc(&mut self) {
+        // Instead of check the view is inlined or not, we check the cap is not zero. Because we may replace
+        // the indirect view with inlined view. In this case, we do not free the allocated memory in the heap
+        // such that replacing a new indirect view will be faster
+        if self.cap != 0 {
+            unsafe {
+                std::alloc::dealloc(
+                    self.view.indirect_ptr() as _,
+                    Layout::from_size_align_unchecked(self.cap as usize, 1),
+                );
+            }
+        }
+    }
+}
+
+impl Drop for StringElement {
+    fn drop(&mut self) {
+        self.drop_alloc();
+    }
+}
+
+impl PartialEq for StringElement {
+    fn eq(&self, other: &Self) -> bool {
+        self.view == other.view
+    }
+}
+
+impl Eq for StringElement {}
+
+impl Ord for StringElement {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.view.cmp(&other.view)
+    }
+}
+
+impl PartialOrd for StringElement {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
     }
 }
 
@@ -374,25 +405,31 @@ impl Element for StringElement {
         self.view.shorten()
     }
 
+    /// Note: non-overlapping
     #[inline]
     fn replace_with(&mut self, element_ref: Self::ElementRef<'_>) {
         if element_ref.is_inlined() {
-            // We do not need to modify the _data, just modify the view
+            // We do not need to modify the allocated data, just modify the view
             self.view = unsafe { element_ref.expand() };
         } else {
-            let ptr = if let Some(data) = &mut self._data {
-                // Reuse the memory allocated by the _data
-                data.clear();
-                data.push_str(element_ref.as_str());
-                data.as_ptr()
-            } else {
-                let data = element_ref.as_str().to_string();
-                let ptr = data.as_ptr();
-                self._data = Some(data);
-                ptr
-            };
-            // Update view in self
-            self.view = unsafe { StringView::new_indirect(ptr, element_ref.length) };
+            unsafe {
+                let ptr = if self.cap >= element_ref.length {
+                    self.view.indirect_ptr() as *mut u8
+                } else {
+                    // Need to realloc the memory
+                    self.drop_alloc();
+                    let new_size = (element_ref.length as usize).next_power_of_two();
+                    self.cap = new_size as u32;
+                    std::alloc::alloc(Layout::from_size_align_unchecked(new_size, 1))
+                };
+                std::ptr::copy_nonoverlapping(
+                    element_ref.indirect_ptr(),
+                    ptr,
+                    element_ref.length as usize,
+                );
+                // Update view in self
+                self.view = StringView::new_indirect(ptr, element_ref.length);
+            }
         }
     }
 
@@ -409,37 +446,9 @@ impl<'a> ElementRef<'a> for StringView<'a> {
     type OwnedType = StringElement;
     #[inline]
     fn to_owned(self) -> Self::OwnedType {
-        if self.is_inlined() {
-            StringElement {
-                view: StringView {
-                    length: self.length,
-                    content: StringViewContent {
-                        inlined: unsafe { self.content.inlined },
-                    },
-                },
-                _data: None,
-            }
-        } else {
-            unsafe {
-                let data =
-                    from_utf8_unchecked(from_raw_parts(self.indirect_ptr(), self.length as usize))
-                        .to_string();
-                let view = StringView {
-                    length: self.length,
-                    content: StringViewContent {
-                        indirect: PrefixAndPointer {
-                            _prefix: self.content.indirect._prefix,
-                            pointer: &*data.as_ptr(),
-                            _phantom: PhantomData,
-                        },
-                    },
-                };
-                StringElement {
-                    view,
-                    _data: Some(data),
-                }
-            }
-        }
+        let mut owned = StringElement::default();
+        owned.replace_with(self);
+        owned
     }
 }
 
@@ -473,6 +482,71 @@ impl<'a> ElementRefSerdeExt<'a> for StringView<'a> {
     }
 }
 
+/// Byte element used to perform serialization and faster comparison
+#[repr(transparent)]
+#[derive(Default, PartialEq, Eq, PartialOrd, Ord)]
+pub struct BytesElement(StringElement);
+
+impl BytesElement {
+    /// Push the bytes into the element
+    pub fn push_bytes(&mut self, bytes: &[u8]) {
+        if bytes.len() > u32::MAX as usize {
+            panic!("Push bytes larger than u32::MAX");
+        }
+        let new_view_len = self.0.view.length + bytes.len() as u32;
+        let new_cap = (bytes.len() + self.0.view.length as usize).next_power_of_two();
+        if new_cap > u32::MAX as usize {
+            panic!("Capacity overflow");
+        }
+        if new_view_len > INLINE_LEN as u32 {
+            unsafe {
+                let ptr = if self.0.cap == 0 {
+                    self.0.cap = new_cap as u32;
+                    let ptr = std::alloc::alloc(Layout::from_size_align_unchecked(new_cap, 1));
+                    std::ptr::copy_nonoverlapping(
+                        self.0.view.inlined_ptr() as _,
+                        ptr,
+                        self.0.view.length as _,
+                    );
+                    ptr
+                } else if new_view_len <= self.0.cap {
+                    self.0.view.indirect_ptr() as _
+                } else {
+                    let ptr = std::alloc::realloc(
+                        self.0.view.indirect_ptr() as _,
+                        Layout::from_size_align_unchecked(self.0.cap as usize, 1),
+                        new_cap,
+                    );
+                    self.0.cap = new_cap as u32;
+                    ptr
+                };
+                std::ptr::copy_nonoverlapping(
+                    bytes.as_ptr(),
+                    ptr.add(self.0.view.length as _),
+                    bytes.len(),
+                );
+                self.0.view = StringView::new_indirect(ptr, new_view_len);
+            }
+        } else {
+            unsafe {
+                std::ptr::copy_nonoverlapping(
+                    bytes.as_ptr(),
+                    self.0.view.inlined_ptr().add(self.0.view.length as _) as _,
+                    bytes.len(),
+                )
+            };
+            self.0.view.length = new_view_len;
+        }
+    }
+}
+
+impl Debug for BytesElement {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let bytes = unsafe { from_raw_parts(self.0.view.as_ptr(), self.0.view.length as usize) };
+        write!(f, "{:?}", bytes)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -491,7 +565,7 @@ mod tests {
         let s0 = "wtf";
         let s1 = "01234567891234";
         let s2 = "StringView is pretty awesome";
-        let mut string_element = StringElement::new(String::new());
+        let mut string_element = StringElement::default();
 
         let view_0 = StringView::from_static_str(s0);
         string_element.replace_with(view_0);
@@ -500,12 +574,11 @@ mod tests {
         // allocate memory
         string_element.replace_with(StringView::from_static_str(s1));
         assert_eq!(string_element.as_str(), s1);
-        assert!(string_element._data.is_some());
+        assert_eq!(string_element.cap, 16);
 
         // re-allocate memory
         string_element.replace_with(StringView::from_static_str(s2));
         assert_eq!(string_element.as_str(), s2);
-        assert!(string_element._data.is_some());
     }
 
     #[test]
@@ -576,5 +649,47 @@ mod tests {
         let lhs = StringView::from_static_str("Curvature is fast");
         let rhs = StringView::from_static_str("Curvature is slow");
         assert!(rhs >= lhs);
+    }
+
+    impl PartialEq<&[u8]> for BytesElement {
+        fn eq(&self, other: &&[u8]) -> bool {
+            let bytes =
+                unsafe { from_raw_parts(self.0.view.as_ptr(), self.0.view.length as usize) };
+            bytes == *other
+        }
+    }
+
+    #[test]
+    fn test_bytes_element() {
+        // inlined push
+        let mut element = BytesElement::default();
+        element.push_bytes(&[1, 2, 3]);
+        element.push_bytes(&[4, 5, 6]);
+        element.push_bytes(&[7, 8, 9, 10, 11]);
+        assert_eq!(element, &[1_u8, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] as &[u8]);
+
+        // inlined to indirection
+        element.push_bytes(&[12, 13, 14]);
+        assert_eq!(
+            element,
+            &[1_u8, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14] as &[u8]
+        );
+        assert_eq!(element.0.cap, 16);
+
+        // do not need to resize
+        element.push_bytes(&[15]);
+        assert_eq!(
+            element,
+            &[1_u8, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] as &[u8]
+        );
+        assert_eq!(element.0.cap, 16);
+
+        // resize
+        element.push_bytes(&[16, 17]);
+        assert_eq!(
+            element,
+            &[1_u8, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17] as &[u8]
+        );
+        assert_eq!(element.0.cap, 32);
     }
 }
